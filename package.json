@@ -1,0 +1,29 @@
+{
+  "name": "tightarse",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Personal and family finance aggregation over UK open banking",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "infra",
+    "web"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "tsc --build",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "synth": "npm run synth -w infra",
+    "deploy": "npm run deploy -w infra",
+    "prepare": "git config core.hooksPath .githooks"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}

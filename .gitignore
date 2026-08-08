@@ -1,0 +1,46 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+*.tsbuildinfo
+.turbo/
+
+# CDK
+cdk.out/
+cdk.context.json
+*.d.ts.map
+
+# env & secrets — nothing real should ever be committed
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials
+.aws/
+
+# TrueLayer / provider artefacts
+tokens.json
+consent*.json
+
+# real financial data — fixtures must be synthetic (see CONTRIBUTING)
+fixtures/real/
+*.ofx
+*.qif
+statements/
+
+# python (if any handler ever needs it)
+__pycache__/
+.venv/
+*.egg-info/
+
+# editors / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# logs & coverage
+*.log
+coverage/

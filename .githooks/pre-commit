@@ -1,0 +1,28 @@
+#!/bin/sh
+# Block commits containing credentials. This repo is public.
+#
+# Enable once per clone:  npm run prepare   (sets core.hooksPath)
+# Install the scanner:    brew install gitleaks
+
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact --verbose || {
+    echo ""
+    echo "gitleaks blocked this commit — a secret was detected above."
+    echo "Never commit TrueLayer client secrets, refresh tokens, or AWS keys."
+    echo "Put them in SSM Parameter Store or Secrets Manager and reference by name."
+    echo ""
+    echo "If this is a false positive, add a narrow rule to .gitleaks.toml."
+    exit 1
+  }
+else
+  echo "warning: gitleaks not installed — commit NOT scanned for secrets."
+  echo "         brew install gitleaks"
+fi
+
+# Belt and braces: catch obvious TrueLayer credential shapes gitleaks won't know.
+if git diff --cached -U0 | grep -nE '(client_secret|refresh_token|access_token)[\"'\'']?\s*[:=]\s*[\"'\''][A-Za-z0-9._-]{16,}' >/dev/null; then
+  echo "pre-commit: a hard-coded token/secret assignment was found in the staged diff."
+  exit 1
+fi
+
+exit 0
