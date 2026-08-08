@@ -2,7 +2,9 @@
   "name": "@tightarse/infra",
   "version": "0.0.0",
   "private": true,
-  "bin": { "tightarse": "bin/tightarse.js" },
+  "bin": {
+    "tightarse": "bin/tightarse.js"
+  },
   "scripts": {
     "build": "tsc --build",
     "synth": "cdk synth",
@@ -15,6 +17,7 @@
     "constructs": "^10.4.0"
   },
   "devDependencies": {
-    "aws-cdk": "^2.170.0"
+    "aws-cdk": "^2.170.0",
+    "ts-node": "^10.9.2"
   }
 }

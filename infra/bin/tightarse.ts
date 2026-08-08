@@ -5,10 +5,12 @@ import { LedgerStack } from "../lib/ledger-stack";
 
 const app = new cdk.App();
 
-const env = {
-  account: process.env.CDK_DEFAULT_ACCOUNT,
-  region: config.region,
-};
+// Account is left unresolved when CDK_DEFAULT_ACCOUNT is unset, so synth works
+// without credentials; deploy resolves it from the ambient profile.
+const account = process.env.CDK_DEFAULT_ACCOUNT;
+const env: cdk.Environment = account
+  ? { account, region: config.region }
+  : { region: config.region };
 
 new LedgerStack(app, "TightarseLedger", { env });
 
