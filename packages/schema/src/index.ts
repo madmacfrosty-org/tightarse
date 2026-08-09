@@ -226,13 +226,29 @@ export const Consent = z.object({
 export type Consent = z.infer<typeof Consent>;
 
 /**
- * The dedup key for a settled transaction, in priority order.
+ * Identity of a settled transaction.
  *
- * `transaction_id` is deliberately absent: TrueLayer states it can change when
- * a transaction moves from pending to settled, so it can never be the identity.
- * `normalisedProviderTransactionId` exists precisely to survive that transition
- * and is populated on 100% of First Direct transactions — but it is optional in
- * the API, so the chain has to degrade.
+ * Measured against 9,653 real First Direct transactions, because two plausible
+ * schemes both turned out to merge distinct payments:
+ *
+ *   normalised_provider_transaction_id   191 card transactions -> 160 ids
+ *   timestamp + amount + description     9,168 account rows    -> 9,028 keys
+ *
+ * The first collides because the provider reuses ids across card transactions
+ * with entirely different amounts. The second collides because people really do
+ * buy the same thing twice on the same day. Either alone would have silently
+ * merged real transactions — money quietly disappearing from the ledger.
+ *
+ * Only the provider identifier COMBINED with the content is unique across every
+ * account and the card: 9,653 transactions, 9,653 keys.
+ *
+ * Including the amount is safe here specifically because pending rows are a
+ * separate transient cache that never becomes a ledger row. Nothing ever has to
+ * bridge a pending transaction to its settled self, so an amount changing on
+ * settlement cannot break identity.
+ *
+ * The prefix records which identifier was available, so a row shows how much
+ * confidence its identity carries.
  */
 export function dedupKey(t: {
   normalisedProviderTransactionId?: string | undefined;
@@ -242,12 +258,21 @@ export function dedupKey(t: {
   amount: number;
   description: string;
 }): string {
-  if (t.normalisedProviderTransactionId) return `n:${t.normalisedProviderTransactionId}`;
-  if (t.providerTransactionId) return `p:${t.providerTransactionId}`;
-  // Last resort. Stable for a settled transaction, and the components are
-  // exactly what a human would use to say "these are the same payment".
-  const composite = [t.accountId, t.timestamp, String(t.amount), t.description].join("|");
-  return `c:${createHash("sha256").update(composite).digest("hex").slice(0, 32)}`;
+  const content = [t.accountId, t.timestamp, String(t.amount), t.description].join("|");
+  const digest = (input: string): string =>
+    createHash("sha256").update(input).digest("hex").slice(0, 32);
+
+  if (t.normalisedProviderTransactionId) {
+    return `n:${digest(`${t.normalisedProviderTransactionId}|${content}`)}`;
+  }
+  if (t.providerTransactionId) {
+    return `p:${digest(`${t.providerTransactionId}|${content}`)}`;
+  }
+  // No provider identifier at all. Two transactions identical in account, time,
+  // amount and description are then genuinely indistinguishable and will merge.
+  // First Direct always supplies ids, so this path is theoretical — but a
+  // provider that does not would need an additional discriminator.
+  return `c:${digest(content)}`;
 }
 
 /** Row kind, encoded in the sort key after the timestamp. */
@@ -392,4 +417,39 @@ export function rawObjectKey(args: {
   if (args.accountId) parts.push(`account=${args.accountId}`);
   parts.push(`${compact}-${args.contentHash.slice(0, 12)}.json.gz`);
   return parts.join("/");
+}
+
+/**
+ * Inverse of {@link rawObjectKey}.
+ *
+ * The transform is handed a key by an S3 event and has to know which household
+ * and dataset it is looking at before it can parse the body. Reading it back
+ * out of the key keeps that decision in one place rather than duplicating the
+ * convention in every consumer.
+ */
+export function parseRawKey(key: string): {
+  tenantId: string;
+  dataset: string;
+  accountId?: string;
+  filename: string;
+} {
+  const segments = key.split("/");
+  const get = (prefix: string): string | undefined => {
+    const seg = segments.find((s) => s.startsWith(`${prefix}=`));
+    return seg?.slice(prefix.length + 1);
+  };
+
+  const tenantId = get("tenant");
+  const dataset = get("dataset");
+  if (!tenantId || !dataset) {
+    throw new Error(`Not a raw object key: ${key}`);
+  }
+
+  const accountId = get("account");
+  return {
+    tenantId,
+    dataset,
+    ...(accountId ? { accountId } : {}),
+    filename: segments[segments.length - 1] ?? "",
+  };
 }

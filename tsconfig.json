@@ -8,6 +8,9 @@
       "path": "packages/ledger"
     },
     {
+      "path": "services/transform"
+    },
+    {
       "path": "infra"
     },
     {

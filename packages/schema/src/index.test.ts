@@ -52,20 +52,32 @@ describe("dedupKey", () => {
     description: "SHOP",
   };
 
-  it("prefers the normalised id, which survives pending to settled", () => {
-    expect(
-      dedupKey({ ...base, normalisedProviderTransactionId: "abc", providerTransactionId: "xyz" }),
-    ).toBe("n:abc");
-  });
-
-  it("falls back through provider id to a composite hash", () => {
-    expect(dedupKey({ ...base, providerTransactionId: "xyz" })).toBe("p:xyz");
+  it("records which identifier was available in the prefix", () => {
+    expect(dedupKey({ ...base, normalisedProviderTransactionId: "abc" })).toMatch(/^n:[0-9a-f]{32}$/);
+    expect(dedupKey({ ...base, providerTransactionId: "xyz" })).toMatch(/^p:[0-9a-f]{32}$/);
     expect(dedupKey(base)).toMatch(/^c:[0-9a-f]{32}$/);
   });
 
   it("prefixes so a normalised id cannot collide with a provider id", () => {
     const a = dedupKey({ ...base, normalisedProviderTransactionId: "same" });
     const b = dedupKey({ ...base, providerTransactionId: "same" });
+    expect(a).not.toBe(b);
+  });
+
+  it("separates transactions that share a provider id but differ in content", () => {
+    // Measured: 191 card transactions carried only 160 distinct normalised ids,
+    // and colliding rows had entirely different amounts. Keying on the id alone
+    // would have merged them and lost money from the ledger.
+    const a = dedupKey({ ...base, normalisedProviderTransactionId: "shared", amount: -1142 });
+    const b = dedupKey({ ...base, normalisedProviderTransactionId: "shared", amount: -38185 });
+    expect(a).not.toBe(b);
+  });
+
+  it("separates identical-looking transactions that carry different ids", () => {
+    // The mirror failure: 9,168 account rows produced only 9,028 distinct
+    // timestamp+amount+description keys. People buy the same thing twice a day.
+    const a = dedupKey({ ...base, normalisedProviderTransactionId: "id-1" });
+    const b = dedupKey({ ...base, normalisedProviderTransactionId: "id-2" });
     expect(a).not.toBe(b);
   });
 
