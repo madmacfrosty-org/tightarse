@@ -378,6 +378,12 @@ async function main() {
     `&state=${state}`;
 
   const manual = process.env["TL_MANUAL"] === "1";
+  const capture = process.env["TL_CAPTURE"] === "1";
+  const captured: Record<string, unknown> = {};
+
+  if (capture) {
+    console.log("TL_CAPTURE=1 — raw transactions WILL be written to disk this run.\n");
+  }
 
   console.log("Open this URL and connect the account:\n");
   console.log(authUrl + "\n");
@@ -459,6 +465,10 @@ async function main() {
       fieldCoverage: fieldCoverage(deepest),
       transactionStats: pendingSettledStats(deepest),
     });
+
+    if (capture) {
+      captured[account.account_id] = { settled: deepest, pendingCount: pending.count };
+    }
     console.log("");
   }
 
@@ -468,6 +478,19 @@ async function main() {
 
   console.log(`Findings written to ${path}`);
   console.log("Contains statistics only — no transaction values, descriptions or account numbers.\n");
+
+  if (capture) {
+    // Opt-in only. Deep history is available once per consent, so this exists
+    // to avoid spending a second bank authorisation purely to re-fetch what we
+    // already had in hand. It is real financial data: 0600, gitignored, and it
+    // should move into the ledger and be deleted as soon as that exists.
+    const rawPath = `out/raw-${Date.now()}.json`;
+    await writeFile(rawPath, JSON.stringify(captured, null, 2), { mode: 0o600 });
+    console.log(`RAW TRANSACTIONS written to ${rawPath} (mode 0600).`);
+    console.log("This is real financial data. It is gitignored, but delete it once");
+    console.log("the ledger exists and it has been imported.\n");
+  }
+
   console.log("REMINDER: do not refresh this token if you still need deeper history.");
 }
 
