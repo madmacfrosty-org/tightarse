@@ -43,6 +43,7 @@ const SCOPES = [
   "info",
   "accounts",
   "balance",
+  "cards",
   "transactions",
   "direct_debits",
   "standing_orders",
@@ -282,6 +283,47 @@ async function getAccounts(env: Env, token: string) {
   return body.results ?? [];
 }
 
+/**
+ * Fetch a supplementary endpoint and record it raw. Never throws: several of
+ * these are optional per provider, and a 404 on standing orders must not
+ * abandon a run that is holding an open SCA window.
+ */
+async function fetchExtra(
+  env: Env,
+  token: string,
+  path: string,
+  accountId: string | null,
+): Promise<{ ok: boolean; httpStatus: number; count: number | null; errorCode: string | null }> {
+  try {
+    const res = await fetch(`${env.api}${path}`, { headers: { authorization: `Bearer ${token}` } });
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      body = null;
+    }
+    recordRaw(path, {}, accountId, res.status, body);
+
+    const results =
+      body && typeof body === "object" && Array.isArray((body as { results?: unknown }).results)
+        ? ((body as { results: unknown[] }).results as unknown[])
+        : null;
+    const errorCode =
+      !res.ok && body && typeof body === "object"
+        ? ((body as { error?: string }).error ?? null)
+        : null;
+
+    return { ok: res.ok, httpStatus: res.status, count: results ? results.length : null, errorCode };
+  } catch (err) {
+    return {
+      ok: false,
+      httpStatus: 0,
+      count: null,
+      errorCode: err instanceof Error ? err.message : "fetch failed",
+    };
+  }
+}
+
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
@@ -302,14 +344,15 @@ async function probeDepth(
   accountId: string,
   depthMonths: number,
   consentAt: number,
+  resource: "accounts" | "cards" = "accounts",
 ): Promise<{ result: ProbeResult; transactions: Array<Record<string, unknown>> }> {
   const from = isoDate(monthsAgo(depthMonths));
   const to = isoDate(new Date());
+  const path = `/data/v1/${resource}/${accountId}/transactions`;
 
-  const res = await fetch(
-    `${env.api}/data/v1/accounts/${accountId}/transactions?from=${from}&to=${to}`,
-    { headers: { authorization: `Bearer ${token}` } },
-  );
+  const res = await fetch(`${env.api}${path}?from=${from}&to=${to}`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
 
   const secondsSinceConsent = Math.round((Date.now() - consentAt) / 1000);
   const base = { depthMonths, from, httpStatus: res.status, secondsSinceConsent };
@@ -321,7 +364,7 @@ async function probeDepth(
       errorCode = body.error ?? null;
       // Failures are worth keeping too: they are the evidence of where the
       // SCA window closed, which is the whole point of the live run.
-      recordRaw(`/data/v1/accounts/${accountId}/transactions`, { from, to }, accountId, res.status, body);
+      recordRaw(path, { from, to }, accountId, res.status, body);
     } catch {
       errorCode = null;
     }
@@ -340,7 +383,7 @@ async function probeDepth(
   }
 
   const body = (await res.json()) as { results: Array<Record<string, unknown>> };
-  recordRaw(`/data/v1/accounts/${accountId}/transactions`, { from, to }, accountId, res.status, body);
+  recordRaw(path, { from, to }, accountId, res.status, body);
   const txns = body.results ?? [];
   const dates = txns
     .map((t) => (typeof t["timestamp"] === "string" ? (t["timestamp"] as string) : null))
@@ -539,17 +582,91 @@ async function main() {
       `  pending endpoint: ${pending.supported ? `${pending.count} txns` : `unsupported (${pending.httpStatus} ${pending.errorCode ?? ""})`}`,
     );
 
+    // Supplementary data, same consent, same window. Standing orders and
+    // direct debits are the recurring-commitment picture the dashboard needs,
+    // and they are subject to the same SCA restriction as transactions — so
+    // they have to be fetched now, not on some later schedule.
+    const extras: Record<string, unknown> = {};
+    for (const [name, suffix] of [
+      ["detail", ""],
+      ["balance", "balance"],
+      ["directDebits", "direct_debits"],
+      ["standingOrders", "standing_orders"],
+    ] as const) {
+      const path = suffix
+        ? `/data/v1/accounts/${account.account_id}/${suffix}`
+        : `/data/v1/accounts/${account.account_id}`;
+      const r = await fetchExtra(env, tokens.access_token, path, account.account_id);
+      extras[name] = r;
+      console.log(
+        `  ${(suffix || "detail").padEnd(16)} ${r.ok ? `ok (${r.count ?? "n/a"})` : `FAIL ${r.httpStatus} ${r.errorCode ?? ""}`}`,
+      );
+    }
+
     (findings["accounts"] as unknown[]).push({
       accountId: account.account_id,
       provider: account.provider?.display_name ?? null,
       probes: results,
       pending,
+      extras,
       fieldCoverage: fieldCoverage(deepest),
       transactionStats: pendingSettledStats(deepest),
     });
 
     console.log("");
   }
+
+  // Identity, and any cards on the same consent. Cards are a separate resource
+  // with their own transactions — missing them would leave a hole in the ledger.
+  console.log("Account-independent resources:");
+
+  // Connection metadata: which credentials this consent belongs to, the
+  // provider, and the scopes actually granted. Needed by consent tracking (#6)
+  // to tie a stored refresh token back to a specific connection.
+  const me = await fetchExtra(env, tokens.access_token, "/data/v1/me", null);
+  console.log(`  me               ${me.ok ? "ok" : `FAIL ${me.httpStatus} ${me.errorCode ?? ""}`}`);
+
+  const info = await fetchExtra(env, tokens.access_token, "/data/v1/info", null);
+  console.log(`  info             ${info.ok ? "ok" : `FAIL ${info.httpStatus} ${info.errorCode ?? ""}`}`);
+
+  const cardsRes = await fetchExtra(env, tokens.access_token, "/data/v1/cards", null);
+  console.log(
+    `  cards            ${cardsRes.ok ? `ok (${cardsRes.count ?? 0})` : `FAIL ${cardsRes.httpStatus} ${cardsRes.errorCode ?? ""}`}`,
+  );
+
+  const cardResults: unknown[] = [];
+  if (cardsRes.ok && (cardsRes.count ?? 0) > 0) {
+    const cardsRaw = rawLog.find((r) => r.endpoint === "/data/v1/cards");
+    const cards =
+      cardsRaw && cardsRaw.body && typeof cardsRaw.body === "object"
+        ? (((cardsRaw.body as { results?: Array<{ account_id?: string }> }).results ?? []))
+        : [];
+
+    for (const card of cards) {
+      const cardId = card.account_id;
+      if (!cardId) continue;
+      console.log(`  card ${cardId}`);
+
+      await fetchExtra(env, tokens.access_token, `/data/v1/cards/${cardId}`, cardId);
+      const cardBalance = await fetchExtra(env, tokens.access_token, `/data/v1/cards/${cardId}/balance`, cardId);
+      console.log(`    balance        ${cardBalance.ok ? "ok" : `FAIL ${cardBalance.httpStatus}`}`);
+
+      for (const depth of PROBE_DEPTHS_MONTHS) {
+        const { result } = await probeDepth(env, tokens.access_token, cardId, depth, consentAt, "cards");
+        const status = result.ok
+          ? `ok    ${String(result.transactionCount).padStart(5)} txns, oldest ${result.oldestTransaction ?? "n/a"}`
+          : `FAIL  ${result.httpStatus} ${result.errorCode ?? ""} [${result.failureKind}]`;
+        console.log(`    ${String(depth).padStart(3)}mo (t+${result.secondsSinceConsent}s)  ${status}`);
+        cardResults.push({ cardId, ...result });
+        if (result.ok) break;
+      }
+      await fetchExtra(env, tokens.access_token, `/data/v1/cards/${cardId}/transactions/pending`, cardId);
+    }
+  }
+
+  findings["info"] = info;
+  findings["cards"] = { list: cardsRes, transactions: cardResults };
+  console.log("");
 
   await mkdir("out", { recursive: true });
   const path = `out/findings-${Date.now()}.json`;

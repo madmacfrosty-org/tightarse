@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 
 /**
@@ -16,8 +17,10 @@ export const Amount = z.number().int();
 export const TenantId = z.string().min(1).max(64);
 
 /**
- * Multi-tenant from commit one. The family are simply the first tenants —
- * retrofitting this later is a table migration.
+ * A tenant is a HOUSEHOLD, not a person. Everyone in the household shares one
+ * ledger, which is what makes internal transfer detection possible at all —
+ * netting a movement between two family members' accounts requires seeing both
+ * sides. Multi-tenant from commit one; retrofitting it is a table migration.
  */
 export const Account = z.object({
   tenantId: TenantId,
@@ -90,7 +93,11 @@ export type Transaction = z.infer<typeof Transaction>;
  */
 export const TransactionEnrichment = z.object({
   tenantId: TenantId,
-  transactionId: z.string().min(1),
+  /** Identifies the transaction. Not `transactionId` — that is unstable. */
+  dedupKey: z.string().min(1),
+  /** Copied from the transaction so the enrichment's key can be derived
+   *  without reading it back. */
+  timestamp: z.string().datetime(),
   category: z.string(),
   confidence: z.number().min(0).max(1),
   /** Which agent/model produced this, so it can be invalidated wholesale. */
@@ -113,22 +120,93 @@ export const Consent = z.object({
 });
 export type Consent = z.infer<typeof Consent>;
 
-/** DynamoDB key construction — the only place these strings are built. */
+/**
+ * The dedup key for a settled transaction, in priority order.
+ *
+ * `transaction_id` is deliberately absent: TrueLayer states it can change when
+ * a transaction moves from pending to settled, so it can never be the identity.
+ * `normalisedProviderTransactionId` exists precisely to survive that transition
+ * and is populated on 100% of First Direct transactions — but it is optional in
+ * the API, so the chain has to degrade.
+ */
+export function dedupKey(t: {
+  normalisedProviderTransactionId?: string | undefined;
+  providerTransactionId?: string | undefined;
+  accountId: string;
+  timestamp: string;
+  amount: number;
+  description: string;
+}): string {
+  if (t.normalisedProviderTransactionId) return `n:${t.normalisedProviderTransactionId}`;
+  if (t.providerTransactionId) return `p:${t.providerTransactionId}`;
+  // Last resort. Stable for a settled transaction, and the components are
+  // exactly what a human would use to say "these are the same payment".
+  const composite = [t.accountId, t.timestamp, String(t.amount), t.description].join("|");
+  return `c:${createHash("sha256").update(composite).digest("hex").slice(0, 32)}`;
+}
+
+/** Month bucket for partitioning, e.g. "2026-08". */
+export function monthOf(timestamp: string): string {
+  return timestamp.slice(0, 7);
+}
+
+/**
+ * DynamoDB key construction — the only place these strings are built.
+ *
+ * A tenant is a **household**, not a person. Internal transfer detection has to
+ * see both sides of a movement between family members' accounts, which is only
+ * possible if they share a partition space.
+ *
+ * Transactions partition by month because the dashboard's dominant read is
+ * tenant-wide over a period. Enrichments share their transaction's partition,
+ * so one query returns both and they are split by sort-key prefix in memory.
+ * Per-account views come from gsi1.
+ */
 export const keys = {
   account: (tenantId: string, accountId: string) => ({
-    pk: `TENANT#${tenantId}`,
+    pk: `T#${tenantId}`,
     sk: `ACCOUNT#${accountId}`,
   }),
-  transaction: (tenantId: string, accountId: string, timestamp: string, transactionId: string) => ({
-    pk: `TENANT#${tenantId}#ACCOUNT#${accountId}`,
-    sk: `TXN#${timestamp}#${transactionId}`,
-  }),
-  enrichment: (tenantId: string, transactionId: string) => ({
-    pk: `TENANT#${tenantId}`,
-    sk: `ENRICH#${transactionId}`,
-  }),
+
   consent: (tenantId: string, consentId: string) => ({
-    pk: `TENANT#${tenantId}`,
+    pk: `T#${tenantId}`,
     sk: `CONSENT#${consentId}`,
+  }),
+
+  transaction: (tenantId: string, timestamp: string, dedup: string) => ({
+    pk: `T#${tenantId}#TX#${monthOf(timestamp)}`,
+    sk: `TX#${timestamp}#${dedup}`,
+  }),
+
+  /** Same partition as the transaction it describes. */
+  enrichment: (tenantId: string, timestamp: string, dedup: string) => ({
+    pk: `T#${tenantId}#TX#${monthOf(timestamp)}`,
+    sk: `EN#${timestamp}#${dedup}`,
+  }),
+
+  /**
+   * Pending is a cache, not a ledger entry — pending transactions change
+   * amount and can vanish. Ingest deletes and replaces the whole partition per
+   * account each sync, with a TTL as backstop.
+   */
+  pending: (tenantId: string, accountId: string, timestamp: string, providerId: string) => ({
+    pk: `T#${tenantId}#PEND#${accountId}`,
+    sk: `${timestamp}#${providerId}`,
+  }),
+
+  /** gsi1: per-account history. */
+  accountIndex: (tenantId: string, accountId: string, timestamp: string, dedup: string) => ({
+    gsi1pk: `T#${tenantId}#ACC#${accountId}`,
+    gsi1sk: `TX#${timestamp}#${dedup}`,
+  }),
+
+  /**
+   * gsi2: the categoriser's backlog. Written when a transaction lands and
+   * REMOVED when its enrichment is stored — the index is sparse, so it holds
+   * exactly the outstanding work and nothing else.
+   */
+  toEnrichIndex: (tenantId: string, timestamp: string, dedup: string) => ({
+    gsi2pk: `T#${tenantId}#TOENRICH`,
+    gsi2sk: `TX#${timestamp}#${dedup}`,
   }),
 } as const;

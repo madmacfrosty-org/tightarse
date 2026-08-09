@@ -1,3 +1,5 @@
+import * as cdk from "aws-cdk-lib";
+
 /**
  * Deployment configuration.
  *
@@ -16,4 +18,68 @@ export const config = {
   consentReconfirmNudgeDays: 80,
 } as const;
 
-export type Config = typeof config;
+export type EnvName = "dev" | "prod";
+
+/**
+ * Per-environment durability.
+ *
+ * dev is meant to be thrown away — the whole point of a separate account is
+ * that we can wipe it when a schema decision turns out badly. prod holds five
+ * years of family financial data that cost a bank consent to acquire, and is
+ * protected accordingly.
+ */
+export interface EnvSettings {
+  readonly name: EnvName;
+  readonly removalPolicy: cdk.RemovalPolicy;
+  readonly deletionProtection: boolean;
+  readonly pointInTimeRecovery: boolean;
+  /** Empty the raw bucket on stack deletion. Only ever true in dev. */
+  readonly autoDeleteObjects: boolean;
+  /** How long raw landing-zone objects are kept. See the retention notes on #15. */
+  readonly rawRetentionDays: number;
+}
+
+const SETTINGS: Record<EnvName, EnvSettings> = {
+  dev: {
+    name: "dev",
+    removalPolicy: cdk.RemovalPolicy.DESTROY,
+    deletionProtection: false,
+    // Not worth paying for in an account we intend to wipe.
+    pointInTimeRecovery: false,
+    autoDeleteObjects: true,
+    rawRetentionDays: 30,
+  },
+  prod: {
+    name: "prod",
+    removalPolicy: cdk.RemovalPolicy.RETAIN,
+    deletionProtection: true,
+    pointInTimeRecovery: true,
+    autoDeleteObjects: false,
+    // Long enough to survive a transform rewrite, not indefinite.
+    rawRetentionDays: 365,
+  },
+};
+
+/**
+ * Resolved from CDK context: `cdk deploy -c env=prod`. Defaults to dev, so the
+ * destructive settings are never the accident — you have to ask for prod.
+ */
+export function envSettings(scope: cdk.App): EnvSettings {
+  const raw: unknown = scope.node.tryGetContext("env") ?? "dev";
+  if (raw !== "dev" && raw !== "prod") {
+    throw new Error(`Unknown env ${JSON.stringify(raw)} — expected "dev" or "prod"`);
+  }
+  return SETTINGS[raw];
+}
+
+/**
+ * SSM parameter path holding a TrueLayer refresh token for one connection.
+ *
+ * Deliberately NOT a CDK resource. CloudFormation cannot create SecureString
+ * parameters, and we would not want token material passing through a template
+ * anyway — the connect flow writes these at runtime. The stack only defines
+ * the path convention and grants access to it.
+ */
+export function tokenParameterPrefix(env: EnvName): string {
+  return `/${config.appName}/${env}/truelayer/connections`;
+}
