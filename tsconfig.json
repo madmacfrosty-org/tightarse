@@ -11,6 +11,9 @@
       "path": "services/transform"
     },
     {
+      "path": "services/api"
+    },
+    {
       "path": "infra"
     },
     {

@@ -1,0 +1,20 @@
+{
+  "name": "@tightarse/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run",
+    "report": "node dist/report.js"
+  },
+  "dependencies": {
+    "@tightarse/ledger": "*",
+    "@tightarse/schema": "*"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.0"
+  }
+}
