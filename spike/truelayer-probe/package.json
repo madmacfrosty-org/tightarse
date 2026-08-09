@@ -1,0 +1,11 @@
+{
+  "name": "@tightarse/truelayer-probe",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Throwaway probe answering the open questions in #3 and #11",
+  "scripts": {
+    "probe": "node src/probe.ts",
+    "build": "tsc --build"
+  },
+  "type": "module"
+}

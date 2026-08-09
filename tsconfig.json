@@ -1,7 +1,14 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/schema" },
-    { "path": "infra" }
+    {
+      "path": "packages/schema"
+    },
+    {
+      "path": "infra"
+    },
+    {
+      "path": "spike/truelayer-probe"
+    }
   ]
 }

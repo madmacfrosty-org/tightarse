@@ -44,3 +44,6 @@ __pycache__/
 # logs & coverage
 *.log
 coverage/
+
+# spike probe output — statistics only, but still not for the repo
+spike/*/out/

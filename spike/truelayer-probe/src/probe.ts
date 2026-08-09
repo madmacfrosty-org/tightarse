@@ -1,0 +1,351 @@
+/**
+ * TrueLayer connection probe — answers the open questions in issues #3 and #11.
+ *
+ * Runs the auth code flow locally, then IMMEDIATELY probes how deep the
+ * provider will let us read, using the original access token.
+ *
+ * Why the urgency: HSBC and First Direct only serve transactions older than
+ * 90 days during roughly the first hour after consent, and only with the very
+ * first access token. Refreshing before the deep read is done forfeits that
+ * history permanently. So this probe never refreshes, and it times everything
+ * relative to the moment of consent.
+ *
+ * SAFETY: this repo is public. The probe records *statistics about* the data
+ * — field coverage, counts, date ranges — and never writes transaction
+ * values, descriptions, merchants or account numbers to disk.
+ *
+ * Usage:
+ *   TL_CLIENT_ID=... TL_CLIENT_SECRET=... npm run probe -w @tightarse/truelayer-probe
+ *   TL_ENV=live ...   (default is sandbox)
+ */
+
+import { createServer } from "node:http";
+import { writeFile, mkdir } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+
+type Env = { auth: string; api: string; providers: string };
+
+const ENVIRONMENTS: Record<string, Env> = {
+  sandbox: {
+    auth: "https://auth.truelayer-sandbox.com",
+    api: "https://api.truelayer-sandbox.com",
+    providers: "uk-cs-mock",
+  },
+  live: {
+    auth: "https://auth.truelayer.com",
+    api: "https://api.truelayer.com",
+    providers: "uk-ob-all uk-oauth-all",
+  },
+};
+
+const SCOPES = [
+  "info",
+  "accounts",
+  "balance",
+  "transactions",
+  "direct_debits",
+  "standing_orders",
+  "offline_access",
+].join(" ");
+
+const REDIRECT_PORT = 3000;
+const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/callback`;
+
+/** How far back to test, in months. Ordered deepest-first is tempting but we
+ *  go shallow-first so a hard failure still leaves us with a known-good floor. */
+const PROBE_DEPTHS_MONTHS = [3, 6, 12, 18, 24, 36];
+
+interface ProbeResult {
+  depthMonths: number;
+  from: string;
+  ok: boolean;
+  httpStatus: number;
+  transactionCount: number | null;
+  oldestTransaction: string | null;
+  newestTransaction: string | null;
+  errorCode: string | null;
+  secondsSinceConsent: number;
+}
+
+interface FieldCoverage {
+  /** Fraction of transactions where the field was present and non-null. */
+  [field: string]: number;
+}
+
+function requireEnv(name: string): string {
+  const v = process.env[name];
+  if (!v) {
+    console.error(`Missing ${name}.`);
+    console.error("Set it in your shell — never in a file in this repo.");
+    process.exit(1);
+  }
+  return v;
+}
+
+/** Wait for the OAuth redirect and hand back the authorisation code. */
+function awaitCallback(expectedState: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const server = createServer((req, res) => {
+      const url = new URL(req.url ?? "/", `http://localhost:${REDIRECT_PORT}`);
+      if (url.pathname !== "/callback") {
+        res.writeHead(404).end();
+        return;
+      }
+
+      const code = url.searchParams.get("code");
+      const state = url.searchParams.get("state");
+      const error = url.searchParams.get("error");
+
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(
+        `<html><body style="font-family:system-ui;padding:3rem">
+         <h1>${error ? "Connection failed" : "Connected"}</h1>
+         <p>${error ? error : "Return to the terminal — the probe is running now, and it is time-sensitive."}</p>
+         </body></html>`,
+      );
+
+      server.close();
+
+      if (error) return reject(new Error(`Authorisation failed: ${error}`));
+      if (state !== expectedState) return reject(new Error("State mismatch — possible CSRF, aborting."));
+      if (!code) return reject(new Error("No authorisation code in callback."));
+      resolve(code);
+    });
+
+    server.listen(REDIRECT_PORT);
+    server.on("error", reject);
+  });
+}
+
+async function exchangeCode(env: Env, clientId: string, clientSecret: string, code: string) {
+  const res = await fetch(`${env.auth}/connect/token`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: REDIRECT_URI,
+      code,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Token exchange failed: ${res.status} ${await res.text()}`);
+  }
+  return (await res.json()) as { access_token: string; refresh_token?: string; expires_in: number };
+}
+
+async function getAccounts(env: Env, token: string) {
+  const res = await fetch(`${env.api}/data/v1/accounts`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Fetching accounts failed: ${res.status} ${await res.text()}`);
+  const body = (await res.json()) as { results: Array<{ account_id: string; provider?: { display_name?: string } }> };
+  return body.results ?? [];
+}
+
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function monthsAgo(n: number): Date {
+  const d = new Date();
+  d.setMonth(d.getMonth() - n);
+  return d;
+}
+
+/**
+ * Probe one account at one depth. Returns metadata only — never the
+ * transactions themselves.
+ */
+async function probeDepth(
+  env: Env,
+  token: string,
+  accountId: string,
+  depthMonths: number,
+  consentAt: number,
+): Promise<{ result: ProbeResult; transactions: Array<Record<string, unknown>> }> {
+  const from = isoDate(monthsAgo(depthMonths));
+  const to = isoDate(new Date());
+
+  const res = await fetch(
+    `${env.api}/data/v1/accounts/${accountId}/transactions?from=${from}&to=${to}`,
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+
+  const secondsSinceConsent = Math.round((Date.now() - consentAt) / 1000);
+  const base = { depthMonths, from, httpStatus: res.status, secondsSinceConsent };
+
+  if (!res.ok) {
+    let errorCode: string | null = null;
+    try {
+      const body = (await res.json()) as { error?: string };
+      errorCode = body.error ?? null;
+    } catch {
+      errorCode = null;
+    }
+    return {
+      result: {
+        ...base,
+        ok: false,
+        transactionCount: null,
+        oldestTransaction: null,
+        newestTransaction: null,
+        errorCode,
+      },
+      transactions: [],
+    };
+  }
+
+  const body = (await res.json()) as { results: Array<Record<string, unknown>> };
+  const txns = body.results ?? [];
+  const dates = txns
+    .map((t) => (typeof t["timestamp"] === "string" ? (t["timestamp"] as string) : null))
+    .filter((d): d is string => d !== null)
+    .sort();
+
+  return {
+    result: {
+      ...base,
+      ok: true,
+      transactionCount: txns.length,
+      oldestTransaction: dates[0] ?? null,
+      newestTransaction: dates[dates.length - 1] ?? null,
+      errorCode: null,
+    },
+    transactions: txns,
+  };
+}
+
+/**
+ * How often does TrueLayer actually populate each field? This is the whole
+ * point of the enrichment question in #3 — and it needs no transaction values.
+ */
+function fieldCoverage(transactions: Array<Record<string, unknown>>): FieldCoverage {
+  if (transactions.length === 0) return {};
+  const fields = new Set<string>();
+  for (const t of transactions) for (const k of Object.keys(t)) fields.add(k);
+
+  const coverage: FieldCoverage = {};
+  for (const f of fields) {
+    const present = transactions.filter((t) => {
+      const v = t[f];
+      return v !== undefined && v !== null && v !== "" && !(Array.isArray(v) && v.length === 0);
+    }).length;
+    coverage[f] = Number((present / transactions.length).toFixed(3));
+  }
+  return coverage;
+}
+
+/** Do provider transaction ids stay stable between pending and settled? */
+function pendingSettledStats(transactions: Array<Record<string, unknown>>) {
+  const byStatus: Record<string, number> = {};
+  for (const t of transactions) {
+    const s = typeof t["transaction_type"] === "string" ? (t["transaction_type"] as string) : "unknown";
+    byStatus[s] = (byStatus[s] ?? 0) + 1;
+  }
+  const ids = transactions
+    .map((t) => t["transaction_id"])
+    .filter((id): id is string => typeof id === "string");
+  return {
+    byType: byStatus,
+    totalWithIds: ids.length,
+    distinctIds: new Set(ids).size,
+    duplicateIds: ids.length - new Set(ids).size,
+  };
+}
+
+async function main() {
+  const clientId = requireEnv("TL_CLIENT_ID");
+  const clientSecret = requireEnv("TL_CLIENT_SECRET");
+  const envName = process.env["TL_ENV"] === "live" ? "live" : "sandbox";
+  const env = ENVIRONMENTS[envName]!;
+
+  console.log(`\nTrueLayer probe — ${envName}\n`);
+  if (envName === "live") {
+    console.log("LIVE MODE. Deep history is available only once per consent.");
+    console.log("Do not interrupt this run; do not refresh the token afterwards.\n");
+  }
+
+  const state = randomBytes(16).toString("hex");
+  const authUrl =
+    `${env.auth}/?response_type=code&client_id=${encodeURIComponent(clientId)}` +
+    `&scope=${encodeURIComponent(SCOPES)}` +
+    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+    `&providers=${encodeURIComponent(env.providers)}` +
+    `&state=${state}`;
+
+  console.log("Open this URL and connect the account:\n");
+  console.log(authUrl + "\n");
+  console.log(`Waiting for the redirect on ${REDIRECT_URI} ...\n`);
+
+  const code = await awaitCallback(state);
+
+  // The clock starts here. Everything below is inside the SCA exemption window.
+  const consentAt = Date.now();
+  console.log("Got the authorisation code. Exchanging, then probing immediately.\n");
+
+  const tokens = await exchangeCode(env, clientId, clientSecret, code);
+  console.log(`access_token acquired (expires in ${tokens.expires_in}s)`);
+  console.log(`refresh_token ${tokens.refresh_token ? "present" : "ABSENT — check the offline_access scope"}\n`);
+
+  const accounts = await getAccounts(env, tokens.access_token);
+  console.log(`${accounts.length} account(s) found\n`);
+
+  const findings: Record<string, unknown> = {
+    environment: envName,
+    probedAt: new Date().toISOString(),
+    accountCount: accounts.length,
+    refreshTokenPresent: Boolean(tokens.refresh_token),
+    accessTokenExpiresIn: tokens.expires_in,
+    accounts: [] as unknown[],
+  };
+
+  for (const account of accounts) {
+    console.log(`Account ${account.account_id} (${account.provider?.display_name ?? "unknown provider"})`);
+    const results: ProbeResult[] = [];
+    let deepest: Array<Record<string, unknown>> = [];
+
+    for (const depth of PROBE_DEPTHS_MONTHS) {
+      const { result, transactions } = await probeDepth(
+        env,
+        tokens.access_token,
+        account.account_id,
+        depth,
+        consentAt,
+      );
+      results.push(result);
+
+      const status = result.ok
+        ? `ok    ${String(result.transactionCount).padStart(5)} txns, oldest ${result.oldestTransaction ?? "n/a"}`
+        : `FAIL  ${result.httpStatus} ${result.errorCode ?? ""}`;
+      console.log(`  ${String(depth).padStart(2)}mo (t+${result.secondsSinceConsent}s)  ${status}`);
+
+      if (result.ok && transactions.length >= deepest.length) deepest = transactions;
+      if (!result.ok) break; // deeper will not succeed if this failed
+    }
+
+    (findings["accounts"] as unknown[]).push({
+      accountId: account.account_id,
+      provider: account.provider?.display_name ?? null,
+      probes: results,
+      fieldCoverage: fieldCoverage(deepest),
+      transactionStats: pendingSettledStats(deepest),
+    });
+    console.log("");
+  }
+
+  await mkdir("out", { recursive: true });
+  const path = `out/findings-${Date.now()}.json`;
+  await writeFile(path, JSON.stringify(findings, null, 2));
+
+  console.log(`Findings written to ${path}`);
+  console.log("Contains statistics only — no transaction values, descriptions or account numbers.\n");
+  console.log("REMINDER: do not refresh this token if you still need deeper history.");
+}
+
+main().catch((err: unknown) => {
+  console.error("\nProbe failed:", err instanceof Error ? err.message : err);
+  process.exit(1);
+});
