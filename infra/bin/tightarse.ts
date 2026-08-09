@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
 import { config, envSettings } from "../lib/config";
+import { FoundationStack } from "../lib/foundation-stack";
 import { DataStack } from "../lib/data-stack";
 
 const app = new cdk.App();
@@ -13,13 +14,19 @@ const env: cdk.Environment = account
   ? { account, region: config.region }
   : { region: config.region };
 
-// Stack names carry the environment so a dev and prod stack can never be
-// confused in the console, and so `cdk deploy` without `-c env=prod` cannot
-// silently target the wrong one.
+// Three tiers, by how survivable each is.
+//
+//   Foundation  never destroyed, in any environment
+//   Data        destroyable in dev, retained in prod
+//   Stateless   destroyed and redeployed freely
+//
+// Stack names carry the environment so dev and prod can never be confused in
+// the console, and so `cdk deploy` without `-c env=prod` cannot silently
+// target the wrong one.
+new FoundationStack(app, `TightarseFoundation-${settings.name}`, { env, settings });
 new DataStack(app, `TightarseData-${settings.name}`, { env, settings });
 
 // Stateless stacks (ingest, transform, api, web, agents) are added as they are
-// built — see the open issues. They may be destroyed and redeployed freely;
-// only DataStack holds anything that cannot be recreated from this repo.
+// built — see the open issues.
 
 app.synth();

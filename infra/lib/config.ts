@@ -83,13 +83,12 @@ export function envSettings(scope: cdk.App): EnvSettings {
 }
 
 /**
- * SSM parameter path holding a TrueLayer refresh token for one connection.
+ * Secrets Manager name prefix for this environment.
  *
- * Deliberately NOT a CDK resource. CloudFormation cannot create SecureString
- * parameters, and we would not want token material passing through a template
- * anyway — the connect flow writes these at runtime. The stack only defines
- * the path convention and grants access to it.
+ * Lives in FoundationStack, which is never destroyed — so Secrets Manager's
+ * 7-30 day recovery window, which would otherwise block redeploying a wiped
+ * dev stack under the same name, is not a constraint.
  */
-export function tokenParameterPrefix(env: EnvName): string {
-  return `/${config.appName}/${env}/truelayer/connections`;
+export function secretPrefix(env: EnvName): string {
+  return `${config.appName}/${env}/truelayer`;
 }
