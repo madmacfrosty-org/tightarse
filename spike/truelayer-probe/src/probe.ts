@@ -22,6 +22,7 @@
 import { createServer } from "node:http";
 import { writeFile, mkdir } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
+import { createInterface } from "node:readline/promises";
 
 type Env = { auth: string; api: string; providers: string };
 
@@ -80,6 +81,55 @@ function requireEnv(name: string): string {
     process.exit(1);
   }
   return v;
+}
+
+/**
+ * Headless fallback for when you only have SSH to this machine.
+ *
+ * The redirect still goes to http://localhost:3000/callback — it must, because
+ * the URI has to match what is registered with TrueLayer and what we send at
+ * token exchange. Your browser will simply fail to load it. That is fine: the
+ * authorisation code is sitting in the address bar, so paste the whole URL.
+ *
+ * Prefer the SSH tunnel (see README) — it needs no paste and the timing is
+ * honest. Timing here includes however long you took to copy the URL across,
+ * so elapsed values UNDER-report the true time since consent.
+ */
+async function readCodeFromStdin(expectedState: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    console.log("Manual mode. After authorising, your browser will fail to load");
+    console.log("the localhost redirect — that is expected.\n");
+    console.log("Copy the FULL URL from the address bar and paste it here.");
+    console.log("Be quick: the deep-history window is already running.\n");
+
+    const answer = (await rl.question("redirect URL (or bare code): ")).trim();
+
+    let code: string | null = null;
+    let state: string | null = null;
+
+    if (answer.includes("?") || answer.startsWith("http")) {
+      const parsed = new URL(answer, `http://localhost:${REDIRECT_PORT}`);
+      code = parsed.searchParams.get("code");
+      state = parsed.searchParams.get("state");
+      const error = parsed.searchParams.get("error");
+      if (error) throw new Error(`Authorisation failed: ${error}`);
+    } else {
+      // Bare code pasted; no state to check against.
+      code = answer;
+    }
+
+    if (!code) throw new Error("No authorisation code found in that input.");
+    if (state !== null && state !== expectedState) {
+      throw new Error("State mismatch — possible CSRF, aborting.");
+    }
+    if (state === null) {
+      console.log("\nNote: bare code pasted, so CSRF state was not verified.");
+    }
+    return code;
+  } finally {
+    rl.close();
+  }
 }
 
 /** Wait for the OAuth redirect and hand back the authorisation code. */
@@ -276,11 +326,18 @@ async function main() {
     `&providers=${encodeURIComponent(env.providers)}` +
     `&state=${state}`;
 
+  const manual = process.env["TL_MANUAL"] === "1";
+
   console.log("Open this URL and connect the account:\n");
   console.log(authUrl + "\n");
-  console.log(`Waiting for the redirect on ${REDIRECT_URI} ...\n`);
 
-  const code = await awaitCallback(state);
+  const code = manual
+    ? await readCodeFromStdin(state)
+    : await (async () => {
+        console.log(`Waiting for the redirect on ${REDIRECT_URI} ...`);
+        console.log("(SSH-only? Either forward the port — see README — or re-run with TL_MANUAL=1)\n");
+        return awaitCallback(state);
+      })();
 
   // The clock starts here. Everything below is inside the SCA exemption window.
   const consentAt = Date.now();
@@ -296,6 +353,10 @@ async function main() {
   const findings: Record<string, unknown> = {
     environment: envName,
     probedAt: new Date().toISOString(),
+    // Manual mode starts the clock at paste time, not at the bank's redirect,
+    // so secondsSinceConsent under-reports true elapsed time.
+    captureMode: manual ? "manual-paste" : "local-callback",
+    timingReliable: !manual,
     accountCount: accounts.length,
     refreshTokenPresent: Boolean(tokens.refresh_token),
     accessTokenExpiresIn: tokens.expires_in,

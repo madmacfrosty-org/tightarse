@@ -15,6 +15,36 @@ TL_ENV=live npm run probe -w @tightarse/truelayer-probe   # real bank
 
 Register `http://localhost:3000/callback` as a redirect URI in the TrueLayer console.
 
+## If you only have SSH to this machine
+
+The redirect URI stays `http://localhost:3000/callback` either way — it has to
+match what is registered with TrueLayer and what we send at token exchange.
+
+**Preferred: forward the port.** From the machine with the browser:
+
+```sh
+ssh -L 3000:localhost:3000 agentdev@Mac-mini.lan
+```
+
+Then run the probe over that SSH session. Your browser hits `localhost:3000` on
+your laptop, the tunnel carries it to the mini, and the callback lands normally.
+Nothing to paste, and the timing measurements stay honest.
+
+**Fallback: manual paste.**
+
+```sh
+TL_MANUAL=1 npm run probe -w @tightarse/truelayer-probe
+```
+
+The probe prints the auth URL and waits on stdin. Authorise in your browser; it
+will fail to load the localhost redirect, which is expected — the authorisation
+code is in the address bar. Paste the whole URL back.
+
+Be quick about it. The deep-history window starts when you authorise, not when
+you paste, so `secondsSinceConsent` in the findings **under-reports** true
+elapsed time in this mode. The findings record `captureMode` and
+`timingReliable` so this is not forgotten when reading the results.
+
 ## Do the sandbox run first
 
 Not caution for its own sake — with First Direct, **deep history is available
