@@ -1,0 +1,273 @@
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import {
+  DynamoDBDocumentClient,
+  BatchWriteCommand,
+  PutCommand,
+  QueryCommand,
+  TransactWriteCommand,
+  type QueryCommandInput,
+} from "@aws-sdk/lib-dynamodb";
+import {
+  keys,
+  RowKind,
+  type Account,
+  type Consent,
+  type Transaction,
+  type TransactionEnrichment,
+} from "@tightarse/schema";
+import { accountItem, consentItem, enrichmentItem, pendingItem, transactionItem } from "./items";
+
+const BATCH_SIZE = 25; // DynamoDB's BatchWriteItem limit
+const PENDING_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+export interface LedgerOptions {
+  readonly tableName: string;
+  /** Supply for tests against DynamoDB Local, or to reuse a warm client. */
+  readonly client?: DynamoDBDocumentClient;
+  readonly region?: string;
+  readonly endpoint?: string;
+}
+
+export interface DateRange {
+  /** Inclusive ISO-8601 lower bound. */
+  readonly from: string;
+  /** Exclusive ISO-8601 upper bound. */
+  readonly to: string;
+}
+
+export class Ledger {
+  private readonly doc: DynamoDBDocumentClient;
+  private readonly table: string;
+
+  constructor(opts: LedgerOptions) {
+    this.table = opts.tableName;
+    this.doc =
+      opts.client ??
+      DynamoDBDocumentClient.from(
+        new DynamoDBClient({
+          ...(opts.region ? { region: opts.region } : {}),
+          ...(opts.endpoint ? { endpoint: opts.endpoint } : {}),
+        }),
+        // Optional schema fields are simply absent rather than null, so an
+        // undefined merchantName does not become an attribute.
+        { marshallOptions: { removeUndefinedValues: true } },
+      );
+  }
+
+  // -------------------------------------------------------------- writes
+
+  /**
+   * Upsert settled transactions.
+   *
+   * No read-before-write. A settled booking date is stable and the sort key
+   * embeds the dedup key, so a plain put is idempotent — replaying the entire
+   * raw landing zone converges on the same rows rather than duplicating them.
+   */
+  async putTransactions(
+    txns: readonly Transaction[],
+    opts: { sourceObject?: string } = {},
+  ): Promise<{ written: number }> {
+    const items = txns.map((t) =>
+      transactionItem(t, opts.sourceObject ? { sourceObject: opts.sourceObject } : {}),
+    );
+    await this.batchWrite(items.map((Item) => ({ PutRequest: { Item } })));
+    return { written: items.length };
+  }
+
+  /**
+   * Store an enrichment and clear the transaction's backlog marker atomically.
+   *
+   * Two separate writes would leave a window where a crash either loses the
+   * enrichment or re-queues work that is already done. The transaction row is
+   * only ever touched here to REMOVE the gsi2 attributes — its financial
+   * fields are never modified by anything downstream of ingest.
+   */
+  async putEnrichment(e: TransactionEnrichment): Promise<void> {
+    const txnKey = keys.transaction(e.tenantId, e.timestamp, e.dedupKey);
+    await this.doc.send(
+      new TransactWriteCommand({
+        TransactItems: [
+          { Put: { TableName: this.table, Item: enrichmentItem(e) } },
+          {
+            Update: {
+              TableName: this.table,
+              Key: txnKey,
+              UpdateExpression: "REMOVE gsi2pk, gsi2sk",
+              // If the transaction is not there, the enrichment describes
+              // nothing and the whole transaction should fail.
+              ConditionExpression: "attribute_exists(pk)",
+            },
+          },
+        ],
+      }),
+    );
+  }
+
+  /**
+   * Replace the pending set for one account.
+   *
+   * Delete-and-replace rather than merge: pending transactions change amount,
+   * change id on settlement, and disappear without notice. Treating them as a
+   * cache is the only honest model.
+   */
+  async replacePending(
+    tenantId: string,
+    accountId: string,
+    pending: readonly Transaction[],
+  ): Promise<{ deleted: number; written: number }> {
+    const existing = await this.listPending(tenantId, accountId);
+    const deletes = existing.map((row) => ({
+      DeleteRequest: { Key: { pk: row["pk"], sk: row["sk"] } },
+    }));
+    await this.batchWrite(deletes);
+
+    const items = pending.map((t) => pendingItem(t, { ttlSeconds: PENDING_TTL_SECONDS }));
+    await this.batchWrite(items.map((Item) => ({ PutRequest: { Item } })));
+    return { deleted: deletes.length, written: items.length };
+  }
+
+  async putAccount(a: Account, balances: { current?: number; available?: number } = {}): Promise<void> {
+    await this.doc.send(new PutCommand({ TableName: this.table, Item: accountItem(a, balances) }));
+  }
+
+  async putConsent(c: Consent): Promise<void> {
+    await this.doc.send(new PutCommand({ TableName: this.table, Item: consentItem(c) }));
+  }
+
+  // --------------------------------------------------------------- reads
+
+  /**
+   * Transactions and their enrichments for a date range, in one query.
+   *
+   * This is the dashboard's primary read. The row kind sits after the timestamp
+   * in the sort key precisely so a single `between` spans both — an earlier
+   * month-partitioned design needed one query per month and could not return
+   * enrichments alongside without a second pass.
+   */
+  async listRange(
+    tenantId: string,
+    range: DateRange,
+  ): Promise<{ transactions: Record<string, unknown>[]; enrichments: Record<string, unknown>[] }> {
+    const rows = await this.queryAll({
+      TableName: this.table,
+      KeyConditionExpression: "pk = :pk AND sk BETWEEN :from AND :to",
+      ExpressionAttributeValues: {
+        ":pk": keys.transaction(tenantId, range.from, "").pk,
+        ":from": range.from,
+        // "￿" sorts above any character the sort key can contain, making
+        // the upper bound exclusive of `to` itself but inclusive of everything
+        // stamped within the preceding instant.
+        ":to": `${range.to}￿`,
+      },
+    });
+
+    return {
+      transactions: rows.filter((r) => r["kind"] === RowKind.transaction),
+      enrichments: rows.filter((r) => r["kind"] === RowKind.enrichment),
+    };
+  }
+
+  /** Per-account history, via gsi1. */
+  async listAccountRange(
+    tenantId: string,
+    accountId: string,
+    range: DateRange,
+  ): Promise<Record<string, unknown>[]> {
+    return this.queryAll({
+      TableName: this.table,
+      IndexName: "gsi1-account",
+      KeyConditionExpression: "gsi1pk = :pk AND gsi1sk BETWEEN :from AND :to",
+      ExpressionAttributeValues: {
+        ":pk": keys.accountIndex(tenantId, accountId, range.from, "").gsi1pk,
+        ":from": range.from,
+        ":to": `${range.to}￿`,
+      },
+    });
+  }
+
+  /**
+   * The categoriser's backlog, via the sparse gsi2.
+   *
+   * Sparse because the attributes are removed when enrichment lands, so this
+   * index contains outstanding work only — no filtering, no scanning.
+   */
+  async listToEnrich(tenantId: string, limit = 100): Promise<Record<string, unknown>[]> {
+    const res = await this.doc.send(
+      new QueryCommand({
+        TableName: this.table,
+        IndexName: "gsi2-to-enrich",
+        KeyConditionExpression: "gsi2pk = :pk",
+        ExpressionAttributeValues: { ":pk": keys.toEnrichIndex(tenantId, "", "").gsi2pk },
+        Limit: limit,
+      }),
+    );
+    return (res.Items ?? []) as Record<string, unknown>[];
+  }
+
+  async listPending(tenantId: string, accountId: string): Promise<Record<string, unknown>[]> {
+    return this.queryAll({
+      TableName: this.table,
+      KeyConditionExpression: "pk = :pk",
+      ExpressionAttributeValues: {
+        ":pk": keys.pending(tenantId, accountId, "", "").pk,
+      },
+    });
+  }
+
+  async listAccounts(tenantId: string): Promise<Record<string, unknown>[]> {
+    return this.queryByPrefix(tenantId, "ACCOUNT#");
+  }
+
+  async listConsents(tenantId: string): Promise<Record<string, unknown>[]> {
+    return this.queryByPrefix(tenantId, "CONSENT#");
+  }
+
+  // ------------------------------------------------------------ internals
+
+  private async queryByPrefix(tenantId: string, prefix: string): Promise<Record<string, unknown>[]> {
+    return this.queryAll({
+      TableName: this.table,
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
+      ExpressionAttributeValues: { ":pk": `T#${tenantId}`, ":sk": prefix },
+    });
+  }
+
+  /** Query every page. Callers deal in complete result sets at this volume. */
+  private async queryAll(input: QueryCommandInput): Promise<Record<string, unknown>[]> {
+    const out: Record<string, unknown>[] = [];
+    let start: Record<string, unknown> | undefined;
+    do {
+      const res = await this.doc.send(
+        new QueryCommand({ ...input, ...(start ? { ExclusiveStartKey: start } : {}) }),
+      );
+      out.push(...((res.Items ?? []) as Record<string, unknown>[]));
+      start = res.LastEvaluatedKey as Record<string, unknown> | undefined;
+    } while (start);
+    return out;
+  }
+
+  /**
+   * Batch write with retry.
+   *
+   * BatchWriteItem can return UnprocessedItems on throttling without failing,
+   * so ignoring the response silently drops rows — the kind of data loss that
+   * shows up months later as a missing transaction.
+   */
+  private async batchWrite(requests: readonly Record<string, unknown>[]): Promise<void> {
+    for (let i = 0; i < requests.length; i += BATCH_SIZE) {
+      let batch = requests.slice(i, i + BATCH_SIZE);
+      for (let attempt = 0; batch.length > 0; attempt += 1) {
+        if (attempt > 8) {
+          throw new Error(`BatchWrite still had ${batch.length} unprocessed items after ${attempt} attempts`);
+        }
+        if (attempt > 0) {
+          await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * 50, 2000)));
+        }
+        const res = await this.doc.send(
+          new BatchWriteCommand({ RequestItems: { [this.table]: batch as never } }),
+        );
+        batch = (res.UnprocessedItems?.[this.table] ?? []) as typeof batch;
+      }
+    }
+  }
+}

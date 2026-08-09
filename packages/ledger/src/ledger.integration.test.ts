@@ -1,0 +1,187 @@
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { DynamoDBClient, DeleteItemCommand } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import type { Transaction } from "@tightarse/schema";
+import { Ledger } from "./ledger";
+
+/**
+ * Integration tests against a real DynamoDB.
+ *
+ * Parameterised by endpoint so they run against either the deployed dev table
+ * or DynamoDB Local:
+ *
+ *   LEDGER_TEST_TABLE=<name> AWS_PROFILE=tightarse-dev npm test -w @tightarse/ledger
+ *   LEDGER_TEST_TABLE=Ledger LEDGER_TEST_ENDPOINT=http://localhost:8000 npm test …
+ *
+ * Skipped entirely when unset, so CI without credentials stays green.
+ *
+ * Everything is written under a throwaway tenant and deleted afterwards — these
+ * must never leave rows in a table that also holds real financial data.
+ */
+
+const TABLE = process.env["LEDGER_TEST_TABLE"];
+const ENDPOINT = process.env["LEDGER_TEST_ENDPOINT"];
+const TENANT = `itest-${Date.now()}`;
+
+const suite = TABLE ? describe : describe.skip;
+
+const txn = (over: Partial<Transaction> = {}): Transaction => ({
+  tenantId: TENANT,
+  accountId: "accA",
+  transactionId: "tx-1",
+  normalisedProviderTransactionId: "norm-1",
+  timestamp: "2026-03-15T00:00:00Z",
+  amount: -1299,
+  currency: "GBP",
+  description: "SHOP",
+  status: "settled",
+  transactionType: "DEBIT",
+  ...over,
+});
+
+suite("Ledger (integration)", () => {
+  let ledger: Ledger;
+  let doc: DynamoDBDocumentClient;
+
+  beforeAll(() => {
+    doc = DynamoDBDocumentClient.from(
+      new DynamoDBClient({
+        region: process.env["AWS_REGION"] ?? "eu-west-1",
+        ...(ENDPOINT ? { endpoint: ENDPOINT } : {}),
+      }),
+      { marshallOptions: { removeUndefinedValues: true } },
+    );
+    ledger = new Ledger({ tableName: TABLE!, client: doc });
+  });
+
+  afterAll(async () => {
+    // Sweep every partition this suite could have written to.
+    const raw = new DynamoDBClient({
+      region: process.env["AWS_REGION"] ?? "eu-west-1",
+      ...(ENDPOINT ? { endpoint: ENDPOINT } : {}),
+    });
+    for (const pk of [`T#${TENANT}#TX`, `T#${TENANT}`, `T#${TENANT}#PEND#accA`]) {
+      const res = await doc.send(
+        new QueryCommand({
+          TableName: TABLE!,
+          KeyConditionExpression: "pk = :pk",
+          ExpressionAttributeValues: { ":pk": pk },
+        }),
+      );
+      for (const item of res.Items ?? []) {
+        await raw.send(
+          new DeleteItemCommand({
+            TableName: TABLE!,
+            Key: { pk: { S: String(item["pk"]) }, sk: { S: String(item["sk"]) } },
+          }),
+        );
+      }
+    }
+  });
+
+  it("round-trips transactions through a date range query", async () => {
+    await ledger.putTransactions([
+      txn({ normalisedProviderTransactionId: "norm-1", timestamp: "2026-03-15T00:00:00Z" }),
+      txn({ normalisedProviderTransactionId: "norm-2", timestamp: "2026-04-02T00:00:00Z" }),
+      txn({ normalisedProviderTransactionId: "norm-3", timestamp: "2026-09-01T00:00:00Z" }),
+    ]);
+
+    const march = await ledger.listRange(TENANT, { from: "2026-03-01", to: "2026-05-01" });
+    expect(march.transactions).toHaveLength(2);
+
+    // Spanning months is one query, not one per month — the point of dropping
+    // the month partition.
+    const all = await ledger.listRange(TENANT, { from: "2026-01-01", to: "2027-01-01" });
+    expect(all.transactions).toHaveLength(3);
+  });
+
+  it("is idempotent, so replaying raw converges instead of duplicating", async () => {
+    const t = txn({ normalisedProviderTransactionId: "dupe", timestamp: "2026-05-01T00:00:00Z" });
+    await ledger.putTransactions([t]);
+    await ledger.putTransactions([t]);
+    await ledger.putTransactions([t]);
+
+    const found = await ledger.listRange(TENANT, { from: "2026-05-01", to: "2026-05-02" });
+    expect(found.transactions).toHaveLength(1);
+  });
+
+  it("returns a transaction and its enrichment from one query, adjacent", async () => {
+    const t = txn({ normalisedProviderTransactionId: "enr", timestamp: "2026-06-10T00:00:00Z" });
+    await ledger.putTransactions([t]);
+    await ledger.putEnrichment({
+      tenantId: TENANT,
+      dedupKey: "n:enr",
+      timestamp: "2026-06-10T00:00:00Z",
+      category: "Groceries",
+      confidence: 0.91,
+      producedBy: "itest",
+      producedAt: new Date().toISOString(),
+    });
+
+    const res = await ledger.listRange(TENANT, { from: "2026-06-01", to: "2026-07-01" });
+    expect(res.transactions).toHaveLength(1);
+    expect(res.enrichments).toHaveLength(1);
+    expect(res.enrichments[0]!["category"]).toBe("Groceries");
+  });
+
+  it("clears the backlog marker when enrichment lands, keeping gsi2 sparse", async () => {
+    const t = txn({ normalisedProviderTransactionId: "backlog", timestamp: "2026-07-04T00:00:00Z" });
+    await ledger.putTransactions([t]);
+
+    const before = await ledger.listToEnrich(TENANT);
+    expect(before.some((r) => String(r["gsi2sk"]).includes("backlog"))).toBe(true);
+
+    await ledger.putEnrichment({
+      tenantId: TENANT,
+      dedupKey: "n:backlog",
+      timestamp: "2026-07-04T00:00:00Z",
+      category: "Transport",
+      confidence: 0.8,
+      producedBy: "itest",
+      producedAt: new Date().toISOString(),
+    });
+
+    const after = await ledger.listToEnrich(TENANT);
+    expect(after.some((r) => String(r["gsi2sk"]).includes("backlog"))).toBe(false);
+  });
+
+  it("refuses an enrichment for a transaction that does not exist", async () => {
+    await expect(
+      ledger.putEnrichment({
+        tenantId: TENANT,
+        dedupKey: "n:ghost",
+        timestamp: "2026-01-01T00:00:00Z",
+        category: "Nothing",
+        confidence: 1,
+        producedBy: "itest",
+        producedAt: new Date().toISOString(),
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("serves per-account history from gsi1", async () => {
+    await ledger.putTransactions([
+      txn({ accountId: "accB", normalisedProviderTransactionId: "b1", timestamp: "2026-02-01T00:00:00Z" }),
+    ]);
+    const rows = await ledger.listAccountRange(TENANT, "accB", { from: "2026-01-01", to: "2026-03-01" });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!["accountId"]).toBe("accB");
+  });
+
+  it("replaces the pending set rather than merging it", async () => {
+    await ledger.replacePending(TENANT, "accA", [
+      txn({ status: "pending", providerTransactionId: "p1", timestamp: "2026-08-01T00:00:00Z" }),
+      txn({ status: "pending", providerTransactionId: "p2", timestamp: "2026-08-02T00:00:00Z" }),
+    ]);
+    expect(await ledger.listPending(TENANT, "accA")).toHaveLength(2);
+
+    // p1 settled and p2 vanished — the classic pending behaviour.
+    const second = await ledger.replacePending(TENANT, "accA", [
+      txn({ status: "pending", providerTransactionId: "p3", timestamp: "2026-08-03T00:00:00Z" }),
+    ]);
+    expect(second.deleted).toBe(2);
+    const now = await ledger.listPending(TENANT, "accA");
+    expect(now).toHaveLength(1);
+    expect(String(now[0]!["sk"])).toContain("p3");
+  });
+});
