@@ -65,7 +65,28 @@ const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/callback`;
  * The exact boundary is then bracketed between the first success and the last
  * failure, which is precise enough.
  */
-const PROBE_DEPTHS_MONTHS = [36, 24, 18, 12, 6, 3];
+const DEFAULT_PROBE_DEPTHS_MONTHS = [36, 24, 18, 12, 6, 3];
+
+/**
+ * Override with TL_DEPTHS, deepest first, e.g. TL_DEPTHS=84,72,60,48,36
+ *
+ * The first live run showed the busiest account saturating exactly at the
+ * 36-month boundary — its oldest transaction was the `from` date itself —
+ * so the ceiling was ours, not First Direct's.
+ */
+const PROBE_DEPTHS_MONTHS = (() => {
+  const raw = process.env["TL_DEPTHS"];
+  if (!raw) return DEFAULT_PROBE_DEPTHS_MONTHS;
+  const parsed = raw
+    .split(",")
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isInteger(n) && n > 0);
+  if (parsed.length === 0) {
+    console.error(`TL_DEPTHS="${raw}" parsed to nothing usable — expected e.g. 84,72,60`);
+    process.exit(1);
+  }
+  return parsed.sort((a, b) => b - a);
+})();
 
 /**
  * A raw landing-zone record: exactly what the API returned, plus enough
