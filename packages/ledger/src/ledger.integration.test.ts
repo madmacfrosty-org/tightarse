@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { DynamoDBClient, DeleteItemCommand } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
-import type { Transaction } from "@tightarse/schema";
+import { dedupKey, type Transaction } from "@tightarse/schema";
 import { Ledger } from "./ledger";
 
 /**
@@ -110,7 +110,7 @@ suite("Ledger (integration)", () => {
     await ledger.putTransactions([t]);
     await ledger.putEnrichment({
       tenantId: TENANT,
-      dedupKey: "n:enr",
+      dedupKey: dedupKey(t),
       timestamp: "2026-06-10T00:00:00Z",
       category: "Groceries",
       confidence: 0.91,
@@ -130,11 +130,11 @@ suite("Ledger (integration)", () => {
     await ledger.putTransactions([t]);
 
     const before = await ledger.listToEnrich(TENANT, range);
-    expect(before.some((r) => r["dedupKey"] === "n:backlog")).toBe(true);
+    expect(before.some((r) => r["dedupKey"] === dedupKey(t))).toBe(true);
 
     await ledger.putEnrichment({
       tenantId: TENANT,
-      dedupKey: "n:backlog",
+      dedupKey: dedupKey(t),
       timestamp: "2026-07-04T00:00:00Z",
       category: "Transport",
       confidence: 0.8,
@@ -156,7 +156,7 @@ suite("Ledger (integration)", () => {
     await ledger.putTransactions([t]);
     await ledger.putEnrichment({
       tenantId: TENANT,
-      dedupKey: "n:replay",
+      dedupKey: dedupKey(t),
       timestamp: "2026-10-10T00:00:00Z",
       category: "Groceries",
       confidence: 0.9,

@@ -19,7 +19,7 @@ const txn = (over: Partial<Transaction> = {}): Transaction => ({
 describe("transactionItem", () => {
   it("keys on the dedup chain, never on the unstable transaction id", () => {
     const item = transactionItem(txn());
-    expect(item.sk).toContain("n:stable-id");
+    expect(item.sk).toMatch(/#n:[0-9a-f]{32}$/);
     expect(item.sk).not.toContain("unstable-id");
   });
 
