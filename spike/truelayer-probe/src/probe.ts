@@ -57,6 +57,38 @@ const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/callback`;
 const PROBE_DEPTHS_MONTHS = [3, 6, 12, 18, 24, 36];
 
 /**
+ * A raw landing-zone record: exactly what the API returned, plus enough
+ * provenance to reprocess it later without guessing.
+ *
+ * The deep-history window is one-shot per consent, so this is the copy that
+ * makes a buggy transform survivable — you re-run the transform, not the bank
+ * authorisation.
+ */
+interface RawRecord {
+  endpoint: string;
+  params: Record<string, string>;
+  accountId: string | null;
+  fetchedAt: string;
+  httpStatus: number;
+  /** The complete response envelope, not just `results`. */
+  body: unknown;
+}
+
+const rawLog: RawRecord[] = [];
+let captureEnabled = false;
+
+function recordRaw(
+  endpoint: string,
+  params: Record<string, string>,
+  accountId: string | null,
+  httpStatus: number,
+  body: unknown,
+): void {
+  if (!captureEnabled) return;
+  rawLog.push({ endpoint, params, accountId, fetchedAt: new Date().toISOString(), httpStatus, body });
+}
+
+/**
  * Why a depth probe failed. The sandbox run showed these are not the same
  * thing and must not be conflated:
  *
@@ -184,6 +216,11 @@ function awaitCallback(expectedState: string): Promise<string> {
   });
 }
 
+/**
+ * Deliberately NOT captured by recordRaw: the response contains the access and
+ * refresh tokens. Raw landing-zone records are transaction data, never
+ * credentials. Do not add a recordRaw call here.
+ */
 async function exchangeCode(env: Env, clientId: string, clientSecret: string, code: string) {
   const res = await fetch(`${env.auth}/connect/token`, {
     method: "POST",
@@ -209,6 +246,7 @@ async function getAccounts(env: Env, token: string) {
   });
   if (!res.ok) throw new Error(`Fetching accounts failed: ${res.status} ${await res.text()}`);
   const body = (await res.json()) as { results: Array<{ account_id: string; provider?: { display_name?: string } }> };
+  recordRaw("/data/v1/accounts", {}, null, res.status, body);
   return body.results ?? [];
 }
 
@@ -249,6 +287,9 @@ async function probeDepth(
     try {
       const body = (await res.json()) as { error?: string };
       errorCode = body.error ?? null;
+      // Failures are worth keeping too: they are the evidence of where the
+      // SCA window closed, which is the whole point of the live run.
+      recordRaw(`/data/v1/accounts/${accountId}/transactions`, { from, to }, accountId, res.status, body);
     } catch {
       errorCode = null;
     }
@@ -267,6 +308,7 @@ async function probeDepth(
   }
 
   const body = (await res.json()) as { results: Array<Record<string, unknown>> };
+  recordRaw(`/data/v1/accounts/${accountId}/transactions`, { from, to }, accountId, res.status, body);
   const txns = body.results ?? [];
   const dates = txns
     .map((t) => (typeof t["timestamp"] === "string" ? (t["timestamp"] as string) : null))
@@ -309,6 +351,7 @@ async function probePending(env: Env, token: string, accountId: string) {
   }
 
   const body = (await res.json()) as { results: Array<Record<string, unknown>> };
+  recordRaw(`/data/v1/accounts/${accountId}/transactions/pending`, {}, accountId, res.status, body);
   const txns = body.results ?? [];
   return {
     supported: true,
@@ -379,10 +422,10 @@ async function main() {
 
   const manual = process.env["TL_MANUAL"] === "1";
   const capture = process.env["TL_CAPTURE"] === "1";
-  const captured: Record<string, unknown> = {};
+  captureEnabled = capture;
 
   if (capture) {
-    console.log("TL_CAPTURE=1 — raw transactions WILL be written to disk this run.\n");
+    console.log("TL_CAPTURE=1 — raw responses WILL be written to disk this run.\n");
   }
 
   console.log("Open this URL and connect the account:\n");
@@ -466,9 +509,6 @@ async function main() {
       transactionStats: pendingSettledStats(deepest),
     });
 
-    if (capture) {
-      captured[account.account_id] = { settled: deepest, pendingCount: pending.count };
-    }
     console.log("");
   }
 
@@ -485,10 +525,21 @@ async function main() {
     // already had in hand. It is real financial data: 0600, gitignored, and it
     // should move into the ledger and be deleted as soon as that exists.
     const rawPath = `out/raw-${Date.now()}.json`;
-    await writeFile(rawPath, JSON.stringify(captured, null, 2), { mode: 0o600 });
-    console.log(`RAW TRANSACTIONS written to ${rawPath} (mode 0600).`);
-    console.log("This is real financial data. It is gitignored, but delete it once");
-    console.log("the ledger exists and it has been imported.\n");
+    const envelope = {
+      captureVersion: 1,
+      capturedAt: new Date().toISOString(),
+      environment: envName,
+      /** Consent this came from. Distinguishes captures if you re-consent. */
+      consentAt: new Date(consentAt).toISOString(),
+      recordCount: rawLog.length,
+      records: rawLog,
+    };
+    await writeFile(rawPath, JSON.stringify(envelope, null, 2), { mode: 0o600 });
+    console.log(`RAW RESPONSES written to ${rawPath} (mode 0600, ${rawLog.length} records).`);
+    console.log("Complete response envelopes with endpoint, params and fetch time —");
+    console.log("this is the S3 landing-zone record, ready to transform from.\n");
+    console.log("It is real financial data. Gitignored, but delete it once the");
+    console.log("ledger exists and it has been imported.\n");
   }
 
   console.log("REMINDER: do not refresh this token if you still need deeper history.");
