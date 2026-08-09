@@ -88,13 +88,18 @@ export class DataStack extends cdk.Stack {
         {
           id: "raw-retention",
           enabled: true,
-          // Read rarely after the transform has run.
-          transitions: [
-            {
-              storageClass: s3.StorageClass.INFREQUENT_ACCESS,
-              transitionAfter: cdk.Duration.days(30),
-            },
-          ],
+          // Read rarely after the transform has run — but only worth moving to
+          // IA if the object will outlive IA's 30-day minimum billing period.
+          ...(settings.rawTransitionToIaDays !== undefined
+            ? {
+                transitions: [
+                  {
+                    storageClass: s3.StorageClass.INFREQUENT_ACCESS,
+                    transitionAfter: cdk.Duration.days(settings.rawTransitionToIaDays),
+                  },
+                ],
+              }
+            : {}),
           expiration: cdk.Duration.days(settings.rawRetentionDays),
           noncurrentVersionExpiration: cdk.Duration.days(30),
           abortIncompleteMultipartUploadAfter: cdk.Duration.days(7),

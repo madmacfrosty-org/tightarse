@@ -37,6 +37,14 @@ export interface EnvSettings {
   readonly autoDeleteObjects: boolean;
   /** How long raw landing-zone objects are kept. See the retention notes on #15. */
   readonly rawRetentionDays: number;
+  /**
+   * Days before raw objects move to Infrequent Access, or undefined for no
+   * transition. Must be strictly less than rawRetentionDays — S3 rejects the
+   * lifecycle rule otherwise. Short-lived objects should not transition at all:
+   * IA bills a 30-day minimum, so moving something you are about to delete
+   * costs more than leaving it in Standard.
+   */
+  readonly rawTransitionToIaDays?: number;
 }
 
 const SETTINGS: Record<EnvName, EnvSettings> = {
@@ -48,6 +56,7 @@ const SETTINGS: Record<EnvName, EnvSettings> = {
     pointInTimeRecovery: false,
     autoDeleteObjects: true,
     rawRetentionDays: 30,
+    // No IA transition: 30 days is inside IA's minimum billing duration.
   },
   prod: {
     name: "prod",
@@ -57,6 +66,7 @@ const SETTINGS: Record<EnvName, EnvSettings> = {
     autoDeleteObjects: false,
     // Long enough to survive a transform rewrite, not indefinite.
     rawRetentionDays: 365,
+    rawTransitionToIaDays: 30,
   },
 };
 
