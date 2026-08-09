@@ -14,17 +14,26 @@ multi-tenant from the first commit.
 ## Architecture
 
 ```
-EventBridge (daily) ──▶ ingest Lambda ──▶ DynamoDB
-                            ▲                │
-                    Secrets Manager          │
-                    (refresh tokens)         │
-                                             ▼
-  CloudFront + S3 ──▶ API Gateway ──▶ api Lambda
+EventBridge (daily) ──▶ fetch Lambda ──▶ S3 raw landing zone
+                            ▲                    │ s3:ObjectCreated
+                    Secrets Manager              ▼
+                    (refresh tokens)      transform Lambda
+                                                 │
+                                                 ▼
+                                            DynamoDB ledger
+                                                 │
+  CloudFront + S3 ──▶ API Gateway ──▶ api Lambda ┘
    (web dashboard)         ▲
           ▲                │
        Cognito       AgentCore Runtime
                      (Strands agents)
 ```
+
+Fetch and transform are deliberately separate stages. Deep transaction history
+is available only once per bank consent, so a bug in the transform must not be
+able to corrupt the only copy — raw responses land in S3 first and the
+transform can be re-run over them at will, without spending any of the four
+permitted unattended calls per day.
 
 Everything is TypeScript. CDK deploys it all to a single AWS account.
 

@@ -52,9 +52,20 @@ const SCOPES = [
 const REDIRECT_PORT = 3000;
 const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/callback`;
 
-/** How far back to test, in months. Ordered deepest-first is tempting but we
- *  go shallow-first so a hard failure still leaves us with a known-good floor. */
-const PROBE_DEPTHS_MONTHS = [3, 6, 12, 18, 24, 36];
+/**
+ * How far back to test, in months — **deepest first**, stopping at the first
+ * success.
+ *
+ * The SCA exemption window is a race, and it is shared across every account on
+ * the consent. Shallow-first would spend up to 6 sequential calls per account
+ * discovering a boundary we can infer anyway, and with capture on it would
+ * store the same transactions several times over.
+ *
+ * Deepest-first gets the maximum reachable history in one call when it works.
+ * The exact boundary is then bracketed between the first success and the last
+ * failure, which is precise enough.
+ */
+const PROBE_DEPTHS_MONTHS = [36, 24, 18, 12, 6, 3];
 
 /**
  * A raw landing-zone record: exactly what the API returned, plus enough
@@ -463,8 +474,13 @@ async function main() {
     accounts: [] as unknown[],
   };
 
+  let accountIndex = 0;
   for (const account of accounts) {
-    console.log(`Account ${account.account_id} (${account.provider?.display_name ?? "unknown provider"})`);
+    accountIndex += 1;
+    const elapsed = Math.round((Date.now() - consentAt) / 1000);
+    console.log(
+      `[${accountIndex}/${accounts.length}] t+${elapsed}s  ${account.account_id} (${account.provider?.display_name ?? "unknown provider"})`,
+    );
     const results: ProbeResult[] = [];
     let deepest: Array<Record<string, unknown>> = [];
 
@@ -483,15 +499,17 @@ async function main() {
         : `FAIL  ${result.httpStatus} ${result.errorCode ?? ""} [${result.failureKind}]`;
       console.log(`  ${String(depth).padStart(2)}mo (t+${result.secondsSinceConsent}s)  ${status}`);
 
-      if (result.ok && transactions.length >= deepest.length) deepest = transactions;
-      if (!result.ok) {
-        // Deeper will not succeed either way, but the reason matters: "no-data"
-        // is the bank's history genuinely ending, "permission" means the SCA
-        // window has shut and we have lost history we could have had.
-        if (result.failureKind === "permission") {
-          console.log("    ^ SCA window appears closed — deep history is no longer reachable");
-        }
+      if (result.ok) {
+        // Deepest-first, so the first success is the deepest reachable.
+        deepest = transactions;
         break;
+      }
+
+      // Keep stepping shallower. The reason still matters: "permission" means
+      // the SCA window has shut and history we could have had is now lost,
+      // whereas "no-data" is simply the bank's history ending.
+      if (result.failureKind === "permission") {
+        console.log("    ^ SCA window appears closed — deep history no longer reachable");
       }
     }
 
