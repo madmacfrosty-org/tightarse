@@ -56,6 +56,16 @@ const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/callback`;
  *  go shallow-first so a hard failure still leaves us with a known-good floor. */
 const PROBE_DEPTHS_MONTHS = [3, 6, 12, 18, 24, 36];
 
+/**
+ * Why a depth probe failed. The sandbox run showed these are not the same
+ * thing and must not be conflated:
+ *
+ *  - "no-data"    the bank simply holds nothing that far back (invalid_date_range)
+ *  - "permission" the SCA exemption window has closed (access_denied) — this is
+ *                 the First Direct behaviour we actually care about
+ */
+type FailureKind = "no-data" | "permission" | "other" | null;
+
 interface ProbeResult {
   depthMonths: number;
   from: string;
@@ -65,7 +75,14 @@ interface ProbeResult {
   oldestTransaction: string | null;
   newestTransaction: string | null;
   errorCode: string | null;
+  failureKind: FailureKind;
   secondsSinceConsent: number;
+}
+
+function classifyFailure(errorCode: string | null, httpStatus: number): FailureKind {
+  if (errorCode === "invalid_date_range") return "no-data";
+  if (errorCode === "access_denied" || httpStatus === 403) return "permission";
+  return "other";
 }
 
 interface FieldCoverage {
@@ -243,6 +260,7 @@ async function probeDepth(
         oldestTransaction: null,
         newestTransaction: null,
         errorCode,
+        failureKind: classifyFailure(errorCode, res.status),
       },
       transactions: [],
     };
@@ -263,8 +281,41 @@ async function probeDepth(
       oldestTransaction: dates[0] ?? null,
       newestTransaction: dates[dates.length - 1] ?? null,
       errorCode: null,
+      failureKind: null,
     },
     transactions: txns,
+  };
+}
+
+/**
+ * Pending transactions live on their own endpoint — they never appear on
+ * /transactions. Whether First Direct populates it at all is worth knowing,
+ * because it decides how much the pending→settled dedup logic has to handle.
+ */
+async function probePending(env: Env, token: string, accountId: string) {
+  const res = await fetch(`${env.api}/data/v1/accounts/${accountId}/transactions/pending`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    let errorCode: string | null = null;
+    try {
+      const body = (await res.json()) as { error?: string };
+      errorCode = body.error ?? null;
+    } catch {
+      errorCode = null;
+    }
+    return { supported: false, httpStatus: res.status, errorCode, count: 0, coverage: {} };
+  }
+
+  const body = (await res.json()) as { results: Array<Record<string, unknown>> };
+  const txns = body.results ?? [];
+  return {
+    supported: true,
+    httpStatus: res.status,
+    errorCode: null,
+    count: txns.length,
+    coverage: fieldCoverage(txns),
   };
 }
 
@@ -380,17 +431,31 @@ async function main() {
 
       const status = result.ok
         ? `ok    ${String(result.transactionCount).padStart(5)} txns, oldest ${result.oldestTransaction ?? "n/a"}`
-        : `FAIL  ${result.httpStatus} ${result.errorCode ?? ""}`;
+        : `FAIL  ${result.httpStatus} ${result.errorCode ?? ""} [${result.failureKind}]`;
       console.log(`  ${String(depth).padStart(2)}mo (t+${result.secondsSinceConsent}s)  ${status}`);
 
       if (result.ok && transactions.length >= deepest.length) deepest = transactions;
-      if (!result.ok) break; // deeper will not succeed if this failed
+      if (!result.ok) {
+        // Deeper will not succeed either way, but the reason matters: "no-data"
+        // is the bank's history genuinely ending, "permission" means the SCA
+        // window has shut and we have lost history we could have had.
+        if (result.failureKind === "permission") {
+          console.log("    ^ SCA window appears closed — deep history is no longer reachable");
+        }
+        break;
+      }
     }
+
+    const pending = await probePending(env, tokens.access_token, account.account_id);
+    console.log(
+      `  pending endpoint: ${pending.supported ? `${pending.count} txns` : `unsupported (${pending.httpStatus} ${pending.errorCode ?? ""})`}`,
+    );
 
     (findings["accounts"] as unknown[]).push({
       accountId: account.account_id,
       provider: account.provider?.display_name ?? null,
       probes: results,
+      pending,
       fieldCoverage: fieldCoverage(deepest),
       transactionStats: pendingSettledStats(deepest),
     });

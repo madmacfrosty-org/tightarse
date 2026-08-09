@@ -33,18 +33,36 @@ export const Account = z.object({
 });
 export type Account = z.infer<typeof Account>;
 
+/**
+ * NOT a field TrueLayer returns. Settled and pending transactions come from
+ * two different endpoints (`/transactions` and `/transactions/pending`), so
+ * status is determined by which call produced the row. Ingest sets it.
+ */
 export const TransactionStatus = z.enum(["pending", "settled"]);
 export type TransactionStatus = z.infer<typeof TransactionStatus>;
+
+/** Direction of movement. Orthogonal to status — this is TrueLayer's
+ *  `transaction_type`, which is DEBIT/CREDIT and says nothing about settlement. */
+export const TransactionType = z.enum(["DEBIT", "CREDIT"]);
+export type TransactionType = z.infer<typeof TransactionType>;
 
 export const Transaction = z.object({
   tenantId: TenantId,
   accountId: z.string().min(1),
   /**
-   * Provider transaction id. Note: a transaction's id can change when it moves
-   * from pending to settled, so ingest must upsert on a stable composite key
-   * rather than trusting this alone. See services/ingest.
+   * TrueLayer's `transaction_id`. Explicitly NOT stable: it can change when a
+   * transaction moves from pending to settled. Never dedupe on this alone.
    */
   transactionId: z.string().min(1),
+  /** The bank's own id, when it provides one. */
+  providerTransactionId: z.string().optional(),
+  /**
+   * TrueLayer's normalised id — the intended bridge across the pending→settled
+   * transition, and stable across credentials for the majority of providers.
+   * Optional because banks are not obliged to supply the underlying data, so
+   * dedup logic must degrade gracefully when it is absent.
+   */
+  normalisedProviderTransactionId: z.string().optional(),
   /** Booking date, ISO-8601. Sort key component — do not reformat. */
   timestamp: z.string().datetime(),
   amount: Amount,
@@ -52,8 +70,17 @@ export const Transaction = z.object({
   description: z.string(),
   merchantName: z.string().optional(),
   status: TransactionStatus,
-  /** Category assigned by the provider, if any. Not our categorisation. */
+  transactionType: TransactionType,
+  /** Account balance after this transaction, where the bank reports it. */
+  runningBalance: Amount.optional(),
+  /** Bank-supplied category. Present on every sandbox transaction. */
   providerCategory: z.string().optional(),
+  /**
+   * TrueLayer's own enrichment: [primary, sub], e.g. ["Food & Dining", "Groceries"].
+   * Best-effort, purchases and direct debits only, and entirely absent from the
+   * sandbox — treat as a hint for the categoriser, never as truth.
+   */
+  providerClassification: z.array(z.string()).optional(),
 });
 export type Transaction = z.infer<typeof Transaction>;
 
