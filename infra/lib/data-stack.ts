@@ -2,11 +2,14 @@ import * as cdk from "aws-cdk-lib";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as cognito from "aws-cdk-lib/aws-cognito";
+import * as kms from "aws-cdk-lib/aws-kms";
 import { Construct } from "constructs";
 import { config, type EnvSettings } from "./config";
 
 export interface DataStackProps extends cdk.StackProps {
   readonly settings: EnvSettings;
+  /** Customer-managed key from FoundationStack, so it survives a dev wipe. */
+  readonly dataKey: kms.IKey;
 }
 
 /**
@@ -77,7 +80,14 @@ export class DataStack extends cdk.Stack {
     // ------------------------------------------------------ raw landing zone
 
     this.rawBucket = new s3.Bucket(this, "RawLandingZone", {
-      encryption: s3.BucketEncryption.S3_MANAGED,
+      // Customer-managed, not S3-managed: with SSE-S3 decryption is transparent
+      // to anyone holding s3:GetObject, which would render the read-only role's
+      // `Deny kms:Decrypt` useless against actual bank data.
+      encryption: s3.BucketEncryption.KMS,
+      encryptionKey: props.dataKey,
+      // Without this, every object read and write is a separate KMS API call.
+      // Bucket keys cut that by roughly 99%.
+      bucketKeyEnabled: true,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
       // Provider responses are the copy that makes a buggy transform

@@ -23,8 +23,13 @@ const env: cdk.Environment = account
 // Stack names carry the environment so dev and prod can never be confused in
 // the console, and so `cdk deploy` without `-c env=prod` cannot silently
 // target the wrong one.
-new FoundationStack(app, `TightarseFoundation-${settings.name}`, { env, settings });
-new DataStack(app, `TightarseData-${settings.name}`, { env, settings });
+const foundation = new FoundationStack(app, `TightarseFoundation-${settings.name}`, { env, settings });
+
+new DataStack(app, `TightarseData-${settings.name}`, {
+  env,
+  settings,
+  dataKey: foundation.dataKey,
+});
 
 // Stateless stacks (ingest, transform, api, web, agents) are added as they are
 // built — see the open issues.

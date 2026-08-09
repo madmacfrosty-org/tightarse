@@ -1,5 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+import * as kms from "aws-cdk-lib/aws-kms";
 import * as iam from "aws-cdk-lib/aws-iam";
 import { Construct } from "constructs";
 import { config, secretPrefix, type EnvSettings } from "./config";
@@ -24,7 +25,7 @@ export interface FoundationStackProps extends cdk.StackProps {
  * A VPC would belong here too, if one is ever needed. It is not today:
  * DynamoDB, S3, Lambda, API Gateway, Cognito and AgentCore Runtime are all
  * VPC-less, and a NAT gateway alone would cost an order of magnitude more than
- * the rest of the infrastructure combined. Same for a customer-managed KMS key.
+ * the rest of the infrastructure combined.
  */
 export class FoundationStack extends cdk.Stack {
   /** TrueLayer application credential. Static, one per environment. */
@@ -32,6 +33,21 @@ export class FoundationStack extends cdk.Stack {
 
   /** Name prefix for per-connection refresh tokens, created at runtime. */
   public readonly connectionSecretPrefix: string;
+
+  /**
+   * Customer-managed key for the raw landing zone.
+   *
+   * Lives here, not with the bucket, for two reasons. KMS deletion is
+   * irreversible behind a mandatory 7-30 day window, so a key must never sit
+   * in a stack that gets wiped. And destroying and recreating the data stack
+   * must not orphan the key that its previous objects were encrypted under.
+   *
+   * The point of a CMK rather than SSE-S3 is that it makes an IAM `Deny
+   * kms:Decrypt` meaningful. With SSE-S3, decryption is transparent to anyone
+   * holding s3:GetObject — so the CDK lookup role's deny, which is how
+   * read-only access is kept away from bank data, would do nothing at all.
+   */
+  public readonly dataKey: kms.Key;
 
   constructor(scope: Construct, id: string, props: FoundationStackProps) {
     super(scope, id, props);
@@ -54,6 +70,13 @@ export class FoundationStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
+    this.dataKey = new kms.Key(this, "DataKey", {
+      alias: `alias/${config.appName}-${settings.name}-data`,
+      description: `Encrypts the ${settings.name} raw landing zone`,
+      enableKeyRotation: true,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
     // Per-connection secrets cannot be declared: there is one per bank
     // connection and they are created by the connect flow at runtime. The
     // stack owns the naming convention and the IAM boundary instead.
@@ -61,6 +84,7 @@ export class FoundationStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, "ClientSecretName", { value: this.clientSecret.secretName });
     new cdk.CfnOutput(this, "ConnectionSecretPrefix", { value: this.connectionSecretPrefix });
+    new cdk.CfnOutput(this, "DataKeyArn", { value: this.dataKey.keyArn });
 
     cdk.Tags.of(this).add("app", config.appName);
     cdk.Tags.of(this).add("env", settings.name);
