@@ -23,10 +23,10 @@ describe("transactionItem", () => {
     expect(item.sk).not.toContain("unstable-id");
   });
 
-  it("writes the gsi2 backlog marker, which is what makes the index sparse", () => {
+  it("writes no backlog marker, so a replay cannot re-queue enriched work", () => {
     const item = transactionItem(txn());
-    expect(item.gsi2pk).toBe("T#frost#TOENRICH");
-    expect(item.gsi2sk).toBeDefined();
+    expect(item["gsi2pk"]).toBeUndefined();
+    expect(item["gsi2sk"]).toBeUndefined();
   });
 
   it("records the raw object it came from when given one", () => {

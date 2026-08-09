@@ -75,12 +75,15 @@ export class Ledger {
   }
 
   /**
-   * Store an enrichment and clear the transaction's backlog marker atomically.
+   * Store an enrichment.
    *
-   * Two separate writes would leave a window where a crash either loses the
-   * enrichment or re-queues work that is already done. The transaction row is
-   * only ever touched here to REMOVE the gsi2 attributes — its financial
-   * fields are never modified by anything downstream of ingest.
+   * A plain put on a deterministic key, so re-running the categoriser over the
+   * same transaction converges rather than duplicating. Nothing on the
+   * transaction row is touched — the ledger stays deterministic and agents only
+   * ever add rows beside it.
+   *
+   * The condition guards against enriching a transaction that is not there,
+   * which would leave a row describing nothing.
    */
   async putEnrichment(e: TransactionEnrichment): Promise<void> {
     const txnKey = keys.transaction(e.tenantId, e.timestamp, e.dedupKey);
@@ -89,12 +92,9 @@ export class Ledger {
         TransactItems: [
           { Put: { TableName: this.table, Item: enrichmentItem(e) } },
           {
-            Update: {
+            ConditionCheck: {
               TableName: this.table,
               Key: txnKey,
-              UpdateExpression: "REMOVE gsi2pk, gsi2sk",
-              // If the transaction is not there, the enrichment describes
-              // nothing and the whole transaction should fail.
               ConditionExpression: "attribute_exists(pk)",
             },
           },
@@ -186,22 +186,25 @@ export class Ledger {
   }
 
   /**
-   * The categoriser's backlog, via the sparse gsi2.
+   * Transactions in a range with no enrichment yet — the categoriser's backlog.
    *
-   * Sparse because the attributes are removed when enrichment lands, so this
-   * index contains outstanding work only — no filtering, no scanning.
+   * Derived rather than indexed. A sparse index needed a marker on the
+   * transaction row, and a plain put replaces the whole row, so replaying a raw
+   * object re-queued work that was already done. Since replay is the point of
+   * the landing zone, that failure was routine rather than exotic.
+   *
+   * The range query already returns both kinds, so the diff is free beyond the
+   * rows themselves.
    */
-  async listToEnrich(tenantId: string, limit = 100): Promise<Record<string, unknown>[]> {
-    const res = await this.doc.send(
-      new QueryCommand({
-        TableName: this.table,
-        IndexName: "gsi2-to-enrich",
-        KeyConditionExpression: "gsi2pk = :pk",
-        ExpressionAttributeValues: { ":pk": keys.toEnrichIndex(tenantId, "", "").gsi2pk },
-        Limit: limit,
-      }),
-    );
-    return (res.Items ?? []) as Record<string, unknown>[];
+  async listToEnrich(
+    tenantId: string,
+    range: DateRange,
+    limit?: number,
+  ): Promise<Record<string, unknown>[]> {
+    const { transactions, enrichments } = await this.listRange(tenantId, range);
+    const enriched = new Set(enrichments.map((e) => String(e["dedupKey"])));
+    const outstanding = transactions.filter((t) => !enriched.has(String(t["dedupKey"])));
+    return limit === undefined ? outstanding : outstanding.slice(0, limit);
   }
 
   async listPending(tenantId: string, accountId: string): Promise<Record<string, unknown>[]> {

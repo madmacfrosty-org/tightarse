@@ -60,7 +60,7 @@ suite("Ledger (integration)", () => {
       region: process.env["AWS_REGION"] ?? "eu-west-1",
       ...(ENDPOINT ? { endpoint: ENDPOINT } : {}),
     });
-    for (const pk of [`T#${TENANT}#TX`, `T#${TENANT}`, `T#${TENANT}#PEND#accA`]) {
+    for (const pk of [`T#${TENANT}#TX`, `T#${TENANT}`, `T#${TENANT}#PEND#accA`, `T#${TENANT}#PEND#accB`]) {
       const res = await doc.send(
         new QueryCommand({
           TableName: TABLE!,
@@ -124,12 +124,13 @@ suite("Ledger (integration)", () => {
     expect(res.enrichments[0]!["category"]).toBe("Groceries");
   });
 
-  it("clears the backlog marker when enrichment lands, keeping gsi2 sparse", async () => {
+  it("drops a transaction from the backlog once enriched", async () => {
+    const range = { from: "2026-07-01", to: "2026-08-01" };
     const t = txn({ normalisedProviderTransactionId: "backlog", timestamp: "2026-07-04T00:00:00Z" });
     await ledger.putTransactions([t]);
 
-    const before = await ledger.listToEnrich(TENANT);
-    expect(before.some((r) => String(r["gsi2sk"]).includes("backlog"))).toBe(true);
+    const before = await ledger.listToEnrich(TENANT, range);
+    expect(before.some((r) => r["dedupKey"] === "n:backlog")).toBe(true);
 
     await ledger.putEnrichment({
       tenantId: TENANT,
@@ -141,8 +142,31 @@ suite("Ledger (integration)", () => {
       producedAt: new Date().toISOString(),
     });
 
-    const after = await ledger.listToEnrich(TENANT);
-    expect(after.some((r) => String(r["gsi2sk"]).includes("backlog"))).toBe(false);
+    expect(await ledger.listToEnrich(TENANT, range)).toHaveLength(0);
+  });
+
+  it("does NOT re-queue an enriched transaction when its raw object is replayed", async () => {
+    // The regression this whole design exists to prevent. Replay is the point
+    // of the landing zone, so re-queueing on replay would make a full re-run of
+    // the categoriser the normal case — at LLM cost, and overwriting any
+    // hand-corrected category with the model's original answer.
+    const range = { from: "2026-10-01", to: "2026-11-01" };
+    const t = txn({ normalisedProviderTransactionId: "replay", timestamp: "2026-10-10T00:00:00Z" });
+
+    await ledger.putTransactions([t]);
+    await ledger.putEnrichment({
+      tenantId: TENANT,
+      dedupKey: "n:replay",
+      timestamp: "2026-10-10T00:00:00Z",
+      category: "Groceries",
+      confidence: 0.9,
+      producedBy: "itest",
+      producedAt: new Date().toISOString(),
+    });
+    expect(await ledger.listToEnrich(TENANT, range)).toHaveLength(0);
+
+    await ledger.putTransactions([t]);
+    expect(await ledger.listToEnrich(TENANT, range)).toHaveLength(0);
   });
 
   it("refuses an enrichment for a transaction that does not exist", async () => {

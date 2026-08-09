@@ -21,8 +21,6 @@ export interface TransactionItem extends Record<string, unknown> {
   sk: string;
   gsi1pk: string;
   gsi1sk: string;
-  gsi2pk?: string;
-  gsi2sk?: string;
 }
 
 /**
@@ -32,8 +30,10 @@ export interface TransactionItem extends Record<string, unknown> {
  * 100 bytes an item and is what turns "this number looks wrong" into a lookup
  * rather than an investigation.
  *
- * gsi2 is written unconditionally here and REMOVED when enrichment lands, which
- * is what keeps that index sparse — it holds exactly the categoriser's backlog.
+ * No backlog marker is written. An earlier design put one here and removed it
+ * when enrichment landed, but a plain put replaces the whole row — so replaying
+ * a raw object silently re-queued already-categorised transactions. The backlog
+ * is derived instead, by diffing a range query that returns both kinds anyway.
  */
 export function transactionItem(
   txn: Transaction,
@@ -42,15 +42,12 @@ export function transactionItem(
   const dedup = dedupKey(txn);
   const { pk, sk } = keys.transaction(txn.tenantId, txn.timestamp, dedup);
   const { gsi1pk, gsi1sk } = keys.accountIndex(txn.tenantId, txn.accountId, txn.timestamp, dedup);
-  const { gsi2pk, gsi2sk } = keys.toEnrichIndex(txn.tenantId, txn.timestamp, dedup);
 
   return {
     pk,
     sk,
     gsi1pk,
     gsi1sk,
-    gsi2pk,
-    gsi2sk,
     kind: RowKind.transaction,
     dedupKey: dedup,
     ...txn,

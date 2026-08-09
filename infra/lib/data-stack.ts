@@ -58,21 +58,18 @@ export class DataStack extends cdk.Stack {
       timeToLiveAttribute: "expiresAt",
       globalSecondaryIndexes: [
         {
-          // Per-account views over time. The base table partitions by month
-          // because the dashboard's dominant read is tenant-wide by month.
+          // Per-account views over time. The base table partitions by tenant
+          // because the dashboard's dominant read is tenant-wide over a range.
+          //
+          // There is no "awaiting categorisation" index. That was a sparse GSI
+          // keyed off a marker on the transaction row, but a plain put replaces
+          // the whole row, so replaying a raw object re-queued already-
+          // categorised work — and replay is the entire point of the landing
+          // zone. The backlog is derived from a range query instead.
           indexName: "gsi1-account",
           partitionKey: { name: "gsi1pk", type: dynamodb.AttributeType.STRING },
           sortKey: { name: "gsi1sk", type: dynamodb.AttributeType.STRING },
           projectionType: dynamodb.ProjectionType.ALL,
-        },
-        {
-          // Sparse: the attribute is written when a transaction lands and
-          // REMOVED when enrichment is stored, so this index is exactly the
-          // categoriser's backlog and nothing else.
-          indexName: "gsi2-to-enrich",
-          partitionKey: { name: "gsi2pk", type: dynamodb.AttributeType.STRING },
-          sortKey: { name: "gsi2sk", type: dynamodb.AttributeType.STRING },
-          projectionType: dynamodb.ProjectionType.KEYS_ONLY,
         },
       ],
     });

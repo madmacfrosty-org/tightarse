@@ -274,6 +274,14 @@ export type RowKind = (typeof RowKind)[keyof typeof RowKind];
  *
  * Revisit if a single tenant partition passes a few hundred thousand items, or
  * if writes approach 1,000 WCU against one partition key.
+ *
+ * There is deliberately no index for "transactions awaiting categorisation".
+ * That was a sparse gsi2 carrying a marker on the transaction row, removed when
+ * enrichment landed — but a plain put replaces the whole row, so replaying a
+ * raw object re-added the marker and re-queued work that was already done.
+ * Since replay is the entire point of the landing zone, that made the bug
+ * routine rather than exotic. The backlog is now derived: read a range, which
+ * returns transactions and enrichments together anyway, and diff in memory.
  */
 export const keys = {
   account: (tenantId: string, accountId: string) => ({
@@ -318,15 +326,6 @@ export const keys = {
     gsi1sk: `${timestamp}#${RowKind.transaction}#${dedup}`,
   }),
 
-  /**
-   * gsi2: the categoriser's backlog. Written when a transaction lands and
-   * REMOVED when its enrichment is stored — the index is sparse, so it holds
-   * exactly the outstanding work and nothing else.
-   */
-  toEnrichIndex: (tenantId: string, timestamp: string, dedup: string) => ({
-    gsi2pk: `T#${tenantId}#TOENRICH`,
-    gsi2sk: `${timestamp}#${RowKind.transaction}#${dedup}`,
-  }),
 } as const;
 
 // ---------------------------------------------------------------- raw objects
