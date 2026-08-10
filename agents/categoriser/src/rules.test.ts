@@ -66,3 +66,27 @@ describe("applyRules", () => {
     expect(map(a).get("n:BOOTS 123")).toBe(map(b).get("n:BOOTS 123"));
   });
 });
+
+describe("direction", () => {
+  it("never applies a merchant rule to money in", () => {
+    // Against the real ledger, 48 credits of roughly £5,000 matched an AMAZON
+    // rule and were filed as Shopping. They were salary — a large employer
+    // sharing a name with a large retailer. A rule cannot distinguish a refund
+    // from income, so it must not try.
+    const r = applyRules([cand("AMAZON PAYROLL", { amount: 527818 })]);
+    expect(r.classifications).toHaveLength(0);
+    expect(r.unmatched).toHaveLength(1);
+  });
+
+  it("still applies merchant rules to money out", () => {
+    const r = applyRules([cand("AMAZON MKTPLACE", { amount: -2499 })]);
+    expect(r.classifications[0]!.category).toBe("Shopping");
+  });
+
+  it("reads interest by direction, not by label", () => {
+    const paid = applyRules([cand("INTEREST", { amount: -500, providerCategory: "INTEREST" })]);
+    const received = applyRules([cand("INTEREST", { amount: 500, providerCategory: "INTEREST" })]);
+    expect(paid.classifications[0]!.category).toBe("Fees & Charges");
+    expect(received.classifications[0]!.category).toBe("Income");
+  });
+});

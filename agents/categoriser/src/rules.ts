@@ -70,7 +70,6 @@ export const RULES: readonly Rule[] = [
  */
 const PROVIDER_CATEGORY_RULES: Readonly<Record<string, Category>> = {
   ATM: "Cash Withdrawal",
-  INTEREST: "Fees & Charges",
 };
 
 export interface RuleResult {
@@ -84,6 +83,29 @@ export function applyRules(candidates: readonly Candidate[]): RuleResult {
   const unmatched: Candidate[] = [];
 
   for (const c of candidates) {
+    // Interest is Fees & Charges when paid and Income when received. Direction
+    // decides, not the label.
+    if (c.providerCategory === "INTEREST") {
+      classifications.push({
+        dedupKey: c.dedupKey,
+        category: c.amount >= 0 ? "Income" : "Fees & Charges",
+        confidence: 1,
+      });
+      continue;
+    }
+
+    // Merchant rules apply to MONEY OUT ONLY.
+    //
+    // Learned the hard way against real data: 48 credits of roughly £5,000
+    // matched an AMAZON rule and were filed as Shopping. They were salary — a
+    // large employer sharing a name with a large retailer. A rule cannot tell a
+    // refund from income, and both are credits, so it must not try. Credits
+    // fall through to the model, which has the amount and can reason about it.
+    if (c.amount >= 0) {
+      unmatched.push(c);
+      continue;
+    }
+
     const byProvider = c.providerCategory
       ? PROVIDER_CATEGORY_RULES[c.providerCategory]
       : undefined;
@@ -106,4 +128,4 @@ export function applyRules(candidates: readonly Candidate[]): RuleResult {
   return { classifications, unmatched };
 }
 
-export const RULES_VERSION = "rules@v1";
+export const RULES_VERSION = "rules@v2";

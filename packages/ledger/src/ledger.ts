@@ -154,6 +154,27 @@ export class Ledger {
     await this.doc.send(new PutCommand({ TableName: this.table, Item: consentItem(c) }));
   }
 
+  /**
+   * Delete every enrichment in a range produced by one source.
+   *
+   * This is what the `producedBy` provenance is for: a bad rule version or a
+   * superseded model can be invalidated wholesale, and the affected
+   * transactions return to the backlog automatically because the backlog is
+   * derived from the absence of an enrichment.
+   */
+  async deleteEnrichments(
+    tenantId: string,
+    range: DateRange,
+    producedBy: string,
+  ): Promise<{ deleted: number }> {
+    const { enrichments } = await this.listRange(tenantId, range);
+    const doomed = enrichments.filter((e) => e["producedBy"] === producedBy);
+    await this.batchWrite(
+      doomed.map((e) => ({ DeleteRequest: { Key: { pk: e["pk"], sk: e["sk"] } } })),
+    );
+    return { deleted: doomed.length };
+  }
+
   // --------------------------------------------------------------- reads
 
   /**
