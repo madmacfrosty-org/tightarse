@@ -1,0 +1,22 @@
+{
+  "name": "@tightarse/categoriser",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run",
+    "run-batch": "node dist/run.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.700.0",
+    "@tightarse/ledger": "*",
+    "@tightarse/schema": "*",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.0"
+  }
+}
