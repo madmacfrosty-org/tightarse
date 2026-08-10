@@ -36,6 +36,18 @@ export interface EnvSettings {
   /** Empty the raw bucket on stack deletion. Only ever true in dev. */
   readonly autoDeleteObjects: boolean;
   /**
+   * Google OAuth client id, or undefined where federation is not configured.
+   *
+   * Config rather than CDK context. It was context while the Google project did
+   * not exist, so the stack stayed deployable without it — but that made
+   * forgetting the flag silently remove the identity provider, and CloudFormation
+   * then refused to drop an export the deployed stack still used. A deploy
+   * should not depend on remembering a flag.
+   *
+   * Not a secret: it is sent to every browser that reaches the sign-in page.
+   */
+  readonly googleClientId?: string;
+  /**
    * Cognito hosted-UI domain prefix.
    *
    * A fixed literal, not derived from the account id. Deriving it looked
@@ -68,6 +80,7 @@ const SETTINGS: Record<EnvName, EnvSettings> = {
     // Not worth paying for in an account we intend to wipe.
     pointInTimeRecovery: false,
     autoDeleteObjects: true,
+    googleClientId: "242040418333-3re7ehr425qst2ghgf8eh1qk263noe19.apps.googleusercontent.com",
     hostedUiPrefix: "tightarse-dev-068475",
     rawRetentionDays: 30,
     // No IA transition: 30 days is inside IA's minimum billing duration.

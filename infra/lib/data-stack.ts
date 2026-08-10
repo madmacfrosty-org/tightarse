@@ -94,6 +94,13 @@ export class DataStack extends cdk.Stack {
       bucketKeyEnabled: true,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
+      // Events go to EventBridge rather than a direct Lambda notification.
+      // A notification would need the consuming function's ARN, and that
+      // function lives in a stack which needs this bucket — a dependency cycle.
+      // EventBridge rules match the bucket by name, so the reference is a
+      // string and the cycle disappears. It also allows richer key matching
+      // than notifications, whose filters are literal prefix and suffix only.
+      eventBridgeEnabled: true,
       // Provider responses are the copy that makes a buggy transform
       // survivable. Versioning guards against a bad overwrite too.
       versioned: true,
@@ -188,7 +195,7 @@ export class DataStack extends cdk.Stack {
     // Only created once a Google client exists. Deploying an identity provider
     // with an empty secret fails, and gating it keeps the stack deployable
     // before the Google Cloud project is set up.
-    const googleClientId = this.node.tryGetContext("googleClientId") as string | undefined;
+    const googleClientId = settings.googleClientId;
     let googleProvider: cognito.UserPoolIdentityProviderGoogle | undefined;
     if (googleClientId) {
       googleProvider = new cognito.UserPoolIdentityProviderGoogle(this, "Google", {

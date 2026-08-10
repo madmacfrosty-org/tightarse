@@ -9,6 +9,7 @@ import { FoundationStack } from "../lib/foundation-stack";
 import { DataStack } from "../lib/data-stack";
 import { ApiStack } from "../lib/api-stack";
 import { WebStack } from "../lib/web-stack";
+import { IngestStack } from "../lib/ingest-stack";
 
 const app = new cdk.App();
 const settings = envSettings(app);
@@ -44,6 +45,18 @@ const api = new ApiStack(app, `TightarseApi-${settings.name}`, {
   table: data.table,
   userPool: data.userPool,
   userPoolClient: data.userPoolClient,
+});
+
+new IngestStack(app, `TightarseIngest-${settings.name}`, {
+  env,
+  settings,
+  rawBucket: data.rawBucket,
+  table: data.table,
+  dataKey: foundation.dataKey,
+  clientSecret: foundation.clientSecret,
+  ...(app.node.tryGetContext("alertEmail")
+    ? { alertEmail: String(app.node.tryGetContext("alertEmail")) }
+    : {}),
 });
 
 new WebStack(app, `TightarseWeb-${settings.name}`, {
