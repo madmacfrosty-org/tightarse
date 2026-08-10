@@ -1,0 +1,196 @@
+import { useEffect, useState } from "react";
+import { CategoryBars, MonthlyFlow, money, type CategoryDatum, type MonthDatum } from "./charts";
+
+interface Summary {
+  currency: string | null;
+  from: string;
+  to: string;
+  transactionCount: number;
+  income: number;
+  spend: number;
+  net: number;
+  byCategory: CategoryDatum[];
+  byMonth: MonthDatum[];
+  internalTransfersNetted: boolean;
+  transferCount: number;
+  transferTotal: number;
+  enrichedCount: number;
+}
+
+interface AccountRow {
+  accountId: string;
+  displayName: string;
+  institutionName: string;
+  currentBalance?: number;
+  availableBalance?: number;
+}
+
+interface TxnRow {
+  dedupKey: string;
+  timestamp: string;
+  description: string;
+  amount: number;
+  category: string;
+  provisional: boolean;
+}
+
+const RANGES = [
+  { label: "3 months", days: 90 },
+  { label: "12 months", days: 365 },
+  { label: "5 years", days: 365 * 5 },
+] as const;
+
+export function App() {
+  const [days, setDays] = useState<number>(365);
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [accounts, setAccounts] = useState<AccountRow[]>([]);
+  const [txns, setTxns] = useState<TxnRow[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const to = new Date().toISOString().slice(0, 10);
+    const from = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
+    const q = `?from=${from}&to=${to}`;
+    setError(null);
+    Promise.all([
+      fetch(`/api/summary${q}`).then((r) => r.json()),
+      fetch(`/api/accounts`).then((r) => r.json()),
+      fetch(`/api/transactions${q}&limit=60`).then((r) => r.json()),
+    ])
+      .then(([s, a, t]) => {
+        if (s.error) throw new Error(s.error);
+        setSummary(s);
+        setAccounts(a.accounts ?? []);
+        setTxns(t.transactions ?? []);
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load"));
+  }, [days]);
+
+  if (error) return <div className="page error">{error}</div>;
+  if (!summary) return <div className="page loading">Loading…</div>;
+
+  const cards = accounts.filter((a) => a.currentBalance !== undefined && a.availableBalance !== undefined
+    && a.availableBalance > a.currentBalance && a.currentBalance > 0);
+  const cardIds = new Set(cards.map((c) => c.accountId));
+  const inCredit = accounts.filter((a) => !cardIds.has(a.accountId));
+  const netCash = inCredit.reduce((s, a) => s + (a.currentBalance ?? 0), 0);
+  const owed = cards.reduce((s, a) => s + (a.currentBalance ?? 0), 0);
+
+  return (
+    <div className="page">
+      <header className="top">
+        <div>
+          <h1>Tightarse</h1>
+          <div className="subtle">
+            {summary.from} to {summary.to} · {summary.transactionCount.toLocaleString("en-GB")} transactions
+          </div>
+        </div>
+        <div className="legend" role="group" aria-label="Time range">
+          {RANGES.map((r) => (
+            <button
+              key={r.days}
+              onClick={() => setDays(r.days)}
+              aria-pressed={days === r.days}
+              style={{
+                background: days === r.days ? "var(--surface-1)" : "transparent",
+                border: "1px solid var(--border)",
+                color: days === r.days ? "var(--text-primary)" : "var(--text-secondary)",
+                borderRadius: 999,
+                padding: "4px 12px",
+                font: "inherit",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      {/* The one number the dashboard leads with — a hero figure, not a chart. */}
+      <div className="card">
+        <h2>Net position</h2>
+        <p className="note">
+          Cash across current accounts, less anything owed on cards.
+        </p>
+        <div className="hero" style={{ color: netCash + owed * -1 < 0 ? "var(--out)" : "var(--text-primary)" }}>
+          {money(netCash - owed)}
+        </div>
+        <div className="tiles">
+          {accounts.map((a) => (
+            <div className="tile" key={a.accountId}>
+              <div className="label">
+                {cardIds.has(a.accountId) ? "Card" : "Account"} · {a.institutionName}
+              </div>
+              <div className="value">
+                {a.currentBalance === undefined ? "—" : money(cardIds.has(a.accountId) ? -a.currentBalance : a.currentBalance)}
+              </div>
+              <div className="meta">
+                {a.availableBalance === undefined
+                  ? a.accountId.slice(0, 8)
+                  : `${money(a.availableBalance)} available`}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="card">
+        <h2>Money in and out</h2>
+        <p className="note">
+          Transfers between your own accounts are excluded — {summary.transferCount} legs,{" "}
+          {money(summary.transferTotal)} moved. Net position is unaffected by that netting.
+        </p>
+        <div className="legend">
+          <span><i className="swatch" style={{ background: "var(--in)" }} /> money in</span>
+          <span><i className="swatch" style={{ background: "var(--out)" }} /> money out</span>
+        </div>
+        <MonthlyFlow data={summary.byMonth} />
+      </div>
+
+      <div className="card">
+        <h2>Where it goes</h2>
+        <p className="note">
+          {summary.enrichedCount.toLocaleString("en-GB")} of{" "}
+          {summary.transactionCount.toLocaleString("en-GB")} transactions have a real category.
+          Greyed rows are the bank&rsquo;s payment type, not a spending category.
+        </p>
+        <CategoryBars data={summary.byCategory} />
+      </div>
+
+      <div className="card">
+        <h2>Recent transactions</h2>
+        <p className="note">Newest first.</p>
+        <div className="chart-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Description</th>
+                <th>Category</th>
+                <th className="num">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {txns.map((t) => (
+                <tr key={t.dedupKey}>
+                  <td style={{ color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                    {t.timestamp.slice(0, 10)}
+                  </td>
+                  <td>{t.description}</td>
+                  <td>
+                    <span className={`tag${t.provisional ? " provisional" : ""}`}>{t.category}</span>
+                  </td>
+                  <td className="num" style={{ color: t.amount < 0 ? "var(--text-primary)" : "var(--in)" }}>
+                    {money(t.amount, { sign: t.amount > 0 })}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
