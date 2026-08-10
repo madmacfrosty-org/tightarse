@@ -58,6 +58,13 @@ async function main() {
   let inTok = 0;
   let outTok = 0;
   const tally = new Map<string, number>();
+  const samples: Array<{
+    description: string;
+    amount: number;
+    providerCategory?: string | undefined;
+    category: string;
+    confidence: number;
+  }> = [];
   const producedBy = `categoriser@${modelId}`;
   const producedAt = new Date().toISOString();
 
@@ -69,9 +76,23 @@ async function main() {
     rejected += res.rejected;
     missing += res.missing;
 
+    const byKey = new Map(batch.map((b) => [b.dedupKey, b]));
     for (const c of res.classifications) {
       tally.set(c.category, (tally.get(c.category) ?? 0) + 1);
-      if (dryRun) continue;
+      if (dryRun) {
+        // Print every assignment, not just the totals. A distribution can look
+        // entirely plausible while individual rows are wrong, and the whole
+        // point of a sample is to catch that before spending on 9,653.
+        const b = byKey.get(c.dedupKey);
+        samples.push({
+          description: b?.description ?? "",
+          amount: b?.amount ?? 0,
+          providerCategory: b?.providerCategory,
+          category: c.category,
+          confidence: c.confidence,
+        });
+        continue;
+      }
       const timestamp = timestamps.get(c.dedupKey);
       if (!timestamp) continue;
       await ledger.putEnrichment({
@@ -94,6 +115,18 @@ async function main() {
   if (rejected > 0) console.log(`  ${rejected} responses outside the taxonomy, stored as Other`);
   if (missing > 0) console.log(`  ${missing} left in the backlog (no response)`);
   console.log(`  tokens: ${inTok} in, ${outTok} out`);
+
+  if (dryRun && samples.length > 0) {
+    console.log(`\nassignments (lowest confidence first — where errors hide):\n`);
+    const sorted = [...samples].sort((a, b) => a.confidence - b.confidence);
+    for (const s of sorted) {
+      const amt = (s.amount / 100).toFixed(2).padStart(10);
+      const desc = s.description.length > 38 ? `${s.description.slice(0, 37)}…` : s.description;
+      console.log(
+        `  ${s.confidence.toFixed(2)}  ${amt}  ${desc.padEnd(38)}  ${s.category.padEnd(22)}${s.providerCategory ?? ""}`,
+      );
+    }
+  }
 
   console.log(`\ncategories assigned:`);
   for (const [c, n] of [...tally.entries()].sort((a, b) => b[1] - a[1])) {
