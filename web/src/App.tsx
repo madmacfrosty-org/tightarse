@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { apiGet, currentIdentity, isConfigured, signIn, signOut, type Identity } from "./auth";
+import { apiGet, currentIdentity, initAuth, signIn, signOut, type Identity } from "./auth";
 import { CategoryBars, MonthlyFlow, money, type CategoryDatum, type MonthDatum } from "./charts";
 
 interface Summary {
@@ -86,8 +86,10 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    currentIdentity()
+    initAuth()
+      .then(currentIdentity)
       .then(setIdentity)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Configuration failed"))
       .finally(() => setChecking(false));
   }, []);
 
@@ -110,14 +112,8 @@ export function App() {
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load"));
   }, [days, identity]);
 
-  if (!isConfigured) {
-    return (
-      <div className="page error">
-        Cognito is not configured. Set VITE_USER_POOL_ID and VITE_USER_POOL_CLIENT_ID.
-      </div>
-    );
-  }
   if (checking) return <div className="page loading">Checking session…</div>;
+  if (error && !identity) return <div className="page error">{error}</div>;
   if (!identity) return <SignIn onSignedIn={setIdentity} />;
 
   if (error) return <div className="page error">{error}</div>;

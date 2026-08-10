@@ -1,0 +1,122 @@
+import * as cdk from "aws-cdk-lib";
+import * as s3 from "aws-cdk-lib/aws-s3";
+import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
+import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
+import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
+import type * as cognito from "aws-cdk-lib/aws-cognito";
+import { Construct } from "constructs";
+import * as path from "node:path";
+import { config, type EnvSettings } from "./config";
+
+export interface WebStackProps extends cdk.StackProps {
+  readonly settings: EnvSettings;
+  readonly userPool: cognito.UserPool;
+  readonly userPoolClient: cognito.UserPoolClient;
+  readonly apiUrl: string;
+}
+
+/**
+ * The dashboard: a private bucket behind CloudFront.
+ *
+ * Entirely stateless — the bucket holds build output and nothing else, so this
+ * stack can be destroyed and redeployed at will.
+ *
+ * Configuration is written as an object rather than compiled into the bundle,
+ * so one build works in every environment. Baking it in would produce a dev
+ * bundle and a prod bundle differing by three strings, and deploying the wrong
+ * one points the dashboard at the wrong ledger without any visible sign.
+ */
+export class WebStack extends cdk.Stack {
+  constructor(scope: Construct, id: string, props: WebStackProps) {
+    super(scope, id, props);
+
+    const { settings, userPool, userPoolClient, apiUrl } = props;
+
+    const bucket = new s3.Bucket(this, "Site", {
+      // No public access at all: CloudFront reaches it through Origin Access
+      // Control, so the bucket is never a second front door.
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+    });
+
+    /**
+     * Security headers.
+     *
+     * connect-src is the one that matters: it names exactly the two hosts this
+     * app may talk to. Injected script that tried to post a transaction
+     * description anywhere else would be blocked by the browser.
+     */
+    const headers = new cloudfront.ResponseHeadersPolicy(this, "SecurityHeaders", {
+      securityHeadersBehavior: {
+        contentSecurityPolicy: {
+          override: true,
+          contentSecurityPolicy: [
+            "default-src 'self'",
+            "script-src 'self'",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data:",
+            `connect-src 'self' ${apiUrl} https://cognito-idp.${this.region}.amazonaws.com`,
+            "frame-ancestors 'none'",
+            "base-uri 'self'",
+            "form-action 'self'",
+          ].join("; "),
+        },
+        strictTransportSecurity: {
+          override: true,
+          accessControlMaxAge: cdk.Duration.days(365),
+          includeSubdomains: true,
+        },
+        contentTypeOptions: { override: true },
+        frameOptions: { override: true, frameOption: cloudfront.HeadersFrameOption.DENY },
+        referrerPolicy: {
+          override: true,
+          referrerPolicy: cloudfront.HeadersReferrerPolicy.NO_REFERRER,
+        },
+      },
+    });
+
+    const distribution = new cloudfront.Distribution(this, "Cdn", {
+      defaultBehavior: {
+        origin: origins.S3BucketOrigin.withOriginAccessControl(bucket),
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        responseHeadersPolicy: headers,
+      },
+      defaultRootObject: "index.html",
+      // Single-page app: unknown paths are routes, not missing files.
+      errorResponses: [
+        { httpStatus: 403, responseHttpStatus: 200, responsePagePath: "/index.html" },
+        { httpStatus: 404, responseHttpStatus: 200, responsePagePath: "/index.html" },
+      ],
+      // Europe and North America only — this is a UK household application, and
+      // the cheaper price class is the honest choice.
+      priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
+      comment: `${config.appName}-${settings.name} dashboard`,
+    });
+
+    new s3deploy.BucketDeployment(this, "Deploy", {
+      sources: [
+        s3deploy.Source.asset(path.join(__dirname, "../../web/dist")),
+        // Written by CDK, so it always matches the stack that deployed it.
+        s3deploy.Source.jsonData("config.json", {
+          userPoolId: userPool.userPoolId,
+          userPoolClientId: userPoolClient.userPoolClientId,
+          apiUrl,
+        }),
+      ],
+      destinationBucket: bucket,
+      distribution,
+      distributionPaths: ["/*"],
+      prune: true,
+    });
+
+    new cdk.CfnOutput(this, "SiteUrl", { value: `https://${distribution.distributionDomainName}` });
+
+    cdk.Tags.of(this).add("app", config.appName);
+    cdk.Tags.of(this).add("env", settings.name);
+    cdk.Tags.of(this).add("tier", "stateless");
+  }
+}

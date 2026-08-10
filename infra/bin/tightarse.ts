@@ -1,9 +1,14 @@
 #!/usr/bin/env node
+// Note: infra/tsconfig.json disables exactOptionalPropertyTypes. CDK's
+// interfaces declare optional members that its own concrete classes leave
+// undefined, so the flag rejects code the library intends. Only this project
+// relaxes it; everything that touches ledger data keeps it on.
 import * as cdk from "aws-cdk-lib";
 import { config, envSettings } from "../lib/config";
 import { FoundationStack } from "../lib/foundation-stack";
 import { DataStack } from "../lib/data-stack";
 import { ApiStack } from "../lib/api-stack";
+import { WebStack } from "../lib/web-stack";
 
 const app = new cdk.App();
 const settings = envSettings(app);
@@ -32,12 +37,20 @@ const data = new DataStack(app, `TightarseData-${settings.name}`, {
   dataKey: foundation.dataKey,
 });
 
-new ApiStack(app, `TightarseApi-${settings.name}`, {
+const api = new ApiStack(app, `TightarseApi-${settings.name}`, {
   env,
   settings,
   table: data.table,
   userPool: data.userPool,
   userPoolClient: data.userPoolClient,
+});
+
+new WebStack(app, `TightarseWeb-${settings.name}`, {
+  env,
+  settings,
+  userPool: data.userPool,
+  userPoolClient: data.userPoolClient,
+  apiUrl: api.api.apiEndpoint,
 });
 
 // Stateless stacks (ingest, transform, api, web, agents) are added as they are

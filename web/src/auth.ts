@@ -1,3 +1,4 @@
+import { loadConfig } from "./config";
 import {
   CognitoUserPool,
   CognitoUser,
@@ -21,21 +22,21 @@ import {
  * data on a machine that may not be the only person's.
  */
 
-const UserPoolId = import.meta.env.VITE_USER_POOL_ID;
-const ClientId = import.meta.env.VITE_USER_POOL_CLIENT_ID;
+let pool: CognitoUserPool | null = null;
+let apiUrl = "/api";
 
-export const isConfigured = Boolean(UserPoolId && ClientId);
-
-const pool =
-  UserPoolId && ClientId
-    ? new CognitoUserPool({
-        UserPoolId,
-        ClientId,
-        // The library defaults to localStorage, which survives a browser
-        // restart. Bank data on a machine someone else might use should not.
-        Storage: window.sessionStorage,
-      })
-    : null;
+/** Must be awaited once before anything else here is used. */
+export async function initAuth(): Promise<void> {
+  const cfg = await loadConfig();
+  apiUrl = cfg.apiUrl;
+  pool = new CognitoUserPool({
+    UserPoolId: cfg.userPoolId,
+    ClientId: cfg.userPoolClientId,
+    // The library defaults to localStorage, which survives a browser restart.
+    // Bank data on a machine someone else might use should not.
+    Storage: window.sessionStorage,
+  });
+}
 
 export interface Identity {
   email: string;
@@ -101,13 +102,11 @@ export function signOut(): void {
   pool?.getCurrentUser()?.signOut();
 }
 
-const API = import.meta.env.VITE_API_URL ?? "/api";
-
 /** Fetch from the API with the ID token attached. */
 export async function apiGet<T>(path: string): Promise<T> {
   const token = await idToken();
   if (!token) throw new Error("Not signed in");
-  const res = await fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+  const res = await fetch(`${apiUrl}${path}`, { headers: { Authorization: `Bearer ${token}` } });
   if (res.status === 401 || res.status === 403) {
     throw new Error("Not authorised for this household");
   }
