@@ -31,6 +31,7 @@ export class DataStack extends cdk.Stack {
   public readonly table: dynamodb.TableV2;
   public readonly rawBucket: s3.Bucket;
   public readonly userPool: cognito.UserPool;
+  public readonly userPoolClient: cognito.UserPoolClient;
 
   constructor(scope: Construct, id: string, props: DataStackProps) {
     super(scope, id, props);
@@ -121,6 +122,19 @@ export class DataStack extends cdk.Stack {
       selfSignUpEnabled: false, // family only — accounts are created by hand
       signInAliases: { email: true },
       standardAttributes: { email: { required: true, mutable: false } },
+      /**
+       * Which household this identity may read.
+       *
+       * The API takes the tenant from this claim and never from the request. A
+       * query parameter would let any authenticated user read any household's
+       * ledger, so this attribute is the entire access-control model.
+       *
+       * Immutable: a user changing their own household would be a privilege
+       * escalation, and Cognito lets an attribute be self-mutable by default.
+       */
+      customAttributes: {
+        tenant: new cognito.StringAttribute({ minLen: 1, maxLen: 64, mutable: false }),
+      },
       passwordPolicy: {
         minLength: 12,
         requireLowercase: true,
@@ -135,11 +149,25 @@ export class DataStack extends cdk.Stack {
       deletionProtection: settings.deletionProtection,
     });
 
+    this.userPoolClient = this.userPool.addClient("WebClient", {
+      // No client secret: this is a browser app and cannot keep one.
+      generateSecret: false,
+      authFlows: { userSrp: true },
+      // Short access tokens, long refresh — a leaked access token expires
+      // quickly, and the refresh token is what the browser has to guard.
+      accessTokenValidity: cdk.Duration.hours(1),
+      idTokenValidity: cdk.Duration.hours(1),
+      refreshTokenValidity: cdk.Duration.days(30),
+      // Do not leak whether an email is registered.
+      preventUserExistenceErrors: true,
+    });
+
     // ---------------------------------------------------------------- outputs
 
     new cdk.CfnOutput(this, "LedgerTableName", { value: this.table.tableName });
     new cdk.CfnOutput(this, "RawBucketName", { value: this.rawBucket.bucketName });
     new cdk.CfnOutput(this, "UserPoolId", { value: this.userPool.userPoolId });
+    new cdk.CfnOutput(this, "UserPoolClientId", { value: this.userPoolClient.userPoolClientId });
 
     cdk.Tags.of(this).add("app", config.appName);
     cdk.Tags.of(this).add("env", settings.name);

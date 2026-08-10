@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
+import { apiGet, currentIdentity, isConfigured, signIn, signOut, type Identity } from "./auth";
 import { CategoryBars, MonthlyFlow, money, type CategoryDatum, type MonthDatum } from "./charts";
 
 interface Summary {
@@ -40,7 +41,44 @@ const RANGES = [
   { label: "5 years", days: 365 * 5 },
 ] as const;
 
+function SignIn({ onSignedIn }: { onSignedIn: (i: Identity) => void }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    signIn(email, password)
+      .then(onSignedIn)
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Sign in failed"))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="page" style={{ maxWidth: 360 }}>
+      <h1>Tightarse</h1>
+      <form className="card" onSubmit={submit}>
+        <h2>Sign in</h2>
+        <p className="note">Your household ledger.</p>
+        <label className="label" htmlFor="email">Email</label>
+        <input id="email" type="email" autoComplete="username" required
+          value={email} onChange={(e) => setEmail(e.target.value)} />
+        <label className="label" htmlFor="password">Password</label>
+        <input id="password" type="password" autoComplete="current-password" required
+          value={password} onChange={(e) => setPassword(e.target.value)} />
+        <button type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+        {error ? <p className="error" style={{ padding: "12px 0 0", fontSize: 13 }}>{error}</p> : null}
+      </form>
+    </div>
+  );
+}
+
 export function App() {
+  const [identity, setIdentity] = useState<Identity | null>(null);
+  const [checking, setChecking] = useState(true);
   const [days, setDays] = useState<number>(365);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
@@ -48,23 +86,39 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    currentIdentity()
+      .then(setIdentity)
+      .finally(() => setChecking(false));
+  }, []);
+
+  useEffect(() => {
+    if (!identity) return;
     const to = new Date().toISOString().slice(0, 10);
     const from = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
     const q = `?from=${from}&to=${to}`;
     setError(null);
     Promise.all([
-      fetch(`/api/summary${q}`).then((r) => r.json()),
-      fetch(`/api/accounts`).then((r) => r.json()),
-      fetch(`/api/transactions${q}&limit=60`).then((r) => r.json()),
+      apiGet<Summary>(`/summary${q}`),
+      apiGet<{ accounts: AccountRow[] }>(`/accounts`),
+      apiGet<{ transactions: TxnRow[] }>(`/transactions${q}&limit=60`),
     ])
       .then(([s, a, t]) => {
-        if (s.error) throw new Error(s.error);
         setSummary(s);
         setAccounts(a.accounts ?? []);
         setTxns(t.transactions ?? []);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load"));
-  }, [days]);
+  }, [days, identity]);
+
+  if (!isConfigured) {
+    return (
+      <div className="page error">
+        Cognito is not configured. Set VITE_USER_POOL_ID and VITE_USER_POOL_CLIENT_ID.
+      </div>
+    );
+  }
+  if (checking) return <div className="page loading">Checking session…</div>;
+  if (!identity) return <SignIn onSignedIn={setIdentity} />;
 
   if (error) return <div className="page error">{error}</div>;
   if (!summary) return <div className="page loading">Loading…</div>;
@@ -83,6 +137,15 @@ export function App() {
           <h1>Tightarse</h1>
           <div className="subtle">
             {summary.from} to {summary.to} · {summary.transactionCount.toLocaleString("en-GB")} transactions
+            {" · "}
+            {identity.email}
+            {" · "}
+            <button
+              onClick={() => { signOut(); setIdentity(null); }}
+              style={{ background: "none", border: "none", padding: 0, font: "inherit", color: "var(--in)", cursor: "pointer" }}
+            >
+              sign out
+            </button>
           </div>
         </div>
         <div className="legend" role="group" aria-label="Time range">

@@ -3,6 +3,7 @@ import * as cdk from "aws-cdk-lib";
 import { config, envSettings } from "../lib/config";
 import { FoundationStack } from "../lib/foundation-stack";
 import { DataStack } from "../lib/data-stack";
+import { ApiStack } from "../lib/api-stack";
 
 const app = new cdk.App();
 const settings = envSettings(app);
@@ -25,10 +26,18 @@ const env: cdk.Environment = account
 // target the wrong one.
 const foundation = new FoundationStack(app, `TightarseFoundation-${settings.name}`, { env, settings });
 
-new DataStack(app, `TightarseData-${settings.name}`, {
+const data = new DataStack(app, `TightarseData-${settings.name}`, {
   env,
   settings,
   dataKey: foundation.dataKey,
+});
+
+new ApiStack(app, `TightarseApi-${settings.name}`, {
+  env,
+  settings,
+  table: data.table,
+  userPool: data.userPool,
+  userPoolClient: data.userPoolClient,
 });
 
 // Stateless stacks (ingest, transform, api, web, agents) are added as they are

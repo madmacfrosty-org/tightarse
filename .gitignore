@@ -50,3 +50,6 @@ spike/*/out/
 
 # vite build output
 web/dist/
+
+# points at a specific deployed environment
+web/.env.local
