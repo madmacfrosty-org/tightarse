@@ -8,6 +8,9 @@
       "path": "packages/ledger"
     },
     {
+      "path": "packages/truelayer"
+    },
+    {
       "path": "services/transform"
     },
     {
