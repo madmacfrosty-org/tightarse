@@ -78,10 +78,12 @@ describe("summarise", () => {
     expect(s.byCategory[0]!.category).toBe("BIG");
   });
 
-  it("declares that internal transfers are not netted", () => {
-    // The aggregated ledger shows a transfer between own accounts as both
-    // spend and income. Stating it beats a silently overstated total.
-    expect(summarise([row()], [], range).internalTransfersNetted).toBe(false);
+  it("nets internal transfers by default, and says so", () => {
+    // An aggregated ledger shows a transfer between own accounts as both spend
+    // and income. The flag is reported either way so a caller can never mistake
+    // an inflated total for a real one.
+    expect(summarise([row()], [], range).internalTransfersNetted).toBe(true);
+    expect(summarise([row()], [], range, { transfers: false }).internalTransfersNetted).toBe(false);
   });
 
   it("handles an empty range without inventing a currency", () => {

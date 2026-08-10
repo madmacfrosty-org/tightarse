@@ -1,0 +1,120 @@
+import { describe, it, expect } from "vitest";
+import { detectTransfers } from "./transfers.js";
+import { summarise } from "./aggregate.js";
+import type { LedgerRow } from "./aggregate.js";
+
+const row = (over: Partial<LedgerRow> & { dedupKey: string }): LedgerRow => ({
+  timestamp: "2026-03-15T00:00:00Z",
+  amount: -50000,
+  currency: "GBP",
+  description: "TRANSFER",
+  accountId: "accA",
+  transactionType: "DEBIT",
+  ...over,
+});
+
+describe("detectTransfers", () => {
+  it("pairs equal and opposite amounts across different accounts", () => {
+    const d = detectTransfers([
+      row({ dedupKey: "out", amount: -50000, accountId: "accA" }),
+      row({ dedupKey: "in", amount: 50000, accountId: "accB" }),
+    ]);
+    expect(d.pairs).toHaveLength(1);
+    expect(d.pairs[0]).toMatchObject({ out: "out", in: "in", amount: 50000, daysApart: 0 });
+    expect(d.totalMoved).toBe(50000);
+  });
+
+  it("never pairs within a single account", () => {
+    // Equal and opposite inside one account is a correction or reversal, not a
+    // transfer, and netting it would erase a real refund.
+    const d = detectTransfers([
+      row({ dedupKey: "a", amount: -50000, accountId: "accA" }),
+      row({ dedupKey: "b", amount: 50000, accountId: "accA" }),
+    ]);
+    expect(d.pairs).toHaveLength(0);
+  });
+
+  it("does not pair outside the window", () => {
+    const d = detectTransfers(
+      [
+        row({ dedupKey: "out", amount: -50000, accountId: "accA", timestamp: "2026-03-01T00:00:00Z" }),
+        row({ dedupKey: "in", amount: 50000, accountId: "accB", timestamp: "2026-03-20T00:00:00Z" }),
+      ],
+      { windowDays: 3 },
+    );
+    expect(d.pairs).toHaveLength(0);
+  });
+
+  it("uses each leg at most once", () => {
+    // One debit, two candidate credits. Matching both would erase spending that
+    // genuinely happened.
+    const d = detectTransfers([
+      row({ dedupKey: "out", amount: -50000, accountId: "accA" }),
+      row({ dedupKey: "in1", amount: 50000, accountId: "accB" }),
+      row({ dedupKey: "in2", amount: 50000, accountId: "accC" }),
+    ]);
+    expect(d.pairs).toHaveLength(1);
+    expect(d.keys.size).toBe(2);
+  });
+
+  it("matches nearest in time when the same amount moves repeatedly", () => {
+    // A monthly standing order of the same value would otherwise pair January's
+    // debit with June's credit and leave the real pairs unmatched.
+    const d = detectTransfers(
+      [
+        row({ dedupKey: "outJan", amount: -50000, accountId: "accA", timestamp: "2026-01-05T00:00:00Z" }),
+        row({ dedupKey: "inJan", amount: 50000, accountId: "accB", timestamp: "2026-01-05T00:00:00Z" }),
+        row({ dedupKey: "outFeb", amount: -50000, accountId: "accA", timestamp: "2026-02-05T00:00:00Z" }),
+        row({ dedupKey: "inFeb", amount: 50000, accountId: "accB", timestamp: "2026-02-05T00:00:00Z" }),
+      ],
+      { windowDays: 60 },
+    );
+    expect(d.pairs).toHaveLength(2);
+    const pairs = d.pairs.map((p) => `${p.out}->${p.in}`).sort();
+    expect(pairs).toEqual(["outFeb->inFeb", "outJan->inJan"]);
+  });
+
+  it("ignores same-signed amounts", () => {
+    const d = detectTransfers([
+      row({ dedupKey: "a", amount: -50000, accountId: "accA" }),
+      row({ dedupKey: "b", amount: -50000, accountId: "accB" }),
+    ]);
+    expect(d.pairs).toHaveLength(0);
+  });
+});
+
+describe("netting invariant", () => {
+  it("changes gross income and spend but never the net position", () => {
+    // Each transfer removes an equal debit and credit, so net must be
+    // untouched. Measured against the real ledger: gross fell by £574,551 on
+    // each side and net stayed at -£51,834.45. If netting ever moves net, the
+    // matcher has paired two unrelated transactions.
+    const rows: LedgerRow[] = [
+      row({ dedupKey: "out", amount: -50000, accountId: "accA" }),
+      row({ dedupKey: "in", amount: 50000, accountId: "accB" }),
+      row({ dedupKey: "shop", amount: -1299, accountId: "accA", description: "SHOP" }),
+      row({ dedupKey: "pay", amount: 200000, accountId: "accA", description: "SALARY" }),
+    ];
+    const range = { from: "2026-01-01", to: "2026-12-31" };
+
+    const netted = summarise(rows, [], range);
+    const raw = summarise(rows, [], range, { transfers: false });
+
+    expect(netted.net).toBe(raw.net);
+    expect(netted.income).toBe(raw.income - 50000);
+    expect(netted.spend).toBe(raw.spend + 50000);
+    expect(netted.transferCount).toBe(2);
+    expect(netted.transferTotal).toBe(50000);
+    expect(netted.internalTransfersNetted).toBe(true);
+  });
+
+  it("keeps transfer legs out of category totals", () => {
+    const rows: LedgerRow[] = [
+      row({ dedupKey: "out", amount: -50000, accountId: "accA", providerCategory: "TRANSFER" }),
+      row({ dedupKey: "in", amount: 50000, accountId: "accB", providerCategory: "TRANSFER" }),
+      row({ dedupKey: "shop", amount: -1299, accountId: "accA", providerCategory: "PURCHASE" }),
+    ];
+    const s = summarise(rows, [], { from: "2026-01-01", to: "2026-12-31" });
+    expect(s.byCategory.map((c) => c.category)).toEqual(["PURCHASE"]);
+  });
+});

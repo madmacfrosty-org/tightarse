@@ -1,4 +1,5 @@
 import { assertSingleCurrency } from "@tightarse/schema";
+import { detectTransfers, type TransferOptions } from "./transfers.js";
 
 /**
  * Aggregation over ledger rows. Pure — no DynamoDB, no HTTP.
@@ -53,12 +54,17 @@ export interface Summary {
   byCategory: CategoryTotal[];
   byMonth: MonthTotal[];
   /**
-   * Movement between the household's own accounts is NOT yet removed — see
-   * issue #12. In a single aggregated ledger an internal transfer appears as
-   * both spending and income, so these totals overstate both sides. Reported
-   * explicitly rather than left for the reader to discover.
+   * Whether movement between the household's own accounts has been removed from
+   * income and spend. Reported rather than assumed, so a caller can never
+   * mistake an inflated total for a real one.
    */
   internalTransfersNetted: boolean;
+  /** How many transactions were identified as legs of an internal transfer. */
+  transferCount: number;
+  /** Absolute value moved between own accounts, in minor units. Excluded from
+   *  income and spend, but reported so the movement is visible rather than
+   *  simply missing. */
+  transferTotal: number;
   /** How many rows carry a category from our own categoriser rather than the
    *  provider. Zero until the categoriser runs. */
   enrichedCount: number;
@@ -85,9 +91,18 @@ export function summarise(
   transactions: readonly LedgerRow[],
   enrichments: readonly EnrichmentRow[],
   range: { from: string; to: string },
+  opts: { transfers?: TransferOptions | false } = {},
 ): Summary {
   const currency = assertSingleCurrency(transactions);
   const enriched = new Map(enrichments.map((e) => [e.dedupKey, e]));
+
+  // Transfers are excluded from income, spend and categories, but still counted
+  // and reported — the money did move, and hiding it entirely would make
+  // balances look wrong.
+  const detection =
+    opts.transfers === false
+      ? { pairs: [], keys: new Set<string>(), totalMoved: 0 }
+      : detectTransfers(transactions, opts.transfers ?? {});
 
   const categories = new Map<string, CategoryTotal>();
   const months = new Map<string, MonthTotal>();
@@ -95,6 +110,8 @@ export function summarise(
   let spend = 0;
 
   for (const row of transactions) {
+    if (detection.keys.has(row.dedupKey)) continue;
+
     // Sign is authoritative: debits negative, credits positive, consistent
     // across every transaction measured.
     if (row.amount >= 0) income += row.amount;
@@ -129,7 +146,9 @@ export function summarise(
     // Largest spend first: negative totals ascending.
     byCategory: [...categories.values()].sort((a, b) => a.total - b.total),
     byMonth: [...months.values()].sort((a, b) => a.month.localeCompare(b.month)),
-    internalTransfersNetted: false,
+    internalTransfersNetted: opts.transfers !== false,
+    transferCount: detection.keys.size,
+    transferTotal: detection.totalMoved,
     enrichedCount: transactions.filter((t) => enriched.has(t.dedupKey)).length,
   };
 }

@@ -31,16 +31,16 @@ async function main() {
   const ledger = new Ledger({ tableName, region: process.env["AWS_REGION"] ?? "eu-west-1" });
   const { transactions, enrichments } = await ledger.listRange(tenantId, { from, to });
 
-  const s = summarise(
-    transactions as unknown as LedgerRow[],
-    enrichments as unknown as EnrichmentRow[],
-    { from, to },
-  );
+  const rows = transactions as unknown as LedgerRow[];
+  const enr = enrichments as unknown as EnrichmentRow[];
+  const s = summarise(rows, enr, { from, to });
+  const raw = summarise(rows, enr, { from, to }, { transfers: false });
 
   console.log(`\n${from} to ${to}   ${s.transactionCount} transactions   ${s.currency}\n`);
-  console.log(`  income   ${money(s.income, s.currency).padStart(14)}`);
-  console.log(`  spend    ${money(s.spend, s.currency).padStart(14)}`);
-  console.log(`  net      ${money(s.net, s.currency).padStart(14)}`);
+  console.log(`                  transfers netted        raw`);
+  console.log(`  income   ${money(s.income, s.currency).padStart(14)}  ${money(raw.income, raw.currency).padStart(14)}`);
+  console.log(`  spend    ${money(s.spend, s.currency).padStart(14)}  ${money(raw.spend, raw.currency).padStart(14)}`);
+  console.log(`  net      ${money(s.net, s.currency).padStart(14)}  ${money(raw.net, raw.currency).padStart(14)}`);
 
   console.log(`\nby provider category:`);
   for (const c of s.byCategory) {
@@ -59,13 +59,8 @@ async function main() {
     );
   }
 
-  console.log(`\ncategorised by our own agent: ${s.enrichedCount} of ${s.transactionCount}`);
-  if (!s.internalTransfersNetted) {
-    console.log(
-      `\nNOTE: movement between your own accounts is not yet removed (#12),\n` +
-        `      so both income and spend are overstated by the same amount.`,
-    );
-  }
+  console.log(`\ninternal transfers: ${s.transferCount} legs, ${money(s.transferTotal, s.currency)} moved`);
+  console.log(`categorised by our own agent: ${s.enrichedCount} of ${s.transactionCount}`);
 }
 
 main().catch((err: unknown) => {
