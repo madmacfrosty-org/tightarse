@@ -296,6 +296,25 @@ export const TenantSettings = z.object({
 });
 export type TenantSettings = z.infer<typeof TenantSettings>;
 
+/**
+ * Which household a person belongs to.
+ *
+ * Created by an administrator, never by the person signing in. With federated
+ * login there is no password to gate on — anyone with a Google account could
+ * reach the sign-in screen — so this record is what decides whether a verified
+ * identity gets a household claim at all.
+ *
+ * No membership record means no claim, and no claim means the API refuses. It
+ * fails closed by construction rather than by a check someone might remove.
+ */
+export const Member = z.object({
+  /** Verified email from the identity provider, lowercased. */
+  email: z.string().email(),
+  tenantId: TenantId,
+  addedAt: z.string().datetime(),
+});
+export type Member = z.infer<typeof Member>;
+
 /** Row kind, encoded in the sort key after the timestamp. */
 export const RowKind = { transaction: "TX", enrichment: "EN" } as const;
 export type RowKind = (typeof RowKind)[keyof typeof RowKind];
@@ -343,6 +362,16 @@ export const keys = {
   settings: (tenantId: string) => ({
     pk: `T#${tenantId}`,
     sk: "SETTINGS",
+  }),
+
+  /**
+   * Keyed by email rather than by tenant, because the lookup runs the other
+   * way: a token is being minted for a person and we need their household.
+   * A direct GetItem, no index, no scan.
+   */
+  member: (email: string) => ({
+    pk: `MEMBER#${email.trim().toLowerCase()}`,
+    sk: "MEMBER",
   }),
 
   transaction: (tenantId: string, timestamp: string, dedup: string) => ({

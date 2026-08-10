@@ -49,6 +49,9 @@ export class FoundationStack extends cdk.Stack {
    */
   public readonly dataKey: kms.Key;
 
+  /** Google OAuth client secret, populated by hand. */
+  public readonly googleOAuthSecret: secretsmanager.Secret;
+
   constructor(scope: Construct, id: string, props: FoundationStackProps) {
     super(scope, id, props);
 
@@ -70,6 +73,28 @@ export class FoundationStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
+    /**
+     * Google OAuth client secret, for federated sign-in.
+     *
+     * Here rather than in DataStack for the same reason as everything else in
+     * this stack: it is obtained by hand from a Google Cloud project and
+     * re-obtaining it is a manual chore, so wiping dev data must not destroy it.
+     *
+     * Created with a generated placeholder — no credential passes through a
+     * CloudFormation template. Overwrite with the real value:
+     *   aws secretsmanager put-secret-value --secret-id <name> \
+     *     --secret-string '{"clientSecret":"..."}'
+     */
+    this.googleOAuthSecret = new secretsmanager.Secret(this, "GoogleOAuth", {
+      secretName: `${prefix.replace("/truelayer", "")}/google-oauth`,
+      description: `Google OAuth client secret for ${settings.name}`,
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({ clientSecret: "" }),
+        generateStringKey: "placeholder",
+      },
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
     this.dataKey = new kms.Key(this, "DataKey", {
       alias: `alias/${config.appName}-${settings.name}-data`,
       description: `Encrypts the ${settings.name} raw landing zone`,
@@ -85,6 +110,7 @@ export class FoundationStack extends cdk.Stack {
     new cdk.CfnOutput(this, "ClientSecretName", { value: this.clientSecret.secretName });
     new cdk.CfnOutput(this, "ConnectionSecretPrefix", { value: this.connectionSecretPrefix });
     new cdk.CfnOutput(this, "DataKeyArn", { value: this.dataKey.keyArn });
+    new cdk.CfnOutput(this, "GoogleOAuthSecretName", { value: this.googleOAuthSecret.secretName });
 
     cdk.Tags.of(this).add("app", config.appName);
     cdk.Tags.of(this).add("env", settings.name);

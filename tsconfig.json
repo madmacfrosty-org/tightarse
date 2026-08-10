@@ -20,6 +20,9 @@
       "path": "services/ingest"
     },
     {
+      "path": "services/auth"
+    },
+    {
       "path": "agents/categoriser"
     },
     {

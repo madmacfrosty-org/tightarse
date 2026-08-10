@@ -3,6 +3,7 @@ import {
   DynamoDBDocumentClient,
   BatchWriteCommand,
   PutCommand,
+  GetCommand,
   QueryCommand,
   UpdateCommand,
   TransactWriteCommand,
@@ -16,6 +17,7 @@ import {
   type Transaction,
   type TransactionEnrichment,
   type TenantSettings,
+  type Member,
 } from "@tightarse/schema";
 import { accountItem, consentItem, enrichmentItem, pendingItem, transactionItem } from "./items";
 
@@ -187,6 +189,28 @@ export class Ledger {
   async getSettings(tenantId: string): Promise<TenantSettings | null> {
     const rows = await this.queryByPrefix(tenantId, "SETTINGS");
     return (rows[0] as TenantSettings | undefined) ?? null;
+  }
+
+  /** Grant a person access to a household. Administrative action only. */
+  async putMember(m: Member): Promise<void> {
+    const { pk, sk } = keys.member(m.email);
+    await this.doc.send(
+      new PutCommand({ TableName: this.table, Item: { pk, sk, kind: "MEMBER", ...m, email: m.email.trim().toLowerCase() } }),
+    );
+  }
+
+  /**
+   * Which household this email belongs to, or null.
+   *
+   * Null is the safe answer and must stay that way: a caller that invented a
+   * default here would hand an unknown identity access to somebody's ledger.
+   */
+  async getMemberTenant(email: string): Promise<string | null> {
+    const res = await this.doc.send(
+      new GetCommand({ TableName: this.table, Key: keys.member(email) }),
+    );
+    const tenantId = (res.Item as { tenantId?: string } | undefined)?.tenantId;
+    return tenantId ?? null;
   }
 
   async putConsent(c: Consent): Promise<void> {

@@ -35,6 +35,7 @@ const data = new DataStack(app, `TightarseData-${settings.name}`, {
   env,
   settings,
   dataKey: foundation.dataKey,
+  googleOAuthSecret: foundation.googleOAuthSecret,
 });
 
 const api = new ApiStack(app, `TightarseApi-${settings.name}`, {

@@ -3,6 +3,10 @@ import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as kms from "aws-cdk-lib/aws-kms";
+import * as lambda from "aws-cdk-lib/aws-lambda";
+import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
+import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+import * as path from "node:path";
 import { Construct } from "constructs";
 import { config, type EnvSettings } from "./config";
 
@@ -10,6 +14,8 @@ export interface DataStackProps extends cdk.StackProps {
   readonly settings: EnvSettings;
   /** Customer-managed key from FoundationStack, so it survives a dev wipe. */
   readonly dataKey: kms.IKey;
+  /** Google OAuth client secret, for federated sign-in. */
+  readonly googleOAuthSecret: secretsmanager.ISecret;
 }
 
 /**
@@ -149,9 +155,78 @@ export class DataStack extends cdk.Stack {
       deletionProtection: settings.deletionProtection,
     });
 
+    /**
+     * Injects the household claim at token-issue time.
+     *
+     * Federated sign-in has no attribute we control — Google's token says who
+     * someone is, not which household they may read — and Cognito creates the
+     * pool user automatically, so custom:tenant is never set. This reads an
+     * administrator-created membership record and adds it.
+     *
+     * Fails closed: no membership, no claim, and the API refuses a token
+     * without one.
+     */
+    const preToken = new NodejsFunction(this, "PreTokenGeneration", {
+      entry: path.join(__dirname, "../../services/auth/src/pre-token.ts"),
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_22_X,
+      architecture: lambda.Architecture.ARM_64,
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(5),
+      environment: { TABLE_NAME: this.table.tableName },
+      bundling: { minify: true, sourceMap: true, target: "node22" },
+    });
+    this.table.grantReadData(preToken);
+    this.userPool.addTrigger(cognito.UserPoolOperation.PRE_TOKEN_GENERATION, preToken);
+
+    // Hosted UI domain. Federation requires the OAuth redirect flow; SRP cannot
+    // do it, so this is what a "Sign in with Google" button actually talks to.
+    this.userPool.addDomain("Domain", {
+      cognitoDomain: { domainPrefix: `${config.appName}-${settings.name}-${this.account.slice(-6)}` },
+    });
+
+    // Only created once a Google client exists. Deploying an identity provider
+    // with an empty secret fails, and gating it keeps the stack deployable
+    // before the Google Cloud project is set up.
+    const googleClientId = this.node.tryGetContext("googleClientId") as string | undefined;
+    if (googleClientId) {
+      const google = new cognito.UserPoolIdentityProviderGoogle(this, "Google", {
+        userPool: this.userPool,
+        clientId: googleClientId,
+        clientSecretValue: props.googleOAuthSecret.secretValueFromJson("clientSecret"),
+        scopes: ["openid", "email", "profile"],
+        // Google's verified email becomes the pool user's email, which is what
+        // the membership lookup keys on.
+        attributeMapping: {
+          email: cognito.ProviderAttribute.GOOGLE_EMAIL,
+          fullname: cognito.ProviderAttribute.GOOGLE_NAME,
+        },
+      });
+      this.userPool.registerIdentityProvider(google);
+    }
+
+    const callbackUrls = [
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      ...(this.node.tryGetContext("siteUrl") ? [String(this.node.tryGetContext("siteUrl"))] : []),
+    ];
+
     this.userPoolClient = this.userPool.addClient("WebClient", {
-      // No client secret: this is a browser app and cannot keep one.
+      oAuth: {
+        flows: { authorizationCodeGrant: true },
+        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
+        callbackUrls,
+        logoutUrls: callbackUrls,
+      },
+      supportedIdentityProviders: [
+        cognito.UserPoolClientIdentityProvider.COGNITO,
+        ...(googleClientId ? [cognito.UserPoolClientIdentityProvider.GOOGLE] : []),
+      ],
+      // No client secret: this is a browser app and cannot keep one, and the
+      // authorisation-code flow with PKCE does not need one.
       generateSecret: false,
+      // Password sign-in stays enabled alongside Google. Losing access to a
+      // Google account should not lock anyone out of their own ledger.
       authFlows: { userSrp: true },
       // Short access tokens, long refresh — a leaked access token expires
       // quickly, and the refresh token is what the browser has to guard.
@@ -168,6 +243,9 @@ export class DataStack extends cdk.Stack {
     new cdk.CfnOutput(this, "RawBucketName", { value: this.rawBucket.bucketName });
     new cdk.CfnOutput(this, "UserPoolId", { value: this.userPool.userPoolId });
     new cdk.CfnOutput(this, "UserPoolClientId", { value: this.userPoolClient.userPoolClientId });
+    new cdk.CfnOutput(this, "HostedUiDomain", {
+      value: `${config.appName}-${settings.name}-${this.account.slice(-6)}.auth.${this.region}.amazoncognito.com`,
+    });
 
     cdk.Tags.of(this).add("app", config.appName);
     cdk.Tags.of(this).add("env", settings.name);
