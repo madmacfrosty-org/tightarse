@@ -4,9 +4,14 @@ import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import {
   TrueLayerClient,
   TrueLayerError,
-  ENDPOINTS,
+  PER_ITEM_ENDPOINTS,
+  RESOURCES,
   MAX_HISTORY_MONTHS,
   historyFrom,
+  itemDataset,
+  listDataset,
+  transactionsDataset,
+  type Resource,
 } from "@tightarse/truelayer";
 import { rawObjectKey } from "@tightarse/schema";
 import type { Connection, Connections } from "./connections.js";
@@ -102,43 +107,68 @@ export async function syncConnection(
     result.objectsWritten += 1;
   };
 
-  const accountsRes = await deps.truelayer.get(tokens.accessToken, "/data/v1/accounts");
-  await write("truelayer.accounts", null, accountsRes.body);
-
-  const accounts = ((accountsRes.body as { results?: Array<{ account_id?: string }> }).results ?? [])
-    .map((a) => a.account_id)
-    .filter((id): id is string => Boolean(id));
-
   const from = historyFrom(opts.historyMonths ?? MAX_HISTORY_MONTHS, now);
   const to = now.toISOString().slice(0, 10);
 
-  for (const accountId of accounts) {
-    // Transactions first: they are the point, and if a later optional endpoint
-    // fails we still have the data that matters.
+  for (const resource of RESOURCES) {
+    let items: string[];
     try {
-      const res = await deps.truelayer.get(
-        tokens.accessToken,
-        `/data/v1/accounts/${accountId}/transactions?from=${from}&to=${to}`,
-      );
-      await write("truelayer.transactions", accountId, res.body, { from, to });
+      const listRes = await deps.truelayer.get(tokens.accessToken, `/data/v1/${resource}`);
+      await write(listDataset(resource), null, listRes.body);
+      items = ((listRes.body as { results?: Array<{ account_id?: string }> }).results ?? [])
+        .map((a) => a.account_id)
+        .filter((id): id is string => Boolean(id));
     } catch (err) {
-      result.errors.push(`transactions ${accountId}: ${describe(err)}`);
+      // A provider may offer only one of the two. Amex is cards-only, with no
+      // `accounts` scope at all, so a missing resource is a normal shape rather
+      // than a failure — and treating it as fatal would abort the whole sync
+      // before anything was fetched.
+      if (err instanceof TrueLayerError && err.isNotApplicable) {
+        result.skipped.push(resource);
+        continue;
+      }
+      result.errors.push(`${resource}: ${describe(err)}`);
+      continue;
     }
 
-    for (const spec of ENDPOINTS) {
-      if (!spec.perAccount) continue;
+    for (const itemId of items) {
+      // Transactions first: they are the point, so if a later optional endpoint
+      // fails we still have the data that matters.
       try {
-        const res = await deps.truelayer.get(tokens.accessToken, spec.path(accountId));
-        await write(spec.dataset, accountId, res.body);
+        const res = await deps.truelayer.get(
+          tokens.accessToken,
+          `/data/v1/${resource}/${itemId}/transactions?from=${from}&to=${to}`,
+        );
+        await write(transactionsDataset(resource), itemId, res.body, { from, to });
       } catch (err) {
-        if (spec.optional && err instanceof TrueLayerError && err.isNotApplicable) {
-          // First Direct returns 501 for standing orders on every account and
-          // 403 for direct debits on accounts that have none. Neither is a
-          // failure, and alarming on them would train everyone to ignore alarms.
-          result.skipped.push(`${spec.dataset} ${accountId}`);
-          continue;
+        result.errors.push(`${transactionsDataset(resource)} ${itemId}: ${describe(err)}`);
+      }
+
+      try {
+        const res = await deps.truelayer.get(tokens.accessToken, `/data/v1/${resource}/${itemId}`);
+        await write(itemDataset(resource), itemId, res.body);
+      } catch (err) {
+        result.errors.push(`${itemDataset(resource)} ${itemId}: ${describe(err)}`);
+      }
+
+      for (const spec of PER_ITEM_ENDPOINTS) {
+        const dataset = spec.dataset(resource);
+        try {
+          const res = await deps.truelayer.get(
+            tokens.accessToken,
+            `/data/v1/${resource}/${itemId}/${spec.suffix}`,
+          );
+          await write(dataset, itemId, res.body);
+        } catch (err) {
+          if (spec.optional && err instanceof TrueLayerError && err.isNotApplicable) {
+            // First Direct returns 501 for standing orders on every account and
+            // 403 for direct debits where there are none. Alarming on those
+            // trains everyone to ignore alarms.
+            result.skipped.push(`${dataset} ${itemId}`);
+            continue;
+          }
+          result.errors.push(`${dataset} ${itemId}: ${describe(err)}`);
         }
-        result.errors.push(`${spec.dataset} ${accountId}: ${describe(err)}`);
       }
     }
   }

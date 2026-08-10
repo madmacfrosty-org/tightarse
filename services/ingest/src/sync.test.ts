@@ -29,6 +29,7 @@ function deps(over: Partial<Record<string, unknown>> = {}) {
           if (path === "/data/v1/accounts") {
             return { status: 200, body: { results: [{ account_id: "accA" }] } };
           }
+          if (path === "/data/v1/cards") return { status: 200, body: { results: [] } };
           return { status: 200, body: { results: [] } };
         }),
         ...(over["truelayer"] as object),
@@ -75,6 +76,50 @@ describe("syncConnection", () => {
     expect(result.objectsWritten).toBe(0);
   });
 
+  it("syncs a cards-only provider, which is the shape Amex has", async () => {
+    // Amex's scopes are info, cards, balance, transactions — no `accounts` at
+    // all. Treating the accounts list as mandatory aborted the whole sync
+    // before anything was fetched.
+    const { deps: d, puts } = deps({
+      truelayer: {
+        refresh: vi.fn(async () => ({
+          accessToken: "a", refreshToken: "r", expiresAt: new Date().toISOString(),
+        })),
+        get: vi.fn(async (_t: string, path: string) => {
+          if (path === "/data/v1/accounts") throw new TrueLayerError("no", 403, "access_denied");
+          if (path === "/data/v1/cards") return { status: 200, body: { results: [{ account_id: "cardA" }] } };
+          return { status: 200, body: { results: [] } };
+        }),
+      },
+    });
+    const result = await syncConnection(d, connection);
+    expect(result.skipped).toContain("accounts");
+    expect(result.errors).toHaveLength(0);
+    expect(puts.some((p) => p.Key.includes("dataset=truelayer.card_transactions/"))).toBe(true);
+  });
+
+  it("fetches cards as well as accounts", async () => {
+    // The first version of this sync never touched cards, so the First Direct
+    // card would have quietly frozen the moment the schedule took over from the
+    // manual backfill.
+    const { deps: d, puts } = deps({
+      truelayer: {
+        refresh: vi.fn(async () => ({
+          accessToken: "a", refreshToken: "r", expiresAt: new Date().toISOString(),
+        })),
+        get: vi.fn(async (_t: string, path: string) => {
+          if (path === "/data/v1/accounts") return { status: 200, body: { results: [{ account_id: "accA" }] } };
+          if (path === "/data/v1/cards") return { status: 200, body: { results: [{ account_id: "cardA" }] } };
+          return { status: 200, body: { results: [] } };
+        }),
+      },
+    });
+    await syncConnection(d, connection);
+    expect(puts.some((p) => p.Key.includes("dataset=truelayer.transactions/"))).toBe(true);
+    expect(puts.some((p) => p.Key.includes("dataset=truelayer.card_transactions/"))).toBe(true);
+    expect(puts.some((p) => p.Key.includes("dataset=truelayer.card_balance/"))).toBe(true);
+  });
+
   it("skips endpoints the provider does not offer, without failing the sync", async () => {
     // First Direct returns 501 for standing orders on every account and 403 for
     // direct debits where there are none. Alarming on those trains everyone to
@@ -86,6 +131,7 @@ describe("syncConnection", () => {
         })),
         get: vi.fn(async (_t: string, path: string) => {
           if (path === "/data/v1/accounts") return { status: 200, body: { results: [{ account_id: "accA" }] } };
+          if (path === "/data/v1/cards") return { status: 200, body: { results: [] } };
           if (path.includes("standing_orders")) throw new TrueLayerError("no", 501, "endpoint_not_supported");
           if (path.includes("direct_debits")) throw new TrueLayerError("no", 403, "access_denied");
           return { status: 200, body: { results: [] } };
@@ -105,13 +151,14 @@ describe("syncConnection", () => {
         })),
         get: vi.fn(async (_t: string, path: string) => {
           if (path === "/data/v1/accounts") return { status: 200, body: { results: [{ account_id: "accA" }] } };
+          if (path === "/data/v1/cards") return { status: 200, body: { results: [] } };
           if (path.includes("/transactions?")) throw new TrueLayerError("boom", 500, null);
           return { status: 200, body: { results: [] } };
         }),
       },
     });
     const result = await syncConnection(d, connection);
-    expect(result.errors.some((e) => e.startsWith("transactions"))).toBe(true);
+    expect(result.errors.some((e) => e.startsWith("truelayer.transactions"))).toBe(true);
     // Balances and the rest still landed.
     expect(result.objectsWritten).toBeGreaterThan(0);
   });

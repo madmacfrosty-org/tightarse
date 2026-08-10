@@ -158,26 +158,67 @@ export class TrueLayerClient {
   }
 }
 
-/** The endpoints a sync fetches, and whether a failure is fatal. */
+/**
+ * A provider may expose accounts, cards, or only one of the two.
+ *
+ * Amex is cards-only — its scopes are `info, cards, balance, transactions`
+ * with no `accounts` at all. Treating `/data/v1/accounts` as mandatory would
+ * abort an Amex sync before it fetched anything.
+ */
+export type Resource = "accounts" | "cards";
+
+export const RESOURCES: readonly Resource[] = ["accounts", "cards"];
+
+/** Per-resource endpoints fetched for every account or card found. */
 export interface EndpointSpec {
-  readonly path: (accountId: string) => string;
-  readonly dataset: string;
-  /** Per-account, or once per connection. */
-  readonly perAccount: boolean;
+  readonly suffix: string;
+  readonly dataset: (resource: Resource) => string;
   /**
    * When true, a 403 or 501 is recorded and skipped rather than failing the
-   * sync — the provider simply does not offer it for that account.
+   * sync — the provider simply does not offer it here.
    */
   readonly optional: boolean;
 }
 
-export const ENDPOINTS: readonly EndpointSpec[] = [
-  { path: () => "/data/v1/accounts", dataset: "truelayer.accounts", perAccount: false, optional: false },
-  { path: (a) => `/data/v1/accounts/${a}/balance`, dataset: "truelayer.balance", perAccount: true, optional: false },
-  { path: (a) => `/data/v1/accounts/${a}/transactions/pending`, dataset: "truelayer.transactions_pending", perAccount: true, optional: true },
-  { path: (a) => `/data/v1/accounts/${a}/direct_debits`, dataset: "truelayer.direct_debits", perAccount: true, optional: true },
-  { path: (a) => `/data/v1/accounts/${a}/standing_orders`, dataset: "truelayer.standing_orders", perAccount: true, optional: true },
+const singular: Record<Resource, string> = { accounts: "account", cards: "card" };
+
+export const PER_ITEM_ENDPOINTS: readonly EndpointSpec[] = [
+  {
+    suffix: "balance",
+    dataset: (r) => (r === "cards" ? "truelayer.card_balance" : "truelayer.balance"),
+    optional: false,
+  },
+  {
+    suffix: "transactions/pending",
+    dataset: (r) => (r === "cards" ? "truelayer.card_transactions_pending" : "truelayer.transactions_pending"),
+    optional: true,
+  },
+  {
+    suffix: "direct_debits",
+    dataset: () => "truelayer.direct_debits",
+    optional: true,
+  },
+  {
+    suffix: "standing_orders",
+    dataset: () => "truelayer.standing_orders",
+    optional: true,
+  },
 ];
+
+/** Dataset name for the list endpoint of a resource. */
+export function listDataset(resource: Resource): string {
+  return `truelayer.${resource}`;
+}
+
+/** Dataset name for a resource's transactions. */
+export function transactionsDataset(resource: Resource): string {
+  return resource === "cards" ? "truelayer.card_transactions" : "truelayer.transactions";
+}
+
+/** Dataset name for a single item's detail. */
+export function itemDataset(resource: Resource): string {
+  return `truelayer.${singular[resource]}`;
+}
 
 /**
  * ISO date `months` before `now`, for a transactions query.
