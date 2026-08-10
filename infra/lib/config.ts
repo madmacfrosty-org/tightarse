@@ -35,6 +35,19 @@ export interface EnvSettings {
   readonly pointInTimeRecovery: boolean;
   /** Empty the raw bucket on stack deletion. Only ever true in dev. */
   readonly autoDeleteObjects: boolean;
+  /**
+   * Cognito hosted-UI domain prefix.
+   *
+   * A fixed literal, not derived from the account id. Deriving it looked
+   * tidier but only worked when the account was resolved — at synth without
+   * credentials `this.account` is an unresolved token, the prefix became
+   * invalid, and `cdk synth` failed. CI has no credentials, so that would have
+   * broken the build rather than a deploy.
+   *
+   * The numeric suffix is an opaque uniqueness token: Cognito domain prefixes
+   * are globally unique across all AWS accounts.
+   */
+  readonly hostedUiPrefix: string;
   /** How long raw landing-zone objects are kept. See the retention notes on #15. */
   readonly rawRetentionDays: number;
   /**
@@ -55,6 +68,7 @@ const SETTINGS: Record<EnvName, EnvSettings> = {
     // Not worth paying for in an account we intend to wipe.
     pointInTimeRecovery: false,
     autoDeleteObjects: true,
+    hostedUiPrefix: "tightarse-dev-068475",
     rawRetentionDays: 30,
     // No IA transition: 30 days is inside IA's minimum billing duration.
   },
@@ -64,6 +78,7 @@ const SETTINGS: Record<EnvName, EnvSettings> = {
     deletionProtection: true,
     pointInTimeRecovery: true,
     autoDeleteObjects: false,
+    hostedUiPrefix: "tightarse-prod-068475",
     // Long enough to survive a transform rewrite, not indefinite.
     rawRetentionDays: 365,
     rawTransitionToIaDays: 30,

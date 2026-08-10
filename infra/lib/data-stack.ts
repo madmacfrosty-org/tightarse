@@ -182,15 +182,16 @@ export class DataStack extends cdk.Stack {
     // Hosted UI domain. Federation requires the OAuth redirect flow; SRP cannot
     // do it, so this is what a "Sign in with Google" button actually talks to.
     this.userPool.addDomain("Domain", {
-      cognitoDomain: { domainPrefix: `${config.appName}-${settings.name}-${this.account.slice(-6)}` },
+      cognitoDomain: { domainPrefix: settings.hostedUiPrefix },
     });
 
     // Only created once a Google client exists. Deploying an identity provider
     // with an empty secret fails, and gating it keeps the stack deployable
     // before the Google Cloud project is set up.
     const googleClientId = this.node.tryGetContext("googleClientId") as string | undefined;
+    let googleProvider: cognito.UserPoolIdentityProviderGoogle | undefined;
     if (googleClientId) {
-      const google = new cognito.UserPoolIdentityProviderGoogle(this, "Google", {
+      googleProvider = new cognito.UserPoolIdentityProviderGoogle(this, "Google", {
         userPool: this.userPool,
         clientId: googleClientId,
         clientSecretValue: props.googleOAuthSecret.secretValueFromJson("clientSecret"),
@@ -202,7 +203,7 @@ export class DataStack extends cdk.Stack {
           fullname: cognito.ProviderAttribute.GOOGLE_NAME,
         },
       });
-      this.userPool.registerIdentityProvider(google);
+      this.userPool.registerIdentityProvider(googleProvider);
     }
 
     const callbackUrls = [
@@ -242,9 +243,15 @@ export class DataStack extends cdk.Stack {
     new cdk.CfnOutput(this, "LedgerTableName", { value: this.table.tableName });
     new cdk.CfnOutput(this, "RawBucketName", { value: this.rawBucket.bucketName });
     new cdk.CfnOutput(this, "UserPoolId", { value: this.userPool.userPoolId });
+    // Explicit, because registerIdentityProvider did not produce a DependsOn.
+    // Without it CloudFormation updates the client — which lists Google among
+    // its supported providers — before the provider exists, and fails with
+    // "The provider Google does not exist for User Pool".
+    if (googleProvider) this.userPoolClient.node.addDependency(googleProvider);
+
     new cdk.CfnOutput(this, "UserPoolClientId", { value: this.userPoolClient.userPoolClientId });
     new cdk.CfnOutput(this, "HostedUiDomain", {
-      value: `${config.appName}-${settings.name}-${this.account.slice(-6)}.auth.${this.region}.amazoncognito.com`,
+      value: `${settings.hostedUiPrefix}.auth.${this.region}.amazoncognito.com`,
     });
 
     cdk.Tags.of(this).add("app", config.appName);
