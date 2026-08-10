@@ -55,6 +55,14 @@ function identityFrom(session: CognitoUserSession): Identity {
   return { email: String(claims["email"] ?? ""), tenant };
 }
 
+/** Thrown when the account still has its one-time password. */
+export class NewPasswordRequired extends Error {
+  constructor(readonly user: CognitoUser) {
+    super("Choose a new password to finish setting up this account.");
+    this.name = "NewPasswordRequired";
+  }
+}
+
 export async function signIn(email: string, password: string): Promise<Identity> {
   if (!pool) throw new Error("Cognito is not configured");
   const user = new CognitoUser({ Username: email, Pool: pool });
@@ -62,9 +70,23 @@ export async function signIn(email: string, password: string): Promise<Identity>
     user.authenticateUser(new AuthenticationDetails({ Username: email, Password: password }), {
       onSuccess: resolve,
       onFailure: reject,
-      newPasswordRequired: () =>
-        reject(new Error("A new password is required — set one in the Cognito console first.")),
+      // A user created by an administrator arrives with a one-time password and
+      // must choose their own. Handled here rather than sending people to the
+      // Cognito console — every family member added later hits this.
+      newPasswordRequired: () => reject(new NewPasswordRequired(user)),
     });
+  });
+  return identityFrom(session);
+}
+
+/** Complete the first-login challenge with a password of the user's choosing. */
+export async function completeNewPassword(user: CognitoUser, newPassword: string): Promise<Identity> {
+  const session = await new Promise<CognitoUserSession>((resolve, reject) => {
+    // The second argument is the set of attributes Cognito wants supplied at
+    // this point. Passing an empty object is correct: email is already set, and
+    // custom:tenant is immutable — a user must never be able to choose their
+    // own household.
+    user.completeNewPasswordChallenge(newPassword, {}, { onSuccess: resolve, onFailure: reject });
   });
   return identityFrom(session);
 }

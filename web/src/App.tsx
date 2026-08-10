@@ -1,5 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { apiGet, currentIdentity, initAuth, signIn, signOut, type Identity } from "./auth";
+import {
+  apiGet, completeNewPassword, currentIdentity, initAuth, NewPasswordRequired, signIn, signOut,
+  type Identity,
+} from "./auth";
+import type { CognitoUser } from "amazon-cognito-identity-js";
 import { CategoryBars, MonthlyFlow, money, type CategoryDatum, type MonthDatum } from "./charts";
 
 interface Summary {
@@ -44,6 +48,8 @@ const RANGES = [
 function SignIn({ onSignedIn }: { onSignedIn: (i: Identity) => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [challenge, setChallenge] = useState<CognitoUser | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,25 +57,54 @@ function SignIn({ onSignedIn }: { onSignedIn: (i: Identity) => void }) {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    signIn(email, password)
-      .then(onSignedIn)
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Sign in failed"))
-      .finally(() => setBusy(false));
+
+    const done = (i: Identity) => onSignedIn(i);
+    const failed = (err: unknown) => {
+      if (err instanceof NewPasswordRequired) {
+        // Not an error: the account still has its one-time password.
+        setChallenge(err.user);
+        setError(null);
+        return;
+      }
+      setError(err instanceof Error ? err.message : "Sign in failed");
+    };
+
+    const attempt = challenge
+      ? completeNewPassword(challenge, newPassword)
+      : signIn(email, password);
+
+    attempt.then(done).catch(failed).finally(() => setBusy(false));
   };
 
   return (
     <div className="page" style={{ maxWidth: 360 }}>
       <h1>Tightarse</h1>
       <form className="card" onSubmit={submit}>
-        <h2>Sign in</h2>
-        <p className="note">Your household ledger.</p>
-        <label className="label" htmlFor="email">Email</label>
-        <input id="email" type="email" autoComplete="username" required
-          value={email} onChange={(e) => setEmail(e.target.value)} />
-        <label className="label" htmlFor="password">Password</label>
-        <input id="password" type="password" autoComplete="current-password" required
-          value={password} onChange={(e) => setPassword(e.target.value)} />
-        <button type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+        <h2>{challenge ? "Choose a password" : "Sign in"}</h2>
+        <p className="note">
+          {challenge
+            ? "This account still has its one-time password. Pick your own to finish setting it up — at least 12 characters, with upper and lower case and a digit."
+            : "Your household ledger."}
+        </p>
+        {challenge ? (
+          <>
+            <label className="label" htmlFor="new-password">New password</label>
+            <input id="new-password" type="password" autoComplete="new-password" required minLength={12}
+              value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+          </>
+        ) : (
+          <>
+            <label className="label" htmlFor="email">Email</label>
+            <input id="email" type="email" autoComplete="username" required
+              value={email} onChange={(e) => setEmail(e.target.value)} />
+            <label className="label" htmlFor="password">Password</label>
+            <input id="password" type="password" autoComplete="current-password" required
+              value={password} onChange={(e) => setPassword(e.target.value)} />
+          </>
+        )}
+        <button type="submit" disabled={busy}>
+          {busy ? "Working…" : challenge ? "Set password and sign in" : "Sign in"}
+        </button>
         {error ? <p className="error" style={{ padding: "12px 0 0", fontSize: 13 }}>{error}</p> : null}
       </form>
     </div>
