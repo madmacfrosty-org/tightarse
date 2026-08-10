@@ -212,18 +212,41 @@ suite("Ledger (integration)", () => {
 
 suite("Ledger account merge (integration)", () => {
   let ledger: Ledger;
+  let doc: DynamoDBDocumentClient;
 
   beforeAll(() => {
-    ledger = new Ledger({
-      tableName: TABLE!,
-      client: DynamoDBDocumentClient.from(
-        new DynamoDBClient({
-          region: process.env["AWS_REGION"] ?? "eu-west-1",
-          ...(ENDPOINT ? { endpoint: ENDPOINT } : {}),
-        }),
-        { marshallOptions: { removeUndefinedValues: true } },
-      ),
+    doc = DynamoDBDocumentClient.from(
+      new DynamoDBClient({
+        region: process.env["AWS_REGION"] ?? "eu-west-1",
+        ...(ENDPOINT ? { endpoint: ENDPOINT } : {}),
+      }),
+      { marshallOptions: { removeUndefinedValues: true } },
+    );
+    ledger = new Ledger({ tableName: TABLE!, client: doc });
+  });
+
+  afterAll(async () => {
+    // This suite runs after the first suite's afterAll, so it must sweep its
+    // own rows or it leaves them behind in a table holding real financial data.
+    const raw = new DynamoDBClient({
+      region: process.env["AWS_REGION"] ?? "eu-west-1",
+      ...(ENDPOINT ? { endpoint: ENDPOINT } : {}),
     });
+    const res = await doc.send(
+      new QueryCommand({
+        TableName: TABLE!,
+        KeyConditionExpression: "pk = :pk",
+        ExpressionAttributeValues: { ":pk": `T#${TENANT}` },
+      }),
+    );
+    for (const item of res.Items ?? []) {
+      await raw.send(
+        new DeleteItemCommand({
+          TableName: TABLE!,
+          Key: { pk: { S: String(item["pk"]) }, sk: { S: String(item["sk"]) } },
+        }),
+      );
+    }
   });
 
   it("does not lose a balance when account details are written afterwards", async () => {
