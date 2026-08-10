@@ -17,6 +17,9 @@
       "path": "services/api"
     },
     {
+      "path": "services/ingest"
+    },
+    {
       "path": "agents/categoriser"
     },
     {
