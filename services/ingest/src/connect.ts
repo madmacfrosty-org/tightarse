@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
+import { SFNClient, StartExecutionCommand } from "@aws-sdk/client-sfn";
 import { TrueLayerClient, LIVE, SANDBOX, TrueLayerError } from "@tightarse/truelayer";
 import { Connections, consentExpiry, type Connection } from "./connections.js";
 
@@ -65,11 +66,15 @@ export interface ConnectResult {
 /**
  * Exchange the authorisation code and store the connection.
  *
- * Deliberately does NOT fetch any data. The deep-history window is open at this
- * moment and it is tempting to use it here, but a fetch inside a redirect
- * handler is a fetch under a browser timeout — and losing it half way would
- * cost the consent. The scheduled sync picks it up instead, with the full
- * 60-month window, and can be retried without re-consenting.
+ * Deliberately does NOT fetch any data itself: a fetch inside a redirect
+ * handler runs under a browser timeout, and losing a five-year history half way
+ * would cost the consent.
+ *
+ * The caller starts the sync state machine instead — immediately, without
+ * waiting. Leaving it to the daily schedule would have been worse than a
+ * timeout: the deep-history window shuts within the hour, so a new connection
+ * would quietly have been reduced to 90 days, visible only as charts that
+ * looked oddly short.
  */
 export async function completeConnect(
   deps: ConnectDeps,
@@ -138,6 +143,25 @@ export async function handler(event: {
 
     try {
       const result = await completeConnect(deps, { tenantId, code });
+
+      // Start the first sync NOW, and do not wait for it.
+      //
+      // The deep-history window is open at this moment and shuts within the
+      // hour. Leaving it to the daily schedule would quietly reduce a new
+      // connection to 90 days of history — the failure would look like nothing
+      // at all until someone noticed the charts were short. Starting the state
+      // machine returns to the browser at once while the fetch runs with
+      // per-account retries behind it.
+      const machine = process.env["SYNC_STATE_MACHINE_ARN"];
+      if (machine) {
+        await new SFNClient({}).send(
+          new StartExecutionCommand({
+            stateMachineArn: machine,
+            name: `connect-${result.connectionId}`.slice(0, 80),
+          }),
+        );
+      }
+
       return json(200, result);
     } catch (err) {
       if (err instanceof TrueLayerError) {

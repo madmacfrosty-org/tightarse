@@ -2,6 +2,8 @@ import * as cdk from "aws-cdk-lib";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as events from "aws-cdk-lib/aws-events";
+import * as sfn from "aws-cdk-lib/aws-stepfunctions";
+import * as tasks from "aws-cdk-lib/aws-stepfunctions-tasks";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as subs from "aws-cdk-lib/aws-sns-subscriptions";
@@ -51,22 +53,38 @@ export class IngestStack extends cdk.Stack {
       alerts.addSubscription(new subs.EmailSubscription(props.alertEmail));
     }
 
-    const connectionSecrets = new iam.PolicyStatement({
+    /**
+     * Everything that touches a secret's VALUE, scoped by name.
+     *
+     * The condition key `secretsmanager:Name` only exists for actions that name
+     * a secret, so it must not be applied to ListSecrets — the condition can
+     * never match there and the call is simply denied. That is how the first
+     * version of this failed.
+     */
+    const connectionSecretValues = new iam.PolicyStatement({
       actions: [
         "secretsmanager:CreateSecret",
         "secretsmanager:GetSecretValue",
         "secretsmanager:PutSecretValue",
         "secretsmanager:DescribeSecret",
         "secretsmanager:TagResource",
-        "secretsmanager:ListSecrets",
       ],
       resources: ["*"],
-      // ListSecrets cannot be resource-scoped, so the write actions are
-      // constrained by name instead — a wildcard here would let this function
-      // read the TrueLayer client secret and every other secret in the account.
       conditions: {
         StringLike: { "secretsmanager:Name": [`${connectionPrefix}/*`] },
       },
+    });
+
+    /**
+     * Listing, which cannot be resource-scoped at all.
+     *
+     * This exposes secret NAMES across the account, never values — the value
+     * actions above stay constrained to the connection prefix, so the TrueLayer
+     * client secret and the Google credentials remain unreadable here.
+     */
+    const listSecrets = new iam.PolicyStatement({
+      actions: ["secretsmanager:ListSecrets"],
+      resources: ["*"],
     });
 
     const common = {
@@ -76,15 +94,20 @@ export class IngestStack extends cdk.Stack {
     } as const;
 
     // ------------------------------------------------------------------ sync
+    //
+    // A state machine rather than one looping Lambda. The reason is retry, not
+    // presentation: previously a transient failure on one account was recorded
+    // and the run moved on, leaving that account stale until the next day's
+    // schedule. Per-item steps retry in seconds instead.
 
-    const sync = new NodejsFunction(this, "Sync", {
+    const steps = new NodejsFunction(this, "SyncSteps", {
       ...common,
-      entry: path.join(__dirname, "../../services/ingest/src/scheduled.ts"),
+      entry: path.join(__dirname, "../../services/ingest/src/steps-handler.ts"),
       handler: "handler",
       memorySize: 512,
-      // A 9,000-transaction account takes ~14s for its history alone, and a
-      // sync walks several endpoints across every account and card.
-      timeout: cdk.Duration.minutes(5),
+      // A 9,000-transaction history takes ~14s on its own; this covers one
+      // account or card, not a whole connection.
+      timeout: cdk.Duration.minutes(2),
       environment: {
         TENANT_ID: "frost",
         RAW_BUCKET: rawBucket.bucketName,
@@ -97,17 +120,95 @@ export class IngestStack extends cdk.Stack {
         removalPolicy: cdk.RemovalPolicy.DESTROY,
       }),
     });
-    rawBucket.grantPut(sync);
-    dataKey.grantEncryptDecrypt(sync);
-    clientSecret.grantRead(sync);
-    sync.addToRolePolicy(connectionSecrets);
-    alerts.grantPublish(sync);
+    rawBucket.grantPut(steps);
+    dataKey.grantEncryptDecrypt(steps);
+    clientSecret.grantRead(steps);
+    steps.addToRolePolicy(connectionSecretValues);
+    steps.addToRolePolicy(listSecrets);
+    alerts.grantPublish(steps);
+
+    const invoke = (id: string, step: string, payload: Record<string, unknown>) =>
+      new tasks.LambdaInvoke(this, id, {
+        lambdaFunction: steps,
+        payload: sfn.TaskInput.fromObject({ step, ...payload }),
+        outputPath: "$.Payload",
+      });
+
+    const fetchOne = invoke("FetchItem", "fetchItem", {
+      "tenantId.$": "$.tenantId",
+      "accessToken.$": "$.accessToken",
+      "resource.$": "$.resource",
+      "itemId.$": "$.itemId",
+    });
+    // The retry that justifies the whole structure. A 500 or a throttle on one
+    // account no longer costs a day of freshness.
+    fetchOne.addRetry({
+      errors: ["States.TaskFailed", "States.Timeout"],
+      interval: cdk.Duration.seconds(3),
+      maxAttempts: 4,
+      backoffRate: 2,
+    });
+    // One failing account must not sink the others, so the error is captured as
+    // a result and reported by the outcome step.
+    fetchOne.addCatch(new sfn.Pass(this, "ItemFailed"), { resultPath: "$" });
+
+    const perConnection = invoke("RefreshAndList", "refreshAndList", {
+      "connection.$": "$",
+    })
+      .next(
+        new sfn.Choice(this, "ConsentValid?")
+          .when(
+            sfn.Condition.booleanEquals("$.consentExpired", true),
+            invoke("ExpiredOutcome", "recordOutcome", {
+              "connection.$": "$.connection",
+              "consentExpired.$": "$.consentExpired",
+              "daysUntilConsentExpiry.$": "$.daysUntilConsentExpiry",
+            }),
+          )
+          .otherwise(
+            new sfn.Map(this, "EachItem", {
+              itemsPath: "$.items",
+              maxConcurrency: 2,
+              itemSelector: {
+                "tenantId.$": "$.connection.tenantId",
+                "accessToken.$": "$.accessToken",
+                "resource.$": "$$.Map.Item.Value.resource",
+                "itemId.$": "$$.Map.Item.Value.itemId",
+              },
+              resultPath: "$.results",
+            })
+              .itemProcessor(fetchOne)
+              .next(
+                invoke("Outcome", "recordOutcome", {
+                  "connection.$": "$.connection",
+                  "daysUntilConsentExpiry.$": "$.daysUntilConsentExpiry",
+                  "results.$": "$.results",
+                }),
+              ),
+          ),
+      );
+
+    const definition = invoke("ListConnections", "listConnections", {}).next(
+      new sfn.Map(this, "EachConnection", {
+        itemsPath: "$.connections",
+        maxConcurrency: 1,
+      }).itemProcessor(perConnection),
+    );
+
+    const syncMachine = new sfn.StateMachine(this, "SyncMachine", {
+      definitionBody: sfn.DefinitionBody.fromChainable(definition),
+      // Standard, not Express: 90 days of visible execution history and
+      // redrive, which is the point. Express keeps no history worth reading.
+      stateMachineType: sfn.StateMachineType.STANDARD,
+      timeout: cdk.Duration.minutes(30),
+      tracingEnabled: true,
+    });
 
     // Once a day. Unattended access is capped at four calls per 24 hours per
     // consent and a sync makes several per account, so hourly would breach it.
     new events.Rule(this, "DailySync", {
       schedule: events.Schedule.cron(config.ingestScheduleCron),
-      targets: [new targets.LambdaFunction(sync)],
+      targets: [new targets.SfnStateMachine(syncMachine)],
       description: "Daily TrueLayer sync",
     });
 
@@ -165,6 +266,7 @@ export class IngestStack extends cdk.Stack {
         CONNECTION_SECRET_PREFIX: connectionPrefix,
         CLIENT_SECRET_ID: clientSecret.secretName,
         CONNECT_REDIRECT_URI: this.node.tryGetContext("connectRedirectUri") ?? "http://localhost:5173/connected",
+        SYNC_STATE_MACHINE_ARN: syncMachine.stateMachineArn,
       },
       logGroup: new logs.LogGroup(this, "ConnectLogs", {
         retention: logs.RetentionDays.ONE_WEEK,
@@ -172,10 +274,15 @@ export class IngestStack extends cdk.Stack {
       }),
     });
     clientSecret.grantRead(connect);
-    connect.addToRolePolicy(connectionSecrets);
+    connect.addToRolePolicy(connectionSecretValues);
+    // Started, not awaited. The deep-history window is open at this moment and
+    // shuts within the hour, so waiting for the daily schedule would silently
+    // reduce a new connection to 90 days of history. Starting the machine
+    // returns to the browser immediately while the fetch runs with retries.
+    syncMachine.grantStartExecution(connect);
 
     new cdk.CfnOutput(this, "AlertTopicArn", { value: alerts.topicArn });
-    new cdk.CfnOutput(this, "SyncFunctionName", { value: sync.functionName });
+    new cdk.CfnOutput(this, "SyncMachineArn", { value: syncMachine.stateMachineArn });
     new cdk.CfnOutput(this, "ConnectFunctionArn", { value: connect.functionArn });
 
     cdk.Tags.of(this).add("app", config.appName);
