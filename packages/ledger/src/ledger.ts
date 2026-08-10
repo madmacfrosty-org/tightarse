@@ -14,6 +14,7 @@ import {
   type Consent,
   type Transaction,
   type TransactionEnrichment,
+  type TenantSettings,
 } from "@tightarse/schema";
 import { accountItem, consentItem, enrichmentItem, pendingItem, transactionItem } from "./items";
 
@@ -128,6 +129,25 @@ export class Ledger {
 
   async putAccount(a: Account, balances: { current?: number; available?: number } = {}): Promise<void> {
     await this.doc.send(new PutCommand({ TableName: this.table, Item: accountItem(a, balances) }));
+  }
+
+  async putSettings(s: TenantSettings): Promise<void> {
+    const { pk, sk } = keys.settings(s.tenantId);
+    await this.doc.send(
+      new PutCommand({ TableName: this.table, Item: { pk, sk, kind: "SETTINGS", ...s } }),
+    );
+  }
+
+  /**
+   * Household settings, or null if never set.
+   *
+   * Callers must decide their own default rather than getting one here — an
+   * implicit default for how data is processed is exactly the kind of thing
+   * that should be a visible decision at the call site.
+   */
+  async getSettings(tenantId: string): Promise<TenantSettings | null> {
+    const rows = await this.queryByPrefix(tenantId, "SETTINGS");
+    return (rows[0] as TenantSettings | undefined) ?? null;
   }
 
   async putConsent(c: Consent): Promise<void> {

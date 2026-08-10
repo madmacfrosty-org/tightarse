@@ -275,6 +275,27 @@ export function dedupKey(t: {
   return `c:${digest(content)}`;
 }
 
+/**
+ * How a household's transactions get categorised.
+ *
+ *   off    provider payment type only — mechanism, not purpose
+ *   rules  deterministic merchant rules; nothing leaves the account
+ *   model  rules first, then a model for whatever they did not match
+ *
+ * Explicit rather than implied by whether the categoriser has run, so "no
+ * categories" is a stated choice rather than an unfinished job.
+ */
+export const EnrichmentMode = z.enum(["off", "rules", "model"]);
+export type EnrichmentMode = z.infer<typeof EnrichmentMode>;
+
+export const TenantSettings = z.object({
+  tenantId: TenantId,
+  enrichment: EnrichmentMode,
+  baseCurrency: Currency.default("GBP"),
+  updatedAt: z.string().datetime(),
+});
+export type TenantSettings = z.infer<typeof TenantSettings>;
+
 /** Row kind, encoded in the sort key after the timestamp. */
 export const RowKind = { transaction: "TX", enrichment: "EN" } as const;
 export type RowKind = (typeof RowKind)[keyof typeof RowKind];
@@ -317,6 +338,11 @@ export const keys = {
   consent: (tenantId: string, consentId: string) => ({
     pk: `T#${tenantId}`,
     sk: `CONSENT#${consentId}`,
+  }),
+
+  settings: (tenantId: string) => ({
+    pk: `T#${tenantId}`,
+    sk: "SETTINGS",
   }),
 
   transaction: (tenantId: string, timestamp: string, dedup: string) => ({

@@ -1,0 +1,68 @@
+import { describe, it, expect } from "vitest";
+import { applyRules, RULES } from "./rules.js";
+import { isCategory } from "./taxonomy.js";
+import type { Candidate } from "./categorise.js";
+
+const cand = (description: string, over: Partial<Candidate> = {}): Candidate => ({
+  dedupKey: `n:${description}`,
+  description,
+  amount: -1299,
+  currency: "GBP",
+  ...over,
+});
+
+describe("applyRules", () => {
+  it("matches common merchants regardless of the surrounding noise", () => {
+    const r = applyRules([
+      cand("TESCO STORES 3456 LONDON"),
+      cand("SHELL 12345 M4 SERVICES"),
+      cand("NETFLIX.COM 4567"),
+    ]);
+    expect(r.classifications.map((c) => c.category)).toEqual([
+      "Groceries",
+      "Fuel",
+      "Subscriptions",
+    ]);
+    expect(r.unmatched).toHaveLength(0);
+  });
+
+  it("uses the provider type for cash, where the description is a place not a merchant", () => {
+    const r = applyRules([cand("HIGH STREET BRANCH", { providerCategory: "ATM" })]);
+    expect(r.classifications[0]!.category).toBe("Cash Withdrawal");
+  });
+
+  it("leaves anything it does not recognise for the model", () => {
+    const r = applyRules([cand("SOME LOCAL SHOP LTD"), cand("TESCO STORES 1")]);
+    expect(r.unmatched).toHaveLength(1);
+    expect(r.unmatched[0]!.description).toBe("SOME LOCAL SHOP LTD");
+    expect(r.classifications).toHaveLength(1);
+  });
+
+  it("asserts rather than estimates — a rule is confidence 1", () => {
+    // If a rule is wrong the rule should be fixed, not hedged with a lower
+    // number that quietly downweights it everywhere.
+    const r = applyRules([cand("ALDI 998")]);
+    expect(r.classifications[0]!.confidence).toBe(1);
+  });
+
+  it("does not confuse Uber Eats with Uber", () => {
+    const r = applyRules([cand("UBER EATS LONDON"), cand("UBER TRIP HELP.UBER.COM")]);
+    const byDesc = new Map(r.classifications.map((c) => [c.dedupKey, c.category]));
+    expect(byDesc.get("n:UBER EATS LONDON")).toBe("Eating Out");
+    expect(byDesc.get("n:UBER TRIP HELP.UBER.COM")).toBe("Transport");
+  });
+
+  it("only ever produces categories from the taxonomy", () => {
+    for (const rule of RULES) {
+      expect(isCategory(rule.category)).toBe(true);
+    }
+  });
+
+  it("is order-independent for a given transaction", () => {
+    const a = applyRules([cand("BOOTS 123"), cand("ALDI 1")]);
+    const b = applyRules([cand("ALDI 1"), cand("BOOTS 123")]);
+    const map = (r: ReturnType<typeof applyRules>) =>
+      new Map(r.classifications.map((c) => [c.dedupKey, c.category]));
+    expect(map(a).get("n:BOOTS 123")).toBe(map(b).get("n:BOOTS 123"));
+  });
+});

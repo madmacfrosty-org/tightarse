@@ -12,6 +12,7 @@
 import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 import { Ledger } from "@tightarse/ledger";
 import { classifyBatch, DEFAULT_MODEL } from "./bedrock.js";
+import { applyRules, RULES_VERSION } from "./rules.js";
 import type { Candidate } from "./categorise.js";
 
 const BATCH_SIZE = 40;
@@ -38,8 +39,17 @@ async function main() {
   const ledger = new Ledger({ tableName, region });
   const bedrock = new BedrockRuntimeClient({ region });
 
+  // Mode is an explicit household setting, not implied by whether this has run.
+  // Defaulting is done here, at the call site, so the choice is visible.
+  const settings = await ledger.getSettings(tenantId);
+  const mode = (arg("mode") ?? settings?.enrichment ?? "model") as "off" | "rules" | "model";
+  if (mode === "off") {
+    console.log(`enrichment is "off" for ${tenantId} — provider payment type only. Nothing to do.`);
+    return;
+  }
+
   const backlog = await ledger.listToEnrich(tenantId, { from, to }, limit);
-  console.log(`${backlog.length} transactions awaiting categorisation  (model ${modelId})\n`);
+  console.log(`${backlog.length} transactions awaiting categorisation  (mode ${mode}${mode === "model" ? `, ${modelId}` : ""})\n`);
   if (backlog.length === 0) return;
 
   const candidates: Candidate[] = backlog.map((r) => ({
@@ -51,6 +61,15 @@ async function main() {
   }));
 
   const timestamps = new Map(backlog.map((r) => [String(r["dedupKey"]), String(r["timestamp"])]));
+
+  // Rules first, always. Deterministic, and a matched description never leaves
+  // the account. The model only ever sees what rules could not place.
+  const ruled = applyRules(candidates);
+  console.log(
+    `rules matched ${ruled.classifications.length}/${candidates.length}` +
+      ` (${((ruled.classifications.length / candidates.length) * 100).toFixed(1)}%)` +
+      `, ${ruled.unmatched.length} left for the model\n`,
+  );
 
   let written = 0;
   let rejected = 0;
@@ -68,8 +87,38 @@ async function main() {
   const producedBy = `categoriser@${modelId}`;
   const producedAt = new Date().toISOString();
 
-  for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
-    const batch = candidates.slice(i, i + BATCH_SIZE);
+  // Write the rule-derived enrichments first so a later failure still leaves
+  // the deterministic half done.
+  for (const c of ruled.classifications) {
+    tally.set(c.category, (tally.get(c.category) ?? 0) + 1);
+    if (dryRun) {
+      const b = candidates.find((x) => x.dedupKey === c.dedupKey);
+      samples.push({
+        description: b?.description ?? "",
+        amount: b?.amount ?? 0,
+        providerCategory: b?.providerCategory,
+        category: c.category,
+        confidence: c.confidence,
+      });
+      continue;
+    }
+    const timestamp = timestamps.get(c.dedupKey);
+    if (!timestamp) continue;
+    await ledger.putEnrichment({
+      tenantId,
+      dedupKey: c.dedupKey,
+      timestamp,
+      category: c.category,
+      confidence: c.confidence,
+      producedBy: RULES_VERSION,
+      producedAt,
+    });
+    written += 1;
+  }
+
+  const forModel = mode === "model" ? ruled.unmatched : [];
+  for (let i = 0; i < forModel.length; i += BATCH_SIZE) {
+    const batch = forModel.slice(i, i + BATCH_SIZE);
     const res = await classifyBatch(bedrock, batch, modelId);
     inTok += res.inputTokens;
     outTok += res.outputTokens;
@@ -107,11 +156,11 @@ async function main() {
       written += 1;
     }
 
-    const done = Math.min(i + BATCH_SIZE, candidates.length);
-    process.stdout.write(`\r  ${done}/${candidates.length}`);
+    const done = Math.min(i + BATCH_SIZE, forModel.length);
+    process.stdout.write(`\r  model: ${done}/${forModel.length}`);
   }
 
-  console.log(`\n\n${dryRun ? "would write" : "wrote"} ${dryRun ? candidates.length - missing : written} enrichments`);
+  console.log(`\n\n${dryRun ? "would write" : "wrote"} ${dryRun ? ruled.classifications.length + forModel.length - missing : written} enrichments`);
   if (rejected > 0) console.log(`  ${rejected} responses outside the taxonomy, stored as Other`);
   if (missing > 0) console.log(`  ${missing} left in the backlog (no response)`);
   console.log(`  tokens: ${inTok} in, ${outTok} out`);
