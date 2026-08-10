@@ -1,9 +1,5 @@
-import { useEffect, useState, type FormEvent } from "react";
-import {
-  apiGet, completeNewPassword, currentIdentity, initAuth, NewPasswordRequired, signIn, signOut,
-  type Identity,
-} from "./auth";
-import type { CognitoUser } from "amazon-cognito-identity-js";
+import { useEffect, useState } from "react";
+import { apiGet, completeSignIn, currentIdentity, signIn, signOut, type Identity } from "./auth";
 import { CategoryBars, MonthlyFlow, money, type CategoryDatum, type MonthDatum } from "./charts";
 
 interface Summary {
@@ -45,68 +41,18 @@ const RANGES = [
   { label: "5 years", days: 365 * 5 },
 ] as const;
 
-function SignIn({ onSignedIn }: { onSignedIn: (i: Identity) => void }) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [challenge, setChallenge] = useState<CognitoUser | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-
-    const done = (i: Identity) => onSignedIn(i);
-    const failed = (err: unknown) => {
-      if (err instanceof NewPasswordRequired) {
-        // Not an error: the account still has its one-time password.
-        setChallenge(err.user);
-        setError(null);
-        return;
-      }
-      setError(err instanceof Error ? err.message : "Sign in failed");
-    };
-
-    const attempt = challenge
-      ? completeNewPassword(challenge, newPassword)
-      : signIn(email, password);
-
-    attempt.then(done).catch(failed).finally(() => setBusy(false));
-  };
-
+function SignIn({ error }: { error: string | null }) {
   return (
-    <div className="page" style={{ maxWidth: 360 }}>
+    <div className="page" style={{ maxWidth: 380 }}>
       <h1>Tightarse</h1>
-      <form className="card" onSubmit={submit}>
-        <h2>{challenge ? "Choose a password" : "Sign in"}</h2>
+      <div className="card">
+        <h2>Sign in</h2>
         <p className="note">
-          {challenge
-            ? "This account still has its one-time password. Pick your own to finish setting it up — at least 12 characters, with upper and lower case and a digit."
-            : "Your household ledger."}
+          Your household ledger. Sign in with Google, or with an email and password.
         </p>
-        {challenge ? (
-          <>
-            <label className="label" htmlFor="new-password">New password</label>
-            <input id="new-password" type="password" autoComplete="new-password" required minLength={12}
-              value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-          </>
-        ) : (
-          <>
-            <label className="label" htmlFor="email">Email</label>
-            <input id="email" type="email" autoComplete="username" required
-              value={email} onChange={(e) => setEmail(e.target.value)} />
-            <label className="label" htmlFor="password">Password</label>
-            <input id="password" type="password" autoComplete="current-password" required
-              value={password} onChange={(e) => setPassword(e.target.value)} />
-          </>
-        )}
-        <button type="submit" disabled={busy}>
-          {busy ? "Working…" : challenge ? "Set password and sign in" : "Sign in"}
-        </button>
+        <button type="submit" onClick={() => void signIn()}>Continue to sign in</button>
         {error ? <p className="error" style={{ padding: "12px 0 0", fontSize: 13 }}>{error}</p> : null}
-      </form>
+      </div>
     </div>
   );
 }
@@ -121,10 +67,11 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    initAuth()
-      .then(currentIdentity)
+    // Safe on every load: returns null when this is not a redirect back.
+    completeSignIn()
+      .then((fromRedirect) => fromRedirect ?? currentIdentity())
       .then(setIdentity)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Configuration failed"))
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Sign in failed"))
       .finally(() => setChecking(false));
   }, []);
 
@@ -149,7 +96,7 @@ export function App() {
 
   if (checking) return <div className="page loading">Checking session…</div>;
   if (error && !identity) return <div className="page error">{error}</div>;
-  if (!identity) return <SignIn onSignedIn={setIdentity} />;
+  if (!identity) return <SignIn error={error} />;
 
   if (error) return <div className="page error">{error}</div>;
   if (!summary) return <div className="page loading">Loading…</div>;
@@ -172,7 +119,7 @@ export function App() {
             {identity.email}
             {" · "}
             <button
-              onClick={() => { signOut(); setIdentity(null); }}
+              onClick={() => void signOut()}
               style={{ background: "none", border: "none", padding: 0, font: "inherit", color: "var(--in)", cursor: "pointer" }}
             >
               sign out

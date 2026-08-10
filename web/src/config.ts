@@ -15,6 +15,8 @@
 export interface AppConfig {
   userPoolId: string;
   userPoolClientId: string;
+  /** Cognito hosted-UI domain, without scheme. */
+  hostedUiDomain: string;
   apiUrl: string;
 }
 
@@ -26,9 +28,10 @@ export async function loadConfig(): Promise<AppConfig> {
   const fromEnv: Partial<AppConfig> = {
     userPoolId: import.meta.env.VITE_USER_POOL_ID,
     userPoolClientId: import.meta.env.VITE_USER_POOL_CLIENT_ID,
+    hostedUiDomain: import.meta.env.VITE_HOSTED_UI_DOMAIN,
     apiUrl: import.meta.env.VITE_API_URL,
   };
-  if (fromEnv.userPoolId && fromEnv.userPoolClientId && fromEnv.apiUrl) {
+  if (fromEnv.userPoolId && fromEnv.userPoolClientId && fromEnv.hostedUiDomain && fromEnv.apiUrl) {
     cached = fromEnv as AppConfig;
     return cached;
   }
@@ -36,7 +39,7 @@ export async function loadConfig(): Promise<AppConfig> {
   const res = await fetch("/config.json", { cache: "no-store" });
   if (!res.ok) throw new Error(`Could not load /config.json (${res.status})`);
   const json = (await res.json()) as Partial<AppConfig>;
-  if (!json.userPoolId || !json.userPoolClientId || !json.apiUrl) {
+  if (!json.userPoolId || !json.userPoolClientId || !json.hostedUiDomain || !json.apiUrl) {
     throw new Error("config.json is missing required fields");
   }
   cached = json as AppConfig;

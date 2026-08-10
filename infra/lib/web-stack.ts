@@ -104,6 +104,7 @@ export class WebStack extends cdk.Stack {
         s3deploy.Source.jsonData("config.json", {
           userPoolId: userPool.userPoolId,
           userPoolClientId: userPoolClient.userPoolClientId,
+          hostedUiDomain: `${settings.hostedUiPrefix}.auth.${this.region}.amazoncognito.com`,
           apiUrl,
         }),
       ],
