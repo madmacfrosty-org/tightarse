@@ -209,3 +209,44 @@ suite("Ledger (integration)", () => {
     expect(String(now[0]!["sk"])).toContain("p3");
   });
 });
+
+suite("Ledger account merge (integration)", () => {
+  let ledger: Ledger;
+
+  beforeAll(() => {
+    ledger = new Ledger({
+      tableName: TABLE!,
+      client: DynamoDBDocumentClient.from(
+        new DynamoDBClient({
+          region: process.env["AWS_REGION"] ?? "eu-west-1",
+          ...(ENDPOINT ? { endpoint: ENDPOINT } : {}),
+        }),
+        { marshallOptions: { removeUndefinedValues: true } },
+      ),
+    });
+  });
+
+  it("does not lose a balance when account details are written afterwards", async () => {
+    // The real failure: /balance wrote the card's balance, then the /cards list
+    // object rewrote the account row without one and wiped it. Regular accounts
+    // survived only because "balance" sorts after "accounts"; under S3 events,
+    // where order is arbitrary, they were equally exposed.
+    const account = {
+      tenantId: TENANT,
+      accountId: "mergeTest",
+      provider: "truelayer" as const,
+      providerAccountId: "mergeTest",
+      displayName: "Test",
+      institutionName: "TEST-BANK",
+      currency: "GBP",
+    };
+
+    await ledger.putAccount(account, { current: 181447, available: 558553 });
+    await ledger.putAccount(account); // the list object, with no balance
+
+    const rows = await ledger.listAccounts(TENANT);
+    const found = rows.find((r) => r["accountId"] === "mergeTest");
+    expect(found?.["currentBalance"]).toBe(181447);
+    expect(found?.["availableBalance"]).toBe(558553);
+  });
+});

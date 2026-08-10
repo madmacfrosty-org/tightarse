@@ -4,6 +4,7 @@ import {
   BatchWriteCommand,
   PutCommand,
   QueryCommand,
+  UpdateCommand,
   TransactWriteCommand,
   type QueryCommandInput,
 } from "@aws-sdk/lib-dynamodb";
@@ -127,8 +128,46 @@ export class Ledger {
     return { deleted: deletes.length, written: items.length };
   }
 
+  /**
+   * Upsert an account, MERGING rather than replacing.
+   *
+   * A plain put loses data depending on processing order. Account details and
+   * balances arrive on different endpoints, so a later `/accounts` list object
+   * would overwrite a balance written moments earlier by `/balance` — which is
+   * exactly what happened to the card, whose dataset name sorts after its
+   * balance. Regular accounts survived only by the accident of `balance`
+   * sorting last, and under S3 events, where order is arbitrary, they would be
+   * just as exposed.
+   *
+   * Balances are therefore only written when supplied, and never cleared.
+   */
   async putAccount(a: Account, balances: { current?: number; available?: number } = {}): Promise<void> {
-    await this.doc.send(new PutCommand({ TableName: this.table, Item: accountItem(a, balances) }));
+    const item = accountItem(a, balances);
+    const { pk, sk, ...attributes } = item as Record<string, unknown> & { pk: string; sk: string };
+
+    const names: Record<string, string> = {};
+    const values: Record<string, unknown> = {};
+    const sets: string[] = [];
+    let i = 0;
+    for (const [key, value] of Object.entries(attributes)) {
+      if (value === undefined) continue;
+      const n = `#n${i}`;
+      const v = `:v${i}`;
+      names[n] = key;
+      values[v] = value;
+      sets.push(`${n} = ${v}`);
+      i += 1;
+    }
+
+    await this.doc.send(
+      new UpdateCommand({
+        TableName: this.table,
+        Key: { pk, sk },
+        UpdateExpression: `SET ${sets.join(", ")}`,
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values,
+      }),
+    );
   }
 
   async putSettings(s: TenantSettings): Promise<void> {
