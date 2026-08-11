@@ -28,7 +28,9 @@ const ctx = { tenantId: "frost", accountId: "acc1", status: "settled" as const }
 describe("mapTransaction", () => {
   it("converts major-unit floats to minor units without losing a penny", () => {
     expect(mapTransaction(raw(), ctx).amount).toBe(-1299);
-    expect(mapTransaction(raw({ amount: 0.29 }), ctx).amount).toBe(29);
+    // A credit, not a debit: direction now comes from transaction_type, so a
+    // positive amount on a DEBIT row is a card purchase and stays negative.
+    expect(mapTransaction(raw({ amount: 0.29, transaction_type: "CREDIT" }), ctx).amount).toBe(29);
   });
 
   it("unwraps running_balance, which is an object rather than a scalar", () => {
@@ -66,7 +68,10 @@ describe("mapTransaction", () => {
   });
 
   it("uses the currency's own exponent", () => {
-    expect(mapTransaction(raw({ amount: 100, currency: "JPY", running_balance: undefined }), ctx).amount).toBe(100);
+    const yen = (over: Partial<RawTransaction>) =>
+      mapTransaction(raw({ amount: 100, currency: "JPY", running_balance: undefined, ...over }), ctx);
+    expect(yen({ transaction_type: "CREDIT" }).amount).toBe(100);
+    expect(yen({ transaction_type: "DEBIT" }).amount).toBe(-100);
   });
 });
 
@@ -130,5 +135,52 @@ describe("card identification", () => {
     expect(isCardDataset("truelayer.card_balance")).toBe(true);
     expect(isCardDataset("truelayer.accounts")).toBe(false);
     expect(isCardDataset("truelayer.balance")).toBe(false);
+  });
+});
+
+describe("sign convention", () => {
+  // Shapes taken verbatim from the two live datasets. The card rows are the
+  // reason this exists: TrueLayer reports them from the issuer's point of view.
+  const card = (over: Partial<RawTransaction>) =>
+    mapTransaction({ ...raw(), ...over }, { tenantId: "t", accountId: "card", status: "settled" });
+
+  it("makes a card purchase spending, not income", () => {
+    // Raw: amount 5233, type DEBIT — positive because it increases what you owe.
+    const t = card({ amount: 5233, transaction_type: "DEBIT", description: "THE KBB COMPANY LTD" });
+    expect(t.amount).toBe(-523300);
+    expect(t.transactionType).toBe("DEBIT");
+  });
+
+  it("makes a card payment money in, so it can pair with the account debit", () => {
+    // Raw: amount -5779.7, type CREDIT — "PAYMENT RECEIVED - THANK YOU".
+    const t = card({ amount: -5779.7, transaction_type: "CREDIT", description: "PAYMENT RECEIVED" });
+    expect(t.amount).toBe(577970);
+    expect(t.transactionType).toBe("CREDIT");
+  });
+
+  it("leaves ordinary account rows exactly as they were", () => {
+    const debit = mapTransaction(
+      { ...raw(), amount: -3339.39, transaction_type: "DEBIT" },
+      { tenantId: "t", accountId: "acc", status: "settled" },
+    );
+    const credit = mapTransaction(
+      { ...raw(), amount: 2500, transaction_type: "CREDIT" },
+      { tenantId: "t", accountId: "acc", status: "settled" },
+    );
+    expect(debit.amount).toBe(-333939);
+    expect(credit.amount).toBe(250000);
+  });
+
+  it("pairs both legs of a card bill payment once signs agree", () => {
+    // The whole point: £3,339.39 leaves the current account and lands on the
+    // card. Before normalisation both legs were negative and never matched.
+    const out = mapTransaction(
+      { ...raw(), amount: -3339.39, transaction_type: "DEBIT", description: "AMERICAN EXPRESS" },
+      { tenantId: "t", accountId: "current", status: "settled" },
+    );
+    const onCard = card({ amount: -3339.39, transaction_type: "CREDIT", description: "PAYMENT RECEIVED" });
+    expect(out.amount).toBe(-333939);
+    expect(onCard.amount).toBe(333939);
+    expect(out.amount + onCard.amount).toBe(0);
   });
 });

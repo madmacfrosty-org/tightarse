@@ -56,9 +56,27 @@ export function mapTransaction(
 ): Transaction {
   // Amounts arrive in major units as JSON floats. toMinorUnits rounds and uses
   // the currency's own exponent — a hardcoded 100 is wrong for JPY and KWD.
-  const amount = toMinorUnits(raw.amount, raw.currency);
+  const magnitude = Math.abs(toMinorUnits(raw.amount, raw.currency));
 
   const transactionType = raw.transaction_type === "CREDIT" ? "CREDIT" : "DEBIT";
+
+  // The ledger's one sign convention: negative leaves the household, positive
+  // arrives. The provider does NOT supply this consistently — it reports each
+  // resource from that resource's own point of view:
+  //
+  //   current account   DEBIT → negative   CREDIT → positive   (8760 / 408)
+  //   credit card       DEBIT → POSITIVE   CREDIT → NEGATIVE   ( 171 /  20)
+  //
+  // A card purchase increases what you owe, so the issuer calls it positive.
+  // Storing that verbatim made every card purchase income and every card
+  // payment spending, and left the two legs of a card bill payment with the
+  // same sign, so transfer detection — which pairs a debit with a credit —
+  // could never match them and never netted them out.
+  //
+  // Taking the sign from transaction_type instead of the amount is what makes
+  // this uniform. Both datasets agree perfectly on the type; it is only the
+  // sign that flips, so the type is the trustworthy half.
+  const amount = transactionType === "DEBIT" ? -magnitude : magnitude;
 
   // Empty arrays are dropped rather than stored. First Direct returns no
   // classification at all, so an empty array here would be a misleading
