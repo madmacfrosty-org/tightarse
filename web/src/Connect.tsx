@@ -70,13 +70,21 @@ export function Connected({ onFinished }: { onFinished: () => void }) {
     const error = params.get("error");
 
     if (error) {
-      setState({ phase: "failed", message: error });
+      setState({ phase: "failed", message: params.get("error_description") ?? error });
       return;
     }
     if (!code) {
-      setState({ phase: "failed", message: "No authorisation code in the redirect." });
+      setState({
+        phase: "failed",
+        message:
+          "No authorisation code in the redirect. If you reloaded this page, the code was already used — start the connection again.",
+      });
       return;
     }
+
+    // Consume it once. A reload would otherwise resend a spent code and report
+    // a provider rejection that looks like a real failure.
+    window.history.replaceState({}, "", window.location.pathname);
 
     apiGet<{ connectionId: string; consentExpiresAt: string }>(
       `/connect/callback?code=${encodeURIComponent(code)}`,

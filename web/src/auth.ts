@@ -104,6 +104,17 @@ export async function signIn(): Promise<void> {
  * no code in the URL, so it is safe to call on every load.
  */
 export async function completeSignIn(): Promise<Identity | null> {
+  // Only OUR callback. The bank connection flow also comes back with `?code=`,
+  // and this used to claim it — stripping the URL before the connect page could
+  // read it, so a successful bank authorisation presented as "no authorisation
+  // code in the redirect". Two different OAuth flows landing on one app is not
+  // unusual; telling them apart has to be deliberate.
+  //
+  // Guarded twice over: the Cognito redirect_uri is the site root, and only
+  // this flow leaves a PKCE state behind in sessionStorage.
+  if (window.location.pathname !== "/") return null;
+  if (!sessionStorage.getItem(STORE.state)) return null;
+
   const params = new URLSearchParams(window.location.search);
   const code = params.get("code");
   const returnedState = params.get("state");
