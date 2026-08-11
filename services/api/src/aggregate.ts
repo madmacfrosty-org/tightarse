@@ -112,8 +112,11 @@ export function summarise(
   for (const row of transactions) {
     if (detection.keys.has(row.dedupKey)) continue;
 
-    // Sign is authoritative: debits negative, credits positive, consistent
-    // across every transaction measured.
+    // Sign is authoritative: negative left the household, positive arrived.
+    // That invariant is not free — the provider reports cards inverted, and
+    // this comment asserted the property for months while card rows violated
+    // it. It holds because mapTransaction now takes the sign from
+    // transaction_type at the boundary. Nothing here should re-derive it.
     if (row.amount >= 0) income += row.amount;
     else spend += row.amount;
 

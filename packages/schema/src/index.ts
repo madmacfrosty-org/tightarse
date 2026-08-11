@@ -171,6 +171,12 @@ export const Transaction = z.object({
    * the transform unwraps it. Present on 100% of settled First Direct
    * transactions and absent from pending ones.
    */
+  /**
+   * The provider's own running balance, stored verbatim and currently read by
+   * nothing. Note it is NOT normalised the way `amount` is: on a card this is
+   * the issuer's view, so it rises as you spend. Anything that starts using it
+   * has to account for that.
+   */
   runningBalance: Amount.optional(),
   /** Bank-supplied category. Present on every sandbox transaction. */
   providerCategory: z.string().optional(),
