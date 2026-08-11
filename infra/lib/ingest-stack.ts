@@ -25,6 +25,8 @@ export interface IngestStackProps extends cdk.StackProps {
   readonly clientSecret: secretsmanager.ISecret;
   /** Where consent warnings and sync failures go. */
   readonly alertEmail?: string;
+  /** Fixed so ApiStack can route to it by name without a construct reference. */
+  readonly connectFunctionName: string;
 }
 
 /**
@@ -258,6 +260,7 @@ export class IngestStack extends cdk.Stack {
 
     const connect = new NodejsFunction(this, "Connect", {
       ...common,
+      functionName: props.connectFunctionName,
       entry: path.join(__dirname, "../../services/ingest/src/connect.ts"),
       handler: "handler",
       memorySize: 256,

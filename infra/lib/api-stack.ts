@@ -16,6 +16,15 @@ export interface ApiStackProps extends cdk.StackProps {
   readonly table: dynamodb.TableV2;
   readonly userPool: cognito.UserPool;
   readonly userPoolClient: cognito.UserPoolClient;
+  /**
+   * Name of the connect function, which lives in IngestStack.
+   *
+   * Passed as a NAME rather than the construct, and resolved with
+   * `fromFunctionName`. Importing the object would make this stack depend on
+   * IngestStack while IngestStack already depends on the bucket and table in
+   * DataStack — the same cycle that forced EventBridge on the transform.
+   */
+  readonly connectFunctionName?: string;
 }
 
 /**
@@ -100,6 +109,23 @@ export class ApiStack extends cdk.Stack {
         integration: new integrations.HttpLambdaIntegration(`Int${route.replace("/", "")}`, handler),
         authorizer,
       });
+    }
+
+    // Connect routes, authorised identically. Starting a bank connection is a
+    // write to somebody's household, so it needs the same claim the reads do.
+    if (props.connectFunctionName) {
+      const connect = lambda.Function.fromFunctionName(this, "ConnectFn", props.connectFunctionName);
+      for (const route of ["/connect/start", "/connect/callback"]) {
+        this.api.addRoutes({
+          path: route,
+          methods: [apigw.HttpMethod.GET],
+          integration: new integrations.HttpLambdaIntegration(
+            `Int${route.replace(/\//g, "")}`,
+            connect,
+          ),
+          authorizer,
+        });
+      }
     }
 
     new cdk.CfnOutput(this, "ApiUrl", { value: this.api.apiEndpoint });

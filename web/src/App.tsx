@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiGet, completeSignIn, currentIdentity, signIn, signOut, type Identity } from "./auth";
+import { ConnectBank, Connected } from "./Connect";
 import { CategoryBars, MonthlyFlow, money, type CategoryDatum, type MonthDatum } from "./charts";
 
 interface Summary {
@@ -96,6 +97,11 @@ export function App() {
 
   if (checking) return <div className="page loading">Checking session…</div>;
   if (error && !identity) return <div className="page error">{error}</div>;
+  // The provider redirects here after a bank authorisation. Checked before the
+  // sign-in gate so a returning redirect is never mistaken for a fresh visit.
+  if (identity && window.location.pathname === "/connected") {
+    return <Connected onFinished={() => window.location.assign("/")} />;
+  }
   if (!identity) return <SignIn error={error} />;
 
   if (error) return <div className="page error">{error}</div>;
@@ -199,6 +205,8 @@ export function App() {
         </p>
         <CategoryBars data={summary.byCategory} />
       </div>
+
+      <ConnectBank />
 
       <div className="card">
         <h2>Recent transactions</h2>

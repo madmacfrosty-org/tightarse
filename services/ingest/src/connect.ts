@@ -58,6 +58,15 @@ export function authorisationUrl(
   return url.toString();
 }
 
+/**
+ * Providers offerable directly, skipping TrueLayer's full picker.
+ *
+ * An allow-list rather than passing the parameter through: `providers` steers
+ * where someone is sent to enter bank credentials, and that is not a value to
+ * accept unchecked from a query string.
+ */
+export const ALLOWED_PROVIDERS = ["ob-first-direct", "ob-amex", "uk-ob-all uk-oauth-all"];
+
 export interface ConnectResult {
   connectionId: string;
   consentExpiresAt: string;
@@ -129,8 +138,19 @@ export async function handler(event: {
     // The tenant is carried in `state` so the callback knows whose connection
     // this is without trusting anything the browser sends back.
     const state = `${tenantId}:${randomUUID()}`;
+    // A specific provider skips TrueLayer's picker of ninety banks. Restricted
+    // to an allow-list so the parameter cannot be used to steer someone at an
+    // arbitrary provider.
+    const requested = params["provider"];
+    const providers =
+      requested && ALLOWED_PROVIDERS.includes(requested) ? requested : deps.providers;
     return json(200, {
-      url: authorisationUrl(creds.clientId, deps, state, sandbox ? SANDBOX.auth : LIVE.auth),
+      url: authorisationUrl(
+        creds.clientId,
+        { ...deps, providers },
+        state,
+        sandbox ? SANDBOX.auth : LIVE.auth,
+      ),
       state,
     });
   }

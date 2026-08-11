@@ -39,17 +39,24 @@ const data = new DataStack(app, `TightarseData-${settings.name}`, {
   googleOAuthSecret: foundation.googleOAuthSecret,
 });
 
+// The connect function's name is fixed rather than generated, so ApiStack can
+// reference it without importing the construct — which would create a cycle,
+// since IngestStack already depends on DataStack.
+const connectFunctionName = `tightarse-${settings.name}-connect`;
+
 const api = new ApiStack(app, `TightarseApi-${settings.name}`, {
   env,
   settings,
   table: data.table,
   userPool: data.userPool,
   userPoolClient: data.userPoolClient,
+  connectFunctionName,
 });
 
 new IngestStack(app, `TightarseIngest-${settings.name}`, {
   env,
   settings,
+  connectFunctionName,
   rawBucket: data.rawBucket,
   table: data.table,
   dataKey: foundation.dataKey,

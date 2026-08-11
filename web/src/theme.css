@@ -151,3 +151,13 @@ button[type="submit"] {
   color: #fff; background: var(--in); border: 1px solid var(--in); border-radius: 8px; cursor: pointer;
 }
 button[type="submit"]:disabled { opacity: 0.6; cursor: default; }
+
+/* provider picker */
+.provider-row { display: flex; gap: 8px; flex-wrap: wrap; }
+button.provider {
+  padding: 9px 16px; font: inherit; font-size: 13px; font-weight: 500;
+  color: var(--text-primary); background: var(--surface-0);
+  border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
+}
+button.provider:hover:not(:disabled) { border-color: var(--in); }
+button.provider:disabled { opacity: 0.5; cursor: default; }
