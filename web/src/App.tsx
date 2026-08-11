@@ -25,6 +25,7 @@ interface AccountRow {
   institutionName: string;
   currentBalance?: number;
   availableBalance?: number;
+  isCard?: boolean;
 }
 
 interface TxnRow {
@@ -107,8 +108,11 @@ export function App() {
   if (error) return <div className="page error">{error}</div>;
   if (!summary) return <div className="page loading">Loading…</div>;
 
-  const cards = accounts.filter((a) => a.currentBalance !== undefined && a.availableBalance !== undefined
-    && a.availableBalance > a.currentBalance && a.currentBalance > 0);
+  // A card is a card because it came from the cards endpoint — the ledger
+  // records that. It used to be inferred from "available exceeds current",
+  // which is true of a credit card with headroom and false of Amex, which
+  // reports no available balance at all: a £567.90 debt was shown as cash.
+  const cards = accounts.filter((a) => a.isCard);
   const cardIds = new Set(cards.map((c) => c.accountId));
   const inCredit = accounts.filter((a) => !cardIds.has(a.accountId));
   const netCash = inCredit.reduce((s, a) => s + (a.currentBalance ?? 0), 0);

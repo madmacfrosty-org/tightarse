@@ -6,6 +6,7 @@ import {
   handlerFor,
   mapAccount,
   mapBalance,
+  isCardDataset,
   mapTransaction,
   type RawAccount,
   type RawBalance,
@@ -84,7 +85,10 @@ export async function transformObject(deps: TransformDeps, key: string): Promise
     }
 
     case "accounts": {
-      const accounts = (results as RawAccount[]).map((r) => mapAccount(r, { tenantId }));
+      // Card-ness comes from the dataset — i.e. from which endpoint TrueLayer
+      // returned this — because no field in the payload reliably says so.
+      const isCard = isCardDataset(dataset);
+      const accounts = (results as RawAccount[]).map((r) => mapAccount(r, { tenantId, isCard }));
       for (const a of accounts) await deps.ledger.putAccount(a);
       return { key, dataset, handler, rows: accounts.length };
     }
@@ -93,22 +97,15 @@ export async function transformObject(deps: TransformDeps, key: string): Promise
       if (!accountId) throw new Error(`Balance with no account in the key: ${key}`);
       const raw = (results as RawBalance[])[0];
       if (!raw) return { key, dataset, handler, rows: 0 };
-      // Balances arrive on their own endpoint, so the account row may not exist
-      // yet if objects are processed out of order. Upserting the balance onto a
-      // minimal row is better than dropping it and waiting for a later sync.
-      await deps.ledger.putAccount(
-        {
-          tenantId,
-          accountId,
-          provider: "truelayer",
-          providerAccountId: accountId,
-          displayName: accountId,
-          institutionName: "unknown",
-          currency: raw.currency,
-          ...(raw.update_timestamp ? { lastSyncedAt: raw.update_timestamp } : {}),
-        },
-        mapBalance(raw),
-      );
+      // Balances only. This used to upsert a whole minimal account row so a
+      // balance arriving before its account was not dropped — but the
+      // placeholders it invented ("unknown", the id as display name) then
+      // overwrote the real details, and every current account in the ledger
+      // ended up attributed to institution "unknown".
+      await deps.ledger.putBalances(tenantId, accountId, {
+        ...mapBalance(raw),
+        currency: raw.currency,
+      });
       return { key, dataset, handler, rows: 1 };
     }
 

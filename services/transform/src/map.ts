@@ -101,7 +101,10 @@ export function mapTransaction(
  * store to serve no purpose is a cost with no benefit. Raw still has it if
  * transfer matching ever wants corroboration.
  */
-export function mapAccount(raw: RawAccount, ctx: { tenantId: string }): Account {
+export function mapAccount(
+  raw: RawAccount,
+  ctx: { tenantId: string; isCard?: boolean },
+): Account {
   return {
     tenantId: ctx.tenantId,
     accountId: raw.account_id,
@@ -110,8 +113,17 @@ export function mapAccount(raw: RawAccount, ctx: { tenantId: string }): Account 
     displayName: raw.display_name ?? raw.account_id,
     institutionName: raw.provider?.display_name ?? "unknown",
     currency: raw.currency,
+    // From the endpoint, not inferred from the numbers. Amex reports no
+    // available balance, so a heuristic based on one showed a debt as credit.
+    isCard: ctx.isCard ?? false,
+    ...(raw.account_type ? { accountType: raw.account_type } : {}),
     ...(raw.update_timestamp ? { lastSyncedAt: raw.update_timestamp } : {}),
   };
+}
+
+/** Whether a dataset describes cards rather than bank accounts. */
+export function isCardDataset(dataset: string): boolean {
+  return dataset.startsWith("truelayer.card");
 }
 
 export function mapBalance(raw: RawBalance): { current?: number; available?: number } {

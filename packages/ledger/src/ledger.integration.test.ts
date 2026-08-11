@@ -272,4 +272,28 @@ suite("Ledger account merge (integration)", () => {
     expect(found?.["currentBalance"]).toBe(181447);
     expect(found?.["availableBalance"]).toBe(558553);
   });
+
+  it("updates balances without erasing the account's identity", async () => {
+    // The balance endpoint knows an account id and nothing else. Writing a
+    // whole account row from it — the old behaviour — replaced the real
+    // institution with the placeholder "unknown" on every single sync, which
+    // is exactly what the live ledger showed for every current account.
+    await ledger.putAccount({
+      tenantId: TENANT,
+      accountId: "accBal",
+      provider: "truelayer" as const,
+      providerAccountId: "accBal",
+      displayName: "Current Account",
+      institutionName: "FIRST-DIRECT",
+      currency: "GBP",
+      isCard: false,
+    });
+    await ledger.putBalances(TENANT, "accBal", { current: 12345, available: 20000, currency: "GBP" });
+
+    const found = (await ledger.listAccounts(TENANT)).find((r) => r["accountId"] === "accBal");
+    expect(found?.["institutionName"]).toBe("FIRST-DIRECT");
+    expect(found?.["displayName"]).toBe("Current Account");
+    expect(found?.["currentBalance"]).toBe(12345);
+    expect(found?.["availableBalance"]).toBe(20000);
+  });
 });

@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { mapTransaction, mapAccount, mapBalance, handlerFor, type RawTransaction } from "./map.js";
+import {
+  mapTransaction,
+  mapAccount,
+  mapBalance,
+  handlerFor,
+  isCardDataset,
+  type RawTransaction,
+} from "./map.js";
 
 const raw = (over: Partial<RawTransaction> = {}): RawTransaction => ({
   timestamp: "2026-08-08T00:00:00Z",
@@ -104,5 +111,24 @@ describe("handlerFor", () => {
     // Silently ignoring would mean a fetcher that starts producing something
     // new loses data indefinitely, with nothing to notice it by.
     expect(() => handlerFor("truelayer.somethingnew")).toThrow(/No handler/);
+  });
+});
+
+describe("card identification", () => {
+  const raw = { account_id: "amex1", currency: "GBP", display_name: "Gold" };
+
+  it("marks cards from the endpoint, not from the balances", () => {
+    // Amex returns no available balance, so any rule comparing available to
+    // current classifies it as a bank account and shows the debt as cash.
+    expect(mapAccount(raw, { tenantId: "t", isCard: true }).isCard).toBe(true);
+    expect(mapAccount(raw, { tenantId: "t" }).isCard).toBe(false);
+  });
+
+  it("derives card-ness from every card dataset", () => {
+    expect(isCardDataset("truelayer.cards")).toBe(true);
+    expect(isCardDataset("truelayer.card")).toBe(true);
+    expect(isCardDataset("truelayer.card_balance")).toBe(true);
+    expect(isCardDataset("truelayer.accounts")).toBe(false);
+    expect(isCardDataset("truelayer.balance")).toBe(false);
   });
 });

@@ -191,6 +191,52 @@ export class Ledger {
     return (rows[0] as TenantSettings | undefined) ?? null;
   }
 
+  /**
+   * Write balances only, touching nothing else on the account row.
+   *
+   * Balances arrive on their own endpoint, so a row may not exist yet. The
+   * previous approach upserted a whole minimal Account here — and its
+   * placeholder values then overwrote real details fetched moments earlier,
+   * which is why every current account read "institutionName: unknown".
+   */
+  async putBalances(
+    tenantId: string,
+    accountId: string,
+    balances: { current?: number; available?: number; currency?: string },
+  ): Promise<void> {
+    const { pk, sk } = keys.account(tenantId, accountId);
+    const sets: string[] = ["#kind = :kind", "#tenantId = :tenantId", "#accountId = :accountId"];
+    const names: Record<string, string> = {
+      "#kind": "kind",
+      "#tenantId": "tenantId",
+      "#accountId": "accountId",
+    };
+    const values: Record<string, unknown> = {
+      ":kind": "ACCOUNT",
+      ":tenantId": tenantId,
+      ":accountId": accountId,
+    };
+    const maybe = (key: string, value: unknown) => {
+      if (value === undefined) return;
+      names[`#${key}`] = key;
+      values[`:${key}`] = value;
+      sets.push(`#${key} = :${key}`);
+    };
+    maybe("currentBalance", balances.current);
+    maybe("availableBalance", balances.available);
+    maybe("currency", balances.currency);
+
+    await this.doc.send(
+      new UpdateCommand({
+        TableName: this.table,
+        Key: { pk, sk },
+        UpdateExpression: `SET ${sets.join(", ")}`,
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values,
+      }),
+    );
+  }
+
   /** Grant a person access to a household. Administrative action only. */
   async putMember(m: Member): Promise<void> {
     const { pk, sk } = keys.member(m.email);
