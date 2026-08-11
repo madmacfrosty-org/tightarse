@@ -205,9 +205,18 @@ export class DataStack extends cdk.Stack {
         scopes: ["openid", "email", "profile"],
         // Google's verified email becomes the pool user's email, which is what
         // the membership lookup keys on.
+        //
+        // email_verified must be mapped explicitly. Cognito defaults it to
+        // FALSE for a federated user when it is not mapped, and the pre-token
+        // trigger refuses to issue a household claim for an unverified address
+        // — so omitting it silently locked out every Google sign-in while
+        // looking like a membership problem.
         attributeMapping: {
           email: cognito.ProviderAttribute.GOOGLE_EMAIL,
           fullname: cognito.ProviderAttribute.GOOGLE_NAME,
+          custom: {
+            email_verified: cognito.ProviderAttribute.other("email_verified"),
+          },
         },
       });
       this.userPool.registerIdentityProvider(googleProvider);
