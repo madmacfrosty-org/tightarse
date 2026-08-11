@@ -177,6 +177,7 @@ export async function fetchItem(input: FetchInput): Promise<{ objects: number; s
   objects += 1;
 
   for (const spec of PER_ITEM_ENDPOINTS) {
+    if (!spec.resources.includes(resource)) continue;
     const dataset = spec.dataset(resource);
     try {
       const res = await tl.get(accessToken, `/data/v1/${resource}/${itemId}/${spec.suffix}`);

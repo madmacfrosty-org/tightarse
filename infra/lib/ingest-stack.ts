@@ -56,21 +56,13 @@ export class IngestStack extends cdk.Stack {
     }
 
     /**
-     * Everything that touches a secret's VALUE, scoped by name.
+     * Creating a connection secret.
      *
-     * The condition key `secretsmanager:Name` only exists for actions that name
-     * a secret, so it must not be applied to ListSecrets — the condition can
-     * never match there and the call is simply denied. That is how the first
-     * version of this failed.
+     * Scoped with the `secretsmanager:Name` condition because there is no ARN
+     * to name yet — which is precisely the case that condition key exists for.
      */
-    const connectionSecretValues = new iam.PolicyStatement({
-      actions: [
-        "secretsmanager:CreateSecret",
-        "secretsmanager:GetSecretValue",
-        "secretsmanager:PutSecretValue",
-        "secretsmanager:DescribeSecret",
-        "secretsmanager:TagResource",
-      ],
+    const createConnectionSecret = new iam.PolicyStatement({
+      actions: ["secretsmanager:CreateSecret", "secretsmanager:TagResource"],
       resources: ["*"],
       conditions: {
         StringLike: { "secretsmanager:Name": [`${connectionPrefix}/*`] },
@@ -78,11 +70,44 @@ export class IngestStack extends cdk.Stack {
     });
 
     /**
+     * Reading and updating an existing connection secret, scoped by ARN.
+     *
+     * `secretsmanager:Name` does NOT work here. It is only evaluated for
+     * CreateSecret; on actions against an existing secret the key is absent, so
+     * the condition never matches and every call is denied. That mistake let a
+     * connection be written and then made it unreadable — the sync failed with
+     * AccessDenied on a secret it had just created.
+     *
+     * The trailing wildcard covers the six random characters Secrets Manager
+     * appends to every ARN.
+     */
+    const useConnectionSecret = new iam.PolicyStatement({
+      actions: [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:PutSecretValue",
+        "secretsmanager:UpdateSecret",
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:DeleteSecret",
+      ],
+      resources: [
+        cdk.Arn.format(
+          {
+            service: "secretsmanager",
+            resource: "secret",
+            resourceName: `${connectionPrefix}/*`,
+            arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME,
+          },
+          this,
+        ),
+      ],
+    });
+
+    /**
      * Listing, which cannot be resource-scoped at all.
      *
-     * This exposes secret NAMES across the account, never values — the value
-     * actions above stay constrained to the connection prefix, so the TrueLayer
-     * client secret and the Google credentials remain unreadable here.
+     * Exposes secret NAMES across the account, never values — the statements
+     * above keep value access to the connection prefix, so the TrueLayer client
+     * secret and the Google credentials stay unreadable here.
      */
     const listSecrets = new iam.PolicyStatement({
       actions: ["secretsmanager:ListSecrets"],
@@ -125,7 +150,8 @@ export class IngestStack extends cdk.Stack {
     rawBucket.grantPut(steps);
     dataKey.grantEncryptDecrypt(steps);
     clientSecret.grantRead(steps);
-    steps.addToRolePolicy(connectionSecretValues);
+    steps.addToRolePolicy(createConnectionSecret);
+    steps.addToRolePolicy(useConnectionSecret);
     steps.addToRolePolicy(listSecrets);
     alerts.grantPublish(steps);
 
@@ -277,7 +303,8 @@ export class IngestStack extends cdk.Stack {
       }),
     });
     clientSecret.grantRead(connect);
-    connect.addToRolePolicy(connectionSecretValues);
+    connect.addToRolePolicy(createConnectionSecret);
+    connect.addToRolePolicy(useConnectionSecret);
     // Started, not awaited. The deep-history window is open at this moment and
     // shuts within the hour, so waiting for the daily schedule would silently
     // reduce a new connection to 90 days of history. Starting the machine

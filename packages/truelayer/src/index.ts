@@ -68,12 +68,14 @@ export class TrueLayerError extends Error {
   }
 
   /**
-   * The provider does not offer this endpoint for this account. First Direct
-   * returns 501 for standing orders on every account and 403 for direct debits
-   * on accounts that have none — neither is a failure to retry.
+   * The provider does not offer this endpoint here. First Direct returns 501
+   * for standing orders on every account and 403 for direct debits on accounts
+   * that have none; a path that does not exist for a resource returns 404.
+   * None is a failure worth retrying, and treating 404 as one cost five
+   * redundant fetches of an entire Amex card before the step gave up.
    */
   get isNotApplicable(): boolean {
-    return this.status === 501 || this.status === 403;
+    return this.status === 501 || this.status === 403 || this.status === 404;
   }
 }
 
@@ -178,6 +180,15 @@ export interface EndpointSpec {
    * sync — the provider simply does not offer it here.
    */
   readonly optional: boolean;
+  /**
+   * Which resources this endpoint exists for.
+   *
+   * Direct debits and standing orders are account concepts; the card paths do
+   * not exist and return 404. Calling them anyway failed the whole per-item
+   * step, which then retried four times, re-fetching transactions and balances
+   * on every attempt and burning calls against the four-per-24-hours cap.
+   */
+  readonly resources: readonly Resource[];
 }
 
 const singular: Record<Resource, string> = { accounts: "account", cards: "card" };
@@ -187,21 +198,25 @@ export const PER_ITEM_ENDPOINTS: readonly EndpointSpec[] = [
     suffix: "balance",
     dataset: (r) => (r === "cards" ? "truelayer.card_balance" : "truelayer.balance"),
     optional: false,
+    resources: ["accounts", "cards"],
   },
   {
     suffix: "transactions/pending",
     dataset: (r) => (r === "cards" ? "truelayer.card_transactions_pending" : "truelayer.transactions_pending"),
     optional: true,
+    resources: ["accounts", "cards"],
   },
   {
     suffix: "direct_debits",
     dataset: () => "truelayer.direct_debits",
     optional: true,
+    resources: ["accounts"],
   },
   {
     suffix: "standing_orders",
     dataset: () => "truelayer.standing_orders",
     optional: true,
+    resources: ["accounts"],
   },
 ];
 
