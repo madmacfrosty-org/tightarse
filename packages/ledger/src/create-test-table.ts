@@ -70,4 +70,9 @@ async function main(): Promise<void> {
   console.log(`status: ${described.Table?.TableStatus}`);
 }
 
-await main();
+// Not top-level await: this package compiles under a module setting that does
+// not allow it, and the failure only shows up in `tsc`, not in the test run.
+main().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});
