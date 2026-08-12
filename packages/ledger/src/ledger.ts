@@ -19,6 +19,7 @@ import {
   type Transaction,
   type TransactionEnrichment,
   type TenantSettings,
+  type CustomRule,
   type Member,
 } from "@tightarse/schema";
 import { accountItem, consentItem, enrichmentItem, pendingItem, transactionItem } from "./items";
@@ -235,6 +236,30 @@ export class Ledger {
         UpdateExpression: `SET ${sets.join(", ")}`,
         ExpressionAttributeNames: names,
         ExpressionAttributeValues: values,
+      }),
+    );
+  }
+
+  /**
+   * A household's own categorisation rules.
+   *
+   * One row holding the list: there are tens of these, not thousands, and the
+   * categoriser wants all of them on every run. A row each would turn one Get
+   * into a Query for no benefit.
+   */
+  async getCustomRules(tenantId: string): Promise<CustomRule[]> {
+    const res = await this.doc.send(
+      new GetCommand({ TableName: this.table, Key: keys.customRules(tenantId) }),
+    );
+    return ((res.Item as { rules?: CustomRule[] } | undefined)?.rules ?? []) as CustomRule[];
+  }
+
+  async putCustomRules(tenantId: string, rules: readonly CustomRule[]): Promise<void> {
+    const { pk, sk } = keys.customRules(tenantId);
+    await this.doc.send(
+      new PutCommand({
+        TableName: this.table,
+        Item: { pk, sk, kind: "RULES", tenantId, rules, updatedAt: new Date().toISOString() },
       }),
     );
   }

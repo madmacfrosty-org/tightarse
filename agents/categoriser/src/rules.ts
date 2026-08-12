@@ -1,4 +1,5 @@
-import type { Category } from "./taxonomy.js";
+import type { CustomRule } from "@tightarse/schema";
+import { isCategory, type Category } from "./taxonomy.js";
 import type { Candidate, Classification } from "./categorise.js";
 
 /**
@@ -40,24 +41,35 @@ export const RULES: readonly Rule[] = [
   { pattern: /\b(UBER(?!\s*EATS)|BOLT\.EU|ADDISON LEE|NCP|RINGGO|PARKING)\b/i, category: "Transport" },
 
   // Utilities and home
-  { pattern: /\b(BRITISH GAS|EDF|E\.?ON|OCTOPUS ENERGY|SCOTTISH POWER|SSE|OVO ENERGY|BULB|SHELL ENERGY)\b/i, category: "Utilities" },
+  { pattern: /\b(BRITISH GAS|EDF|E\.?ON|OCTOPUS( ENERGY)?|SCOTTISH POWER|SSE|OVO ENERGY|BULB|SHELL ENERGY)\b/i, category: "Utilities" },
   { pattern: /\b(THAMES WATER|ANGLIAN WATER|SEVERN TRENT|YORKSHIRE WATER|UNITED UTILITIES|SCOTTISH WATER|WESSEX WATER)\b/i, category: "Utilities" },
   { pattern: /\bCOUNCIL\b.*\bTAX\b|\bCOUNCIL TAX\b/i, category: "Council Tax" },
   { pattern: /\b(B&Q|SCREWFIX|WICKES|HOMEBASE|IKEA|DUNELM|TOOLSTATION)\b/i, category: "Home & Garden" },
 
   // Comms and subscriptions
-  { pattern: /\b(BT GROUP|BRITISH TELECOM|SKY DIGITAL|SKY UK|VIRGIN MEDIA|VODAFONE|EE LTD|O2 |THREE UK|PLUSNET|TALKTALK|GIFFGAFF)\b/i, category: "Phone & Internet" },
+  { pattern: /\b(BT GROUP|BRITISH TELECOM|SKY DIGITAL|SKY UK|VIRGIN MEDIA|VODAFONE|EE (LTD|LIMITED)|O2 |THREE UK|PLUSNET|TALKTALK|GIFFGAFF)\b/i, category: "Phone & Internet" },
   { pattern: /\b(NETFLIX|SPOTIFY|DISNEY|APPLE\.?COM\/BILL|PRIME VIDEO|AUDIBLE|PATREON|NOW TV|GOOGLE STORAGE|DROPBOX|ADOBE)\b/i, category: "Subscriptions" },
 
   // Shopping and health
   { pattern: /\b(AMAZON|AMZN)\b/i, category: "Shopping" },
   { pattern: /\b(ARGOS|JOHN LEWIS|NEXT RETAIL|PRIMARK|TK ?MAXX|SPORTS DIRECT|CURRYS|ZARA|H&M|UNIQLO)\b/i, category: "Shopping" },
+  { pattern: /\bMARKS\s*&?\s*SPENCER\b/i, category: "Shopping" },
   { pattern: /\b(BOOTS|SUPERDRUG|LLOYDS PHARMACY|SPECSAVERS|VISION EXPRESS|NHS)\b/i, category: "Health" },
   { pattern: /\b(PUREGYM|THE GYM|DAVID LLOYD|NUFFIELD HEALTH|VIRGIN ACTIVE|ANYTIME FITNESS)\b/i, category: "Fitness" },
 
   // Insurance and finance
   { pattern: /\b(AVIVA|DIRECT LINE|ADMIRAL|LV=|CHURCHILL|HASTINGS|ESURE|AXA|LEGAL & GENERAL)\b/i, category: "Insurance" },
   { pattern: /\b(VANGUARD|HARGREAVES|AJ BELL|NUTMEG|FREETRADE|MONEYBOX|WEALTHIFY)\b/i, category: "Savings & Investments" },
+
+  // Bank charges, by their standard wording rather than a merchant name.
+  { pattern: /\bNON[- ]STERLING (TRANSACTION )?FEE\b/i, category: "Fees & Charges" },
+  { pattern: /\b(OVERDRAFT|UNARRANGED) (FEE|INTEREST|CHARGE)\b/i, category: "Fees & Charges" },
+
+  // Paying a card off is money moving between your own accounts, not spending.
+  // Named issuers only — a rule broad enough to catch "CARD PAYMENT" would
+  // swallow ordinary purchases.
+  { pattern: /\b(AMERICAN EXPRESS|AMEX)\b/i, category: "Transfer" },
+  { pattern: /\bPAYMENT RECEIVED\b.*\bTHANK YOU\b/i, category: "Transfer" },
 
   // Charity
   { pattern: /\b(OXFAM|CANCER RESEARCH|BRITISH RED CROSS|RSPCA|NSPCC|SHELTER|JUSTGIVING|MACMILLAN)\b/i, category: "Gifts & Charity" },
@@ -78,11 +90,51 @@ export interface RuleResult {
   unmatched: Candidate[];
 }
 
-export function applyRules(candidates: readonly Candidate[]): RuleResult {
+/**
+ * Compile a household's own rules, skipping any that are unusable.
+ *
+ * A bad regex or an unknown category is dropped with a warning rather than
+ * throwing: these are entered by hand, and one typo should not stop a whole
+ * categorisation run.
+ */
+export function compileCustom(rules: readonly CustomRule[]): Rule[] {
+  const compiled: Rule[] = [];
+  for (const r of rules) {
+    if (!isCategory(r.category)) {
+      console.warn(`skipping custom rule "${r.pattern}": unknown category "${r.category}"`);
+      continue;
+    }
+    try {
+      compiled.push({ pattern: new RegExp(r.pattern, "i"), category: r.category });
+    } catch {
+      console.warn(`skipping custom rule "${r.pattern}": not a valid regular expression`);
+    }
+  }
+  return compiled;
+}
+
+export function applyRules(
+  candidates: readonly Candidate[],
+  custom: readonly Rule[] = [],
+): RuleResult {
   const classifications: Classification[] = [];
   const unmatched: Candidate[] = [];
 
   for (const c of candidates) {
+    // A household's own rules run FIRST, and unlike the generic ones they may
+    // match credits.
+    //
+    // The generic rules cannot: a large employer sharing a name with a large
+    // retailer once filed £62,868 of salary as Shopping, and no pattern can
+    // tell a refund from income. But somebody writing a rule for their own
+    // employer knows precisely which it is — that is the one case where the
+    // author has the context the pattern lacks.
+    const mine = custom.find((r) => r.pattern.test(c.description));
+    if (mine) {
+      classifications.push({ dedupKey: c.dedupKey, category: mine.category, confidence: 1 });
+      continue;
+    }
+
     // Interest is Fees & Charges when paid and Income when received. Direction
     // decides, not the label.
     if (c.providerCategory === "INTEREST") {

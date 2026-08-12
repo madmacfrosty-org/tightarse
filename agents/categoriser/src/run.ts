@@ -12,7 +12,7 @@
 import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 import { Ledger } from "@tightarse/ledger";
 import { classifyBatch, DEFAULT_MODEL } from "./bedrock.js";
-import { applyRules, RULES_VERSION } from "./rules.js";
+import { applyRules, compileCustom, RULES_VERSION } from "./rules.js";
 import type { Candidate } from "./categorise.js";
 
 const BATCH_SIZE = 40;
@@ -62,9 +62,15 @@ async function main() {
 
   const timestamps = new Map(backlog.map((r) => [String(r["dedupKey"]), String(r["timestamp"])]));
 
+  // The household's own rules, which live in the table rather than the repo —
+  // its highest-volume descriptions are family names, an employer and its own
+  // account numbers, none of which can be committed to a public repository.
+  const custom = compileCustom(await ledger.getCustomRules(tenantId));
+  if (custom.length > 0) console.log(`${custom.length} custom rules loaded`);
+
   // Rules first, always. Deterministic, and a matched description never leaves
   // the account. The model only ever sees what rules could not place.
-  const ruled = applyRules(candidates);
+  const ruled = applyRules(candidates, custom);
   console.log(
     `rules matched ${ruled.classifications.length}/${candidates.length}` +
       ` (${((ruled.classifications.length / candidates.length) * 100).toFixed(1)}%)` +
