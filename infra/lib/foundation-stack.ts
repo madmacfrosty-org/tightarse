@@ -97,7 +97,7 @@ export class FoundationStack extends cdk.Stack {
 
     this.dataKey = new kms.Key(this, "DataKey", {
       alias: `alias/${config.appName}-${settings.name}-data`,
-      description: `Encrypts the ${settings.name} raw landing zone`,
+      description: `Encrypts ${settings.name} household financial data: raw landing zone and ledger table`,
       enableKeyRotation: true,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });

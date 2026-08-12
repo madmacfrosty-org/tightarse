@@ -50,7 +50,15 @@ export class DataStack extends cdk.Stack {
       partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
       billing: dynamodb.Billing.onDemand(),
-      encryption: dynamodb.TableEncryptionV2.awsManagedKey(),
+      // The same customer-managed key as the raw bucket, not the AWS-managed
+      // default. The bucket was given one because it holds real transactions;
+      // this table holds the same transactions, so the requirement applies
+      // equally. It was the default here purely because nobody said otherwise.
+      //
+      // Changing this on an existing table is done in place by DynamoDB — no
+      // migration, no downtime — which is why it is worth correcting before
+      // there is a prod table rather than after.
+      encryption: dynamodb.TableEncryptionV2.customerManagedKey(props.dataKey),
       pointInTimeRecoverySpecification: {
         pointInTimeRecoveryEnabled: settings.pointInTimeRecovery,
       },
