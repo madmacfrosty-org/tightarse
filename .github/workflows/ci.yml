@@ -47,6 +47,12 @@ jobs:
       - name: Test
         run: npm test
 
+      # The web stack deploys web/dist as an asset, so synth cannot run without
+      # it. CI never built it, and every push since "Add the dashboard hosting
+      # stack" failed here — twenty commits of red that nobody looked at.
+      - name: Build the web app
+        run: npm run build -w @tightarse/web
+
       - name: Synth CDK
         run: npm run synth
 
