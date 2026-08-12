@@ -106,7 +106,14 @@ jobs:
           aws-region: eu-west-1
           role-session-name: gha-${{ github.run_id }}
 
-      # cdk synth needs the built dashboard, same as the build job.
+      # Jobs do not share a filesystem, so this one has to build for itself.
+      # Without it esbuild cannot resolve @tightarse/ledger while bundling the
+      # Lambdas — the workspace symlinks exist after npm ci, but they point at
+      # dist directories nothing has produced yet.
+      - name: Build the workspaces
+        run: npm run typecheck
+
+      # cdk synth deploys web/dist as an asset and fails without it.
       - name: Build the web app
         run: npm run build -w @tightarse/web
 
