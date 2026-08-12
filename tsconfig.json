@@ -11,6 +11,9 @@
       "path": "packages/truelayer"
     },
     {
+      "path": "packages/fixtures"
+    },
+    {
       "path": "services/transform"
     },
     {

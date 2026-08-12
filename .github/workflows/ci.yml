@@ -11,6 +11,23 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    # The ledger's integration tests were skipping on every push for want of a
+    # table, which is a green tick that means nothing. DynamoDB Local costs a
+    # few seconds and runs them for real.
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local:latest
+        ports:
+          - 8000:8000
+
+    env:
+      LEDGER_TEST_TABLE: Ledger
+      LEDGER_TEST_ENDPOINT: http://localhost:8000
+      AWS_REGION: eu-west-1
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+
     steps:
       - uses: actions/checkout@v4
 
@@ -23,6 +40,9 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Create the local ledger table
+        run: npm run create-test-table -w @tightarse/ledger
 
       - name: Test
         run: npm test

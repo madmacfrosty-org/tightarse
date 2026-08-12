@@ -19,6 +19,31 @@ git history. Fixtures are synthetic — generate them, do not capture them. If a
 real capture is ever genuinely needed for debugging, it goes in a separate
 private repo, never here.
 
+`@tightarse/fixtures` is the only acceptable source of test data:
+
+```ts
+import { generateHousehold, generatePending } from "@tightarse/fixtures";
+
+const { currentAccountTransactions, cardTransactions, expectedTransferPairs } =
+  generateHousehold({ seed: 99, from: "2025-01-01", to: "2025-07-01" });
+```
+
+It is seeded, so a failure is reproducible from the seed alone, and it emits
+**raw provider payloads including the provider's quirks** — not our tidy domain
+model. That is deliberate and it is the whole value of the thing.
+
+TrueLayer reports each resource from that resource's own point of view, so a
+credit card's `DEBIT` is **positive** while a current account's is negative. We
+stored that verbatim for months: every card purchase counted as income, every
+card payment as spending, and no card bill ever netted out, because transfer
+detection pairs a debit with a credit and both legs were negative. Five real
+years of totals were wrong by about £40k in each direction.
+
+Fixtures that looked sensible would have ratified that bug instead of catching
+it. So `cardTransactions` emits the inversion on purpose, and there are tests
+asserting it still does. If you find yourself "fixing" the generator to make the
+signs agree, you are removing the reason it exists.
+
 **3. Commercial and regulatory material.** TrueLayer's agent terms, quoted
 pricing, ICO registration details. Not secret exactly, but no upside to
 publishing. Keep it local or private.
