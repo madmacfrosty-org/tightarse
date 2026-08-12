@@ -22,6 +22,23 @@ export const config = {
    * to change either way.
    */
   githubEnvironment: "dev",
+  /**
+   * The repository's OIDC subject prefix, including GitHub's immutable ids.
+   *
+   * GitHub has begun issuing subject claims of the form
+   * `repo:owner@<ownerId>/repo@<repoId>` rather than the documented
+   * `repo:owner/repo`. A trust policy written from the documentation matches
+   * nothing, and the failure reads "Not authorized to perform
+   * sts:AssumeRoleWithWebIdentity" with no indication that the subject is the
+   * problem.
+   *
+   * Read it back with:
+   *   gh api /repos/<owner>/<repo>/actions/oidc/customization/sub
+   *
+   * Both forms are trusted below. The immutable one is strictly better — a
+   * rename, or someone later claiming the abandoned name, cannot satisfy it.
+   */
+  githubSubjectPrefixImmutable: "repo:madmacfrosty@10167941/tightarse@1328000897",
   /** Ingest cadence. Unattended open banking access is capped at 4 calls per
    *  24h per consent, so daily leaves plenty of headroom for manual refreshes. */
   ingestScheduleCron: { minute: "0", hour: "5" },

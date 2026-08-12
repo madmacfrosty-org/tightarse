@@ -135,7 +135,15 @@ export class FoundationStack extends cdk.Stack {
           // condition any repository on GitHub could assume this role — the
           // provider alone vouches that a caller is *some* GitHub workflow,
           // not that it is ours.
-          "token.actions.githubusercontent.com:sub": `repo:${config.githubRepo}:environment:${config.githubEnvironment}`,
+          //
+          // Two exact values, no wildcards. GitHub now issues immutable
+          // subjects carrying numeric ids, and the documented form is what a
+          // trust policy gets written against; accepting both means this keeps
+          // working whichever GitHub sends.
+          "token.actions.githubusercontent.com:sub": [
+            `${config.githubSubjectPrefixImmutable}:environment:${config.githubEnvironment}`,
+            `repo:${config.githubRepo}:environment:${config.githubEnvironment}`,
+          ],
         },
       }),
     });
