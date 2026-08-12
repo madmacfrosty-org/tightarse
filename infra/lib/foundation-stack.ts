@@ -107,6 +107,51 @@ export class FoundationStack extends cdk.Stack {
     // stack owns the naming convention and the IAM boundary instead.
     this.connectionSecretPrefix = `${prefix}/connections`;
 
+    // ------------------------------------------------------- CI deploy role
+    //
+    // GitHub Actions deploying without a stored AWS key.
+    //
+    // The alternative is an access key in GitHub secrets, which works from
+    // anywhere, for anyone holding it, until somebody remembers to rotate it.
+    // Here GitHub signs a token describing one workflow run, AWS trusts that
+    // signature, and STS exchanges it for credentials lasting an hour. There is
+    // no secret to leak, because nothing that works outside a run is stored.
+    //
+    // Note this does NOT remove the long-lived key on the maintainer's laptop.
+    // That is a different problem with a different answer (Identity Center).
+    const githubOidc = new iam.OpenIdConnectProvider(this, "GitHubOidc", {
+      url: "https://token.actions.githubusercontent.com",
+      clientIds: ["sts.amazonaws.com"],
+    });
+
+    const deployRole = new iam.Role(this, "GitHubDeployRole", {
+      roleName: `${config.appName}-${settings.name}-github-deploy`,
+      description: "Assumed by GitHub Actions to deploy this app. No standing credentials.",
+      maxSessionDuration: cdk.Duration.hours(1),
+      assumedBy: new iam.WebIdentityPrincipal(githubOidc.openIdConnectProviderArn, {
+        StringEquals: {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          // Scoped to one repository AND one environment. Without the sub
+          // condition any repository on GitHub could assume this role — the
+          // provider alone vouches that a caller is *some* GitHub workflow,
+          // not that it is ours.
+          "token.actions.githubusercontent.com:sub": `repo:${config.githubRepo}:environment:${config.githubEnvironment}`,
+        },
+      }),
+    });
+
+    // The role can do exactly one thing: assume the CDK bootstrap roles, which
+    // carry the actual deployment permissions and are themselves scoped. This
+    // keeps admin out of a role that a workflow file can reach.
+    deployRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["sts:AssumeRole"],
+        resources: [`arn:aws:iam::${this.account}:role/cdk-hnb659fds-*-${this.account}-${config.region}`],
+      }),
+    );
+
+    new cdk.CfnOutput(this, "GitHubDeployRoleArn", { value: deployRole.roleArn });
+
     new cdk.CfnOutput(this, "ClientSecretName", { value: this.clientSecret.secretName });
     new cdk.CfnOutput(this, "ConnectionSecretPrefix", { value: this.connectionSecretPrefix });
     new cdk.CfnOutput(this, "DataKeyArn", { value: this.dataKey.keyArn });

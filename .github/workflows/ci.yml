@@ -66,3 +66,79 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Deploy on merge to main, with no AWS key stored anywhere.
+  #
+  # GitHub signs a token describing this specific run; AWS trusts that signature
+  # and STS exchanges it for credentials lasting an hour. The role is scoped to
+  # this repository AND the "dev" environment, so a token minted by any other
+  # repo — or by a job in this one that does not declare the environment —
+  # fails the trust policy.
+  #
+  # The environment is also where an approval rule lives. Add required reviewers
+  # under Settings → Environments → dev and every deploy waits for a human. That
+  # is worth considering: this account holds five years of real transactions.
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: dev
+
+    permissions:
+      contents: read
+      # Without this GitHub will not mint the token at all, and the failure
+      # reads as a credentials error rather than a missing permission.
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::707256068475:role/tightarse-dev-github-deploy
+          aws-region: eu-west-1
+          role-session-name: gha-${{ github.run_id }}
+
+      # cdk synth needs the built dashboard, same as the build job.
+      - name: Build the web app
+        run: npm run build -w @tightarse/web
+
+      # An empty alertEmail would not fail the deploy — it would quietly remove
+      # the SNS subscription and take the consent-expiry warnings with it. Fail
+      # here instead, where the cause is obvious.
+      - name: Check the alert address is configured
+        env:
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+        run: |
+          if [ -z "$ALERT_EMAIL" ]; then
+            echo "ALERT_EMAIL secret is not set. Deploying without it would silently"
+            echo "delete the alert subscription. Set it under Settings -> Secrets."
+            exit 1
+          fi
+
+      # Named stacks rather than `--all`, and cdk directly rather than through
+      # npm, which does not forward arguments reliably through a nested script.
+      #
+      # TightarseWeb-dev is omitted on purpose: creating its CloudFront
+      # distribution is refused until the AWS account is verified (#8), so
+      # including it would leave this job permanently red and train everyone to
+      # ignore it. Add it back when that support case closes.
+      - name: Deploy
+        working-directory: infra
+        run: |
+          npx cdk deploy \
+            TightarseFoundation-dev \
+            TightarseData-dev \
+            TightarseApi-dev \
+            TightarseIngest-dev \
+            --require-approval never \
+            -c alertEmail="$ALERT_EMAIL"
+        env:
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}

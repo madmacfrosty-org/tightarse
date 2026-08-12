@@ -10,6 +10,18 @@ import * as cdk from "aws-cdk-lib";
 export const config = {
   region: "eu-west-1",
   appName: "tightarse",
+  /** The only repository allowed to assume the deploy role. */
+  githubRepo: "madmacfrosty/tightarse",
+  /**
+   * The GitHub environment CI deploys through.
+   *
+   * Trust is scoped to the environment rather than to a branch, because an
+   * environment is what carries an approval rule. Add required reviewers in
+   * the repository settings and every deploy waits for a human; leave it bare
+   * and merges to main deploy straight through. The trust policy does not have
+   * to change either way.
+   */
+  githubEnvironment: "dev",
   /** Ingest cadence. Unattended open banking access is capped at 4 calls per
    *  24h per consent, so daily leaves plenty of headroom for manual refreshes. */
   ingestScheduleCron: { minute: "0", hour: "5" },
