@@ -54,9 +54,41 @@ function connections(): Connections {
 
 // ------------------------------------------------------------------ listing
 
-/** Step 1: every connection for the household. */
-export async function listConnections(): Promise<{ connections: Connection[] }> {
-  return { connections: await connections().list(required("TENANT_ID")) };
+/**
+ * Step 1: the connections to sync.
+ *
+ * Every connection for the household by default — that is the daily run. A
+ * connect passes the one it just created, so adding a second card does not
+ * spend the other connections' unattended-call budget (four per 24 hours, per
+ * consent) or give an unrelated failure a chance to muddy the execution that
+ * matters. With one connection this was free; with a household holding several
+ * it is not.
+ *
+ * Takes the whole execution input rather than a named field so an execution
+ * started with no input at all still works — Step Functions defaults that to
+ * `{}`, whereas a missing JSONPath reference is an error.
+ */
+export async function listConnections(args: {
+  input?: { connectionId?: string };
+}): Promise<{ connections: Connection[] }> {
+  const all = await connections().list(required("TENANT_ID"));
+  return { connections: selectConnections(all, args?.input) };
+}
+
+/** The scoping rule on its own, so it can be tested without Secrets Manager. */
+export function selectConnections(
+  all: readonly Connection[],
+  input?: { connectionId?: string },
+): Connection[] {
+  const only = input?.connectionId;
+  if (!only) return [...all];
+
+  const one = all.filter((c) => c.connectionId === only);
+  // A connectionId matching nothing means the caller believes in a connection
+  // that is not there. Falling back to "sync everything" would look like
+  // success while doing something else entirely.
+  if (one.length === 0) throw new Error(`No connection ${only} for this household`);
+  return one;
 }
 
 // ------------------------------------------------------------------ refresh

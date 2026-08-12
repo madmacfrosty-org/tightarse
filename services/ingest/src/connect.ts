@@ -178,6 +178,10 @@ export async function handler(event: {
           new StartExecutionCommand({
             stateMachineArn: machine,
             name: `connect-${result.connectionId}`.slice(0, 80),
+            // Only the connection just made. Its deep-history window is the one
+            // that shuts within the hour; the others are synced on schedule and
+            // have their own rate limits to protect.
+            input: JSON.stringify({ connectionId: result.connectionId }),
           }),
         );
       }

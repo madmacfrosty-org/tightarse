@@ -216,7 +216,11 @@ export class IngestStack extends cdk.Stack {
           ),
       );
 
-    const definition = invoke("ListConnections", "listConnections", {}).next(
+    const definition = invoke("ListConnections", "listConnections", {
+      // The whole execution input: `{}` on the schedule, `{connectionId}` from
+      // a connect. A named JSONPath would fail the run when the field is absent.
+      "input.$": "$",
+    }).next(
       new sfn.Map(this, "EachConnection", {
         itemsPath: "$.connections",
         maxConcurrency: 1,

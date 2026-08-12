@@ -11,7 +11,7 @@ type Step = "listConnections" | "refreshAndList" | "fetchItem" | "recordOutcome"
 export async function handler(event: { step: Step } & Record<string, unknown>): Promise<unknown> {
   switch (event.step) {
     case "listConnections":
-      return listConnections();
+      return listConnections(event as never);
     case "refreshAndList":
       return refreshAndList(event as never);
     case "fetchItem":
