@@ -184,3 +184,55 @@ describe("sign convention", () => {
     expect(out.amount + onCard.amount).toBe(0);
   });
 });
+
+describe("fields the provider may omit", () => {
+  // Written against surviving mutants, not against the source. Each of these
+  // lines was fully covered and none of it was checked: the mapper could have
+  // dropped merchantName, renamed the provider, or fallen back to an empty
+  // institution name, and every test still passed.
+  const account = { account_id: "acc1", currency: "GBP" };
+
+  it("keeps the merchant name when there is one, and omits the key when not", () => {
+    expect(mapTransaction(raw({ merchant_name: "SOME SHOP" }), ctx).merchantName).toBe("SOME SHOP");
+    expect(mapTransaction(raw({ merchant_name: undefined }), ctx)).not.toHaveProperty("merchantName");
+  });
+
+  it("omits providerCategory rather than storing undefined", () => {
+    expect(mapTransaction(raw({ transaction_category: "PURCHASE" }), ctx).providerCategory).toBe("PURCHASE");
+    expect(mapTransaction(raw({ transaction_category: undefined }), ctx)).not.toHaveProperty("providerCategory");
+  });
+
+  it("records the provider it came from", () => {
+    // A silent change here would misattribute every row in the ledger.
+    expect(mapAccount(account, { tenantId: "t" }).provider).toBe("truelayer");
+  });
+
+  it("falls back to the account id when the bank sends no display name", () => {
+    expect(mapAccount({ ...account, display_name: "Current" }, { tenantId: "t" }).displayName).toBe("Current");
+    expect(mapAccount(account, { tenantId: "t" }).displayName).toBe("acc1");
+  });
+
+  it("says \"unknown\" rather than empty when there is no institution", () => {
+    // An empty string reads as a name the bank supplied. "unknown" reads as
+    // an absence, which is what it is.
+    expect(mapAccount(account, { tenantId: "t" }).institutionName).toBe("unknown");
+  });
+
+  it("carries accountType and lastSyncedAt only when present", () => {
+    const full = mapAccount(
+      { ...account, account_type: "TRANSACTION", update_timestamp: "2026-08-01T00:00:00Z" },
+      { tenantId: "t" },
+    );
+    expect(full.accountType).toBe("TRANSACTION");
+    expect(full.lastSyncedAt).toBe("2026-08-01T00:00:00Z");
+
+    const bare = mapAccount(account, { tenantId: "t" });
+    expect(bare).not.toHaveProperty("accountType");
+    expect(bare).not.toHaveProperty("lastSyncedAt");
+  });
+
+  it("omits a balance the bank did not send", () => {
+    expect(mapBalance({ currency: "GBP", available: 5.5 })).toEqual({ available: 550 });
+    expect(mapBalance({ currency: "GBP" })).toEqual({});
+  });
+});

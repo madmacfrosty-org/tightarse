@@ -35,8 +35,14 @@ ledger can always be rebuilt; that property is worth protecting.
 ```sh
 npm run typecheck          # tsc --build; also produces the dist/ that bundling needs
 npm test                   # all workspaces; integration tests need DynamoDB Local
+npm run test:coverage      # the same, enforcing each package's coverage ratchet
+npm run test:mutation -w <pkg>   # slow; finds tests that run code without checking it
 npm run synth              # needs web/dist — run `npm run build -w @tightarse/web` first
 ```
+
+Coverage thresholds only stop coverage falling. They cannot tell whether a test
+checks anything — mutation testing can, and the conventions doc explains how to
+read it.
 
 Operational commands — granting household access, managing categorisation
 rules, running a categorisation — are in [README](README.md#operating-it).

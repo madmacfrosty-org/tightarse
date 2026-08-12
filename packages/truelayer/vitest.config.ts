@@ -1,4 +1,4 @@
-import { testConfig } from "../../vitest.shared";
+import { testConfig } from "@tightarse/vitest-config";
 
 // Pinned to what this package covers today. Raise them; never lower them.
 export default testConfig({

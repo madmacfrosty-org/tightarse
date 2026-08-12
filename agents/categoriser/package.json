@@ -10,7 +10,8 @@
     "test": "vitest run",
     "run-batch": "node dist/run.js",
     "rules": "tsx src/rules-cli.ts",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:mutation": "stryker run"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.700.0",
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "vitest": "^2.1.0",
-    "tsx": "^4.19.0"
+    "tsx": "^4.19.0",
+    "@tightarse/vitest-config": "*"
   }
 }

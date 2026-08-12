@@ -1,0 +1,13 @@
+{
+  "name": "@tightarse/vitest-config",
+  "version": "0.0.0",
+  "private": true,
+  "//": "Exports TypeScript source directly: vitest loads config through esbuild, so no build step is needed, and a build step here would have to run before tests could run at all.",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "peerDependencies": {
+    "vitest": "^2.1.0"
+  }
+}

@@ -53,3 +53,8 @@ web/dist/
 
 # points at a specific deployed environment
 web/.env.local
+
+# mutation testing
+.stryker/
+.stryker-tmp/
+reports/

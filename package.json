@@ -23,9 +23,12 @@
     "synth": "npm run synth -w infra",
     "deploy": "npm run deploy -w infra",
     "prepare": "git config core.hooksPath .githooks",
-    "test:coverage": "npm run test:coverage --workspaces --if-present"
+    "test:coverage": "npm run test:coverage --workspaces --if-present",
+    "test:mutation": "npm run test:mutation --workspaces --if-present"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
     "@types/node": "^22.10.0",
     "@vitest/coverage-v8": "^2.1.9",
     "esbuild": "^0.24.0",

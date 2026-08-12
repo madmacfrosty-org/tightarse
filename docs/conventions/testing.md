@@ -70,3 +70,75 @@ at all, and almost every incident this project has had was infrastructure: two
 IAM condition-key mistakes, an unmapped Cognito attribute that refused every
 sign-in, a lifecycle rule whose expiry preceded its transition. `cdk synth`
 passes on all of those.
+
+## Coverage, and why it is not the goal
+
+Each package pins coverage thresholds at what it achieves today
+(`vitest.config.ts`, using `@tightarse/vitest-config`). They are a **ratchet**:
+coverage cannot fall, and new untested code fails the build in the package that
+added it. Raise them as you go; never lower them.
+
+`npm test` runs plain and fast. `npm run test:coverage` enforces the thresholds,
+and CI runs that.
+
+Coverage answers "did this line run", never "did anything check the result".
+Every expensive bug in this repository had its failing line covered. So a
+package at 100% lines is a package where the tests are *capable* of catching a
+regression, not one where they will.
+
+## Mutation testing
+
+`npm run test:mutation` changes the source in small ways — flips a comparison,
+swaps a string, forces a condition — and reports which changes your tests failed
+to notice. A surviving mutant is a line that runs under a test that would not
+have complained if it were wrong.
+
+Run it on the package you are working in; it is far slower than the test suite
+and does not belong on every push.
+
+It is worth the time because it finds precisely what coverage hides. `map.ts`
+was fully line-covered and still scored 85%, with eight survivors:
+
+```
+[Survived] institutionName: raw.provider?.display_name ?? "unknown"   → ""
+[Survived] displayName: raw.display_name ?? raw.account_id            → left side only
+[Survived] provider: "truelayer"                                      → ""
+[Survived] ...(raw.current !== undefined ? { current } : {})          → always true
+[NoCoverage] ...(raw.merchant_name ? { merchantName } : {})
+```
+
+Every one is real. The mapper could have dropped merchant names, renamed the
+provider on every row in the ledger, or turned "unknown" into an empty string
+that reads like a name the bank supplied — and the suite stayed green. Writing
+tests against those survivors took it to 100%, and those tests check behaviour
+somebody would actually miss.
+
+### Responding to a survivor
+
+In order of preference:
+
+1. **Write the assertion that kills it**, if the mutated behaviour would be
+   wrong. This is the usual case and the reason to run it.
+2. **Delete the code**, if nothing can tell the difference. A mutant that
+   survives because the branch has no observable effect is dead code with a
+   test-shaped hole around it.
+3. **Leave it, with a comment saying why.** Legitimate for equivalent
+   mutants — a change that cannot alter behaviour, such as reordering an
+   independent guard. Rare. If you are reaching for this often, the tests are
+   asserting the implementation rather than the requirement.
+
+Never chase the score with tests that assert the code back to itself. A test
+written by reading the implementation kills the mutant and verifies nothing; two
+bugs in this repository were enshrined exactly that way.
+
+### Where it applies
+
+Configured for `packages/schema`, `packages/truelayer`, `services/transform`,
+`services/api` and `agents/categoriser` — the packages that are mostly decisions
+rather than plumbing. CLIs and batch entry points are excluded from mutation
+(`*-cli.ts`, `run.ts`): they are sequences of I/O, where a survivor tells you
+little and a kill costs a lot of mocking.
+
+Packages dominated by AWS calls — `ledger`, `ingest` — are not configured yet.
+Their risk is better addressed by the integration tests, and by extracting
+decisions into functions that can be tested at all, as `selectConnections` was.

@@ -15,6 +15,7 @@
     "@tightarse/schema": "*"
   },
   "devDependencies": {
-    "vitest": "^2.1.0"
+    "vitest": "^2.1.0",
+    "@tightarse/vitest-config": "*"
   }
 }
