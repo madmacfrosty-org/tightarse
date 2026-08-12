@@ -12,7 +12,8 @@
 import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 import { Ledger } from "@tightarse/ledger";
 import { classifyBatch, DEFAULT_MODEL } from "./bedrock.js";
-import { applyRules, compileCustom, RULES_VERSION } from "./rules.js";
+import { RULES_VERSION } from "./rules.js";
+import { prepare } from "./batch.js";
 import type { Candidate } from "./categorise.js";
 
 const BATCH_SIZE = 40;
@@ -48,29 +49,14 @@ async function main() {
     return;
   }
 
-  const backlog = await ledger.listToEnrich(tenantId, { from, to }, limit);
-  console.log(`${backlog.length} transactions awaiting categorisation  (mode ${mode}${mode === "model" ? `, ${modelId}` : ""})\n`);
-  if (backlog.length === 0) return;
+  // Shared with the scheduled Lambda so the two cannot drift apart.
+  const prepared = await prepare(ledger, tenantId, { from, to }, limit);
+  const { candidates, timestamps, customRuleCount } = prepared;
+  console.log(`${candidates.length} transactions awaiting categorisation  (mode ${mode}${mode === "model" ? `, ${modelId}` : ""})\n`);
+  if (candidates.length === 0) return;
+  if (customRuleCount > 0) console.log(`${customRuleCount} custom rules loaded`);
 
-  const candidates: Candidate[] = backlog.map((r) => ({
-    dedupKey: String(r["dedupKey"]),
-    description: String(r["description"] ?? ""),
-    amount: Number(r["amount"] ?? 0),
-    currency: String(r["currency"] ?? "GBP"),
-    ...(r["providerCategory"] ? { providerCategory: String(r["providerCategory"]) } : {}),
-  }));
-
-  const timestamps = new Map(backlog.map((r) => [String(r["dedupKey"]), String(r["timestamp"])]));
-
-  // The household's own rules, which live in the table rather than the repo —
-  // its highest-volume descriptions are family names, an employer and its own
-  // account numbers, none of which can be committed to a public repository.
-  const custom = compileCustom(await ledger.getCustomRules(tenantId));
-  if (custom.length > 0) console.log(`${custom.length} custom rules loaded`);
-
-  // Rules first, always. Deterministic, and a matched description never leaves
-  // the account. The model only ever sees what rules could not place.
-  const ruled = applyRules(candidates, custom);
+  const ruled = { classifications: prepared.classifications, unmatched: prepared.unmatched };
   console.log(
     `rules matched ${ruled.classifications.length}/${candidates.length}` +
       ` (${((ruled.classifications.length / candidates.length) * 100).toFixed(1)}%)` +

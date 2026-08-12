@@ -286,6 +286,45 @@ export class IngestStack extends cdk.Stack {
       targets: [new targets.LambdaFunction(transform)],
     });
 
+    // ---------------------------------------------------------- categorise
+
+    // Categorisation was a command somebody typed, which made coverage a
+    // high-water mark rather than a floor: the sync lands new transactions
+    // every morning and nothing categorised them, so the share of the ledger
+    // with a category fell a little each day.
+    //
+    // Rules only. The model path costs money per run and belongs to an
+    // operator choosing to spend it, not to a schedule that spends it at 06:00
+    // whether or not anyone is looking.
+    const categorise = new NodejsFunction(this, "Categorise", {
+      ...common,
+      entry: path.join(__dirname, "../../agents/categoriser/src/handler.ts"),
+      handler: "handler",
+      memorySize: 512,
+      // The backlog is derived by diffing transactions against enrichments, so
+      // the work is proportional to the window, not to the ledger.
+      timeout: cdk.Duration.minutes(5),
+      environment: {
+        TABLE_NAME: table.tableName,
+        TENANT_ID: "frost",
+        BACKFILL_DAYS: "45",
+      },
+      logGroup: new logs.LogGroup(this, "CategoriseLogs", {
+        retention: settings.name === "prod" ? logs.RetentionDays.ONE_YEAR : logs.RetentionDays.ONE_WEEK,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      }),
+    });
+    table.grantReadWriteData(categorise);
+    dataKey.grantEncryptDecrypt(categorise);
+
+    // An hour after the sync, so it categorises what that run landed rather
+    // than racing it.
+    new events.Rule(this, "DailyCategorise", {
+      description: "Categorise newly landed transactions with rules",
+      schedule: events.Schedule.cron({ minute: "0", hour: "6" }),
+      targets: [new targets.LambdaFunction(categorise)],
+    });
+
     // --------------------------------------------------------------- connect
 
     const connect = new NodejsFunction(this, "Connect", {

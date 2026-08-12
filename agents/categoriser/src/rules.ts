@@ -28,11 +28,11 @@ export interface Rule {
 
 export const RULES: readonly Rule[] = [
   // Groceries
-  { pattern: /\b(TESCO|SAINSBURY|ASDA|ALDI|LIDL|MORRISONS|WAITROSE|CO-?OP|ICELAND|OCADO|BOOKER)\b/i, category: "Groceries" },
+  { pattern: /\b(TESCO|SAINSBURY'?S?|ASDA|ALDI|LIDL|MORRISON'?S?|WAITROSE|CO-?OP|ICELAND|OCADO|BOOKER)\b/i, category: "Groceries" },
   { pattern: /\bM&?S\s*(SIMPLY\s*)?FOOD\b/i, category: "Groceries" },
 
   // Eating out
-  { pattern: /\b(COSTA|STARBUCKS|CAFFE NERO|GREGGS|PRET|SUBWAY|NANDOS|WAGAMAMA|PIZZA (EXPRESS|HUT)|DOMINOS|MCDONALDS|KFC|BURGER KING)\b/i, category: "Eating Out" },
+  { pattern: /\b(COSTA|STARBUCKS|CAFFE NERO|GREGGS|PRET|SUBWAY|NANDO'?S|WAGAMAMA|PIZZA (EXPRESS|HUT)|DOMINO'?S|MCDONALD'?S|KFC|BURGER KING)\b/i, category: "Eating Out" },
   { pattern: /\b(DELIVEROO|JUST\s*EAT|UBER\s*EATS)\b/i, category: "Eating Out" },
 
   // Fuel and transport
@@ -48,6 +48,7 @@ export const RULES: readonly Rule[] = [
 
   // Comms and subscriptions
   { pattern: /\b(BT GROUP|BRITISH TELECOM|SKY DIGITAL|SKY UK|VIRGIN MEDIA|VODAFONE|EE (LTD|LIMITED)|O2 |THREE UK|PLUSNET|TALKTALK|GIFFGAFF)\b/i, category: "Phone & Internet" },
+  { pattern: /\bMICROSOFT\b/i, category: "Subscriptions" },
   { pattern: /\b(NETFLIX|SPOTIFY|DISNEY|APPLE\.?COM\/BILL|PRIME VIDEO|AUDIBLE|PATREON|NOW TV|GOOGLE STORAGE|DROPBOX|ADOBE)\b/i, category: "Subscriptions" },
 
   // Shopping and health

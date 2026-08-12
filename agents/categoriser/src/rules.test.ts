@@ -90,3 +90,26 @@ describe("direction", () => {
     expect(received.classifications[0]!.category).toBe("Income");
   });
 });
+
+describe("brand names as they actually appear on statements", () => {
+  // A trailing \b after a singular brand cannot match the possessive or plural
+  // form, which is the form banks print. "SAINSBURYS S/MKTS" went uncategorised
+  // for 22 transactions against a rule that looked correct.
+  const cases: Array<[string, string]> = [
+    ["SAINSBURYS S/MKTS EDINBURGH", "Groceries"],
+    ["SAINSBURY'S LOCAL", "Groceries"],
+    ["MORRISONS PETROL", "Groceries"],
+    ["MCDONALDS 1234 LEEDS", "Eating Out"],
+    ["NANDO'S CARDIFF", "Eating Out"],
+    ["MICROSOFT*ULTIMATE MSBILL.INFO", "Subscriptions"],
+  ];
+
+  for (const [description, expected] of cases) {
+    it(`files "${description}" as ${expected}`, () => {
+      const [result] = applyRules([
+        { dedupKey: "k", description, amount: -1234, currency: "GBP" },
+      ]).classifications;
+      expect(result?.category).toBe(expected);
+    });
+  }
+});
