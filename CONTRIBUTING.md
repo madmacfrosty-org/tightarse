@@ -48,6 +48,33 @@ signs agree, you are removing the reason it exists.
 pricing, ICO registration details. Not secret exactly, but no upside to
 publishing. Keep it local or private.
 
+## Household access
+
+Everyone in a household sees every transaction in it. There is no per-member
+scoping of data and none is planned — the product is one aggregated ledger, and
+two people's accounts in one view is the point of it.
+
+Access is one row per person, and there is a command:
+
+```
+export LEDGER_TABLE=<the ledger table>
+npm run access -w @tightarse/ledger -- list
+npm run access -w @tightarse/ledger -- grant someone@example.com frost
+npm run access -w @tightarse/ledger -- revoke someone@example.com
+```
+
+Grant **before** their first sign-in. The pre-token trigger reads the member row
+to set `custom:tenant` and refuses when there is none — correctly, since a
+default would hand an unknown identity somebody's ledger. The symptom is a
+successful Google sign-in followed by "no household assigned", which looks like
+a broken app rather than a missing row.
+
+Revoking takes effect when existing tokens expire, not immediately.
+
+Presentation preferences, if they ever exist, belong on the member and not in
+`TenantSettings` — that holds household-wide decisions like the enrichment mode,
+where one person's choice must apply to the shared ledger.
+
 ## Money
 
 Integer minor units (pence). Never floats. `Amount` in `@tightarse/schema`

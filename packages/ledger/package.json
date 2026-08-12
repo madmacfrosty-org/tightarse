@@ -7,7 +7,8 @@
   "scripts": {
     "build": "tsc --build",
     "test": "vitest run",
-    "create-test-table": "tsx src/create-test-table.ts"
+    "create-test-table": "tsx src/create-test-table.ts",
+    "access": "tsx src/access.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.700.0",

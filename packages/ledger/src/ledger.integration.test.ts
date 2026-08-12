@@ -297,3 +297,52 @@ suite("Ledger account merge (integration)", () => {
     expect(found?.["availableBalance"]).toBe(20000);
   });
 });
+
+suite("household access", () => {
+  let doc: DynamoDBDocumentClient;
+  let ledger: Ledger;
+  const alice = `alice-${TENANT}@example.com`;
+  const bob = `bob-${TENANT}@example.com`;
+
+  beforeAll(() => {
+    doc = DynamoDBDocumentClient.from(
+      new DynamoDBClient({
+        region: process.env["AWS_REGION"] ?? "eu-west-1",
+        ...(ENDPOINT ? { endpoint: ENDPOINT } : {}),
+      }),
+      { marshallOptions: { removeUndefinedValues: true } },
+    );
+    ledger = new Ledger({ tableName: TABLE!, client: doc });
+  });
+
+  // Member rows live in their own partitions, so the other suites' sweeps by
+  // tenant partition do not reach them. Left behind, they are live grants.
+  afterAll(async () => {
+    await ledger.deleteMember(alice);
+    await ledger.deleteMember(bob);
+  });
+
+  it("grants, lists and revokes", async () => {
+    await ledger.putMember({ email: alice, tenantId: TENANT, addedAt: new Date().toISOString() });
+    await ledger.putMember({ email: bob, tenantId: TENANT, addedAt: new Date().toISOString() });
+
+    const mine = (await ledger.listMembers()).filter((m) => m.tenantId === TENANT);
+    expect(mine.map((m) => m.email).sort()).toEqual([alice, bob].sort());
+
+    await ledger.deleteMember(alice);
+    expect(await ledger.getMemberTenant(alice)).toBeNull();
+    expect(await ledger.getMemberTenant(bob)).toBe(TENANT);
+  });
+
+  it("matches an address regardless of case or surrounding space", async () => {
+    // Identity providers are not consistent about either, and a lookup miss
+    // here reads as "no household assigned" — a broken app, not a missing row.
+    await ledger.putMember({ email: alice, tenantId: TENANT, addedAt: new Date().toISOString() });
+    expect(await ledger.getMemberTenant(`  ${alice.toUpperCase()} `)).toBe(TENANT);
+  });
+
+  it("returns null for someone who was never granted access", async () => {
+    // Fail closed. A default here would hand an unknown identity a ledger.
+    expect(await ledger.getMemberTenant("stranger@example.com")).toBeNull();
+  });
+});

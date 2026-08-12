@@ -6,6 +6,8 @@ import {
   GetCommand,
   QueryCommand,
   UpdateCommand,
+  DeleteCommand,
+  ScanCommand,
   TransactWriteCommand,
   type QueryCommandInput,
 } from "@aws-sdk/lib-dynamodb";
@@ -251,6 +253,48 @@ export class Ledger {
    * Null is the safe answer and must stay that way: a caller that invented a
    * default here would hand an unknown identity access to somebody's ledger.
    */
+  /**
+   * Everyone with access to any household.
+   *
+   * A Scan, deliberately. Member rows sit in their own partitions keyed by
+   * email — that is what makes the sign-in lookup a single Get on the hot path
+   * — so there is no partition to query them by. An index to serve an
+   * administrative command run a handful of times would cost storage on every
+   * write forever. Scanning a table this size, for this, is the cheaper trade.
+   */
+  async listMembers(): Promise<Array<{ email: string; tenantId: string; addedAt?: string }>> {
+    const found: Array<{ email: string; tenantId: string; addedAt?: string }> = [];
+    let last: Record<string, unknown> | undefined;
+    do {
+      const res = await this.doc.send(
+        new ScanCommand({
+          TableName: this.table,
+          FilterExpression: "#kind = :kind",
+          ExpressionAttributeNames: { "#kind": "kind" },
+          ExpressionAttributeValues: { ":kind": "MEMBER" },
+          ...(last ? { ExclusiveStartKey: last } : {}),
+        }),
+      );
+      for (const item of res.Items ?? []) {
+        found.push(item as { email: string; tenantId: string; addedAt?: string });
+      }
+      last = res.LastEvaluatedKey;
+    } while (last);
+    return found.sort((a, b) => a.email.localeCompare(b.email));
+  }
+
+  /**
+   * Revoke a person's access.
+   *
+   * Their claim is baked into any token already issued, so this takes effect
+   * when that token expires rather than immediately. Access that cannot be
+   * removed at all is the worse problem, but do not mistake this for a kill
+   * switch.
+   */
+  async deleteMember(email: string): Promise<void> {
+    await this.doc.send(new DeleteCommand({ TableName: this.table, Key: keys.member(email) }));
+  }
+
   async getMemberTenant(email: string): Promise<string | null> {
     const res = await this.doc.send(
       new GetCommand({ TableName: this.table, Key: keys.member(email) }),
