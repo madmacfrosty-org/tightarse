@@ -6,7 +6,8 @@ canonical, and this one deliberately does not restate it.
 
 Read before writing code:
 
-- [Testing](CONTRIBUTING.md#testing) — every rule there came from a real failure
+- [docs/conventions/testing.md](docs/conventions/testing.md) — every rule there
+  came from a real failure in this repo
 - [This repository is public](CONTRIBUTING.md#this-repository-is-public)
 - [Money](CONTRIBUTING.md#money) and [Schemas](CONTRIBUTING.md#schemas)
 
