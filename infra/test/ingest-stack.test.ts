@@ -1,0 +1,106 @@
+import { describe, it, expect } from "vitest";
+import { Match } from "aws-cdk-lib/assertions";
+import { templates, policyStatements } from "./harness";
+
+const { ingest } = templates();
+const statements = policyStatements(ingest);
+
+/** Statements mentioning a Secrets Manager action. */
+const secretStatements = statements.filter((s) =>
+  JSON.stringify(s["Action"] ?? "").includes("secretsmanager:"),
+);
+
+describe("secrets policy", () => {
+  it("puts the name condition only on CreateSecret", () => {
+    // secretsmanager:Name is evaluated for CreateSecret alone. The same
+    // condition was applied to ListSecrets, and later to GetSecretValue, and
+    // both deployed cleanly and failed at runtime with AccessDenied on a secret
+    // the function had just created.
+    for (const s of secretStatements) {
+      const cond = JSON.stringify(s["Condition"] ?? {});
+      if (!cond.includes("secretsmanager:Name")) continue;
+      const actions = ([] as string[]).concat(s["Action"] as string | string[]);
+      expect(actions.every((a) => a === "secretsmanager:CreateSecret" || a === "secretsmanager:TagResource")).toBe(true);
+    }
+  });
+
+  it("never scopes ListSecrets by resource", () => {
+    // ListSecrets cannot be scoped at all; a resource ARN silently denies it.
+    for (const s of secretStatements) {
+      const actions = ([] as string[]).concat(s["Action"] as string | string[]);
+      if (!actions.includes("secretsmanager:ListSecrets")) continue;
+      expect(s["Resource"]).toBe("*");
+      expect(s["Condition"]).toBeUndefined();
+    }
+  });
+
+  it("never grants value access by wildcard", () => {
+    // Two resources are legitimately reachable: the connection secrets, by ARN
+    // pattern, and the TrueLayer client secret, imported from Foundation. What
+    // must never appear is "*".
+    const value = secretStatements.filter((s) =>
+      ([] as string[]).concat(s["Action"] as string | string[]).includes("secretsmanager:GetSecretValue"),
+    );
+    expect(value.length).toBeGreaterThan(0);
+    for (const s of value) {
+      const resources = JSON.stringify(s["Resource"]);
+      expect(resources).not.toBe('"*"');
+    }
+    expect(JSON.stringify(value)).toContain("connections");
+  });
+});
+
+describe("sync state machine", () => {
+  it("retries a failing item and captures the failure rather than sinking the run", () => {
+    // One account failing used to leave it stale until the next day. The retry
+    // is the reason the decomposition exists; the catch is why one bad account
+    // cannot take the others down.
+    const machines = ingest.findResources("AWS::StepFunctions::StateMachine");
+    const definition = JSON.stringify(Object.values(machines)[0]);
+    expect(definition).toContain("FetchItem");
+    expect(definition).toContain("Retry");
+    expect(definition).toContain("Catch");
+  });
+});
+
+describe("schedules", () => {
+  it("syncs daily and categorises an hour later", () => {
+    // Unattended access is capped at four calls per 24 hours per consent, so
+    // daily. Categorisation follows the sync rather than racing it.
+    ingest.hasResourceProperties("AWS::Events::Rule", {
+      ScheduleExpression: "cron(0 5 * * ? *)",
+    });
+    ingest.hasResourceProperties("AWS::Events::Rule", {
+      ScheduleExpression: "cron(0 6 * * ? *)",
+    });
+  });
+
+  it("transforms each raw object as it lands", () => {
+    ingest.hasResourceProperties("AWS::Events::Rule", {
+      EventPattern: Match.objectLike({
+        source: ["aws.s3"],
+        "detail-type": ["Object Created"],
+      }),
+    });
+  });
+});
+
+describe("lambda sizing", () => {
+  it("stays within the new-account memory quota", () => {
+    // 512 is the ceiling until the account's Lambda quota is raised; 1024 was
+    // rejected at deploy.
+    for (const fn of Object.values(ingest.findResources("AWS::Lambda::Function"))) {
+      const memory = (fn as any).Properties?.MemorySize;
+      if (memory !== undefined) expect(memory).toBeLessThanOrEqual(512);
+    }
+  });
+});
+
+describe("alerting", () => {
+  it("subscribes the configured address", () => {
+    ingest.hasResourceProperties("AWS::SNS::Subscription", {
+      Protocol: "email",
+      Endpoint: "alerts@example.com",
+    });
+  });
+});
