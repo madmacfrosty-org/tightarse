@@ -35,20 +35,43 @@ every unit test passed; the ledger was still wrong by £40k in each direction.
 **Fixtures reproduce the provider's quirks.** See above — a tidy fixture would
 have ratified the sign bug rather than caught it.
 
+**Take dependencies as arguments; construct them at the entry point.**
+`transformObject(deps, key)` and `completeConnect(deps, args)` can be tested
+against fakes. `steps.ts` builds its Secrets Manager and S3 clients at module
+scope and sits at 7.5% coverage, which is not a coincidence — it is the file
+that spends the four-calls-per-day budget and decides what gets fetched. A
+Lambda entry point is the only place that should call a constructor.
+
+**Name the behaviour and its consequence, not the function.** "refuses a
+connectionId that matches nothing" and "nets out every card bill and savings
+sweep" tell you what broke; "test selectConnections" does not. A failing test
+name is the first thing anybody reads, usually in a hurry.
+
+**Build test data with a builder, not a literal.** `raw()` in `map.test.ts`
+takes an override object, so each test states only the field it is about and a
+new required field does not touch fifty tests.
+
 **Pin the clock.** A test that derives both "now" and an expiry from
 `Date.now()` passes until it doesn't.
 
-**Test files are not typechecked.** `tsconfig` excludes `src/**/*.test.ts`, so
-the compiler will not catch a wrong shape in a test. A test once passed rows
-with no `dedupKey` into the transfer detector; they collided on `undefined` and
-the whole ledger was skipped as a single transfer. The types forbade it and
-nothing was checking. Be more careful in tests than in source, not less.
+**Tests are typechecked, and that was not always true.** `tsconfig` excludes
+`src/**/*.test.ts` from the build, so for a long time nothing checked their
+types. A test once passed rows with no `dedupKey` into the transfer detector;
+they collided on `undefined` and the whole ledger was skipped as a single
+transfer. The types forbade it and nothing was looking. A `noEmit` project now
+covers test files — documenting that hazard was the weaker answer to it.
 
-**Integration tests are self-contained.** `ledger.integration.test.ts` has
-several `suite()` blocks and each owns its client and its cleanup — a `ledger`
-declared in one is not visible in another. Sweep your own rows, and note that
-member rows live outside the tenant partition, so a sweep by partition misses
-them.
+**Integration tests share one harness.** `testLedger()` returns a configured
+client and a tenant unique to the run; suites do not build their own. Three
+hand-rolled copies of that setup used to exist, and the fact that a `ledger`
+declared in one `suite()` is invisible in the next produced two failures in a
+single afternoon.
+
+They do not clean up after themselves, deliberately. The store is thrown away
+after every run — an ephemeral table in the test region, a fresh DynamoDB Local
+container in CI — so sweeping rows protects nothing and fails confusingly when
+the scoping is wrong. If you ever point these at a store that outlives the run,
+that assumption is what breaks.
 
 Integration tests run against DynamoDB Local and skip without it:
 
