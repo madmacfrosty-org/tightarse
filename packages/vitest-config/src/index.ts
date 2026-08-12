@@ -6,8 +6,11 @@ import { defineConfig, type UserConfig } from "vitest/config";
  * Thresholds are pinned at whatever each package achieves today, not at an
  * aspirational number. That makes them a ratchet: coverage cannot fall, and
  * every new untested branch fails the build in the package that added it.
- * `thresholds.autoUpdate` is deliberately OFF — a threshold that rewrites
- * itself downwards is not a threshold.
+ * `thresholds.autoUpdate` is currently OFF, though not for the reason first
+ * given here: vitest only ever raises a threshold with it (`if (actual >
+ * threshold)`), so it cannot drift downwards. It is off because it rewrites the
+ * config file mid-run, which is unwanted in CI, and because it edits
+ * `coverage.thresholds` as a literal — which this helper does not expose.
  *
  * A number is not the goal. Coverage measures which lines ran, not whether
  * anything was checked, and every expensive bug in this repository had the
