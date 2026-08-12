@@ -6,8 +6,10 @@ canonical, and this one deliberately does not restate it.
 
 Read before writing code:
 
-- [docs/conventions/testing.md](docs/conventions/testing.md) — every rule there
-  came from a real failure in this repo
+- [docs/conventions/test-strategy.md](docs/conventions/test-strategy.md) — where
+  a test belongs: the funnel from unit tests down to canaries
+- [docs/conventions/testing.md](docs/conventions/testing.md) — how to write one;
+  every rule there came from a real failure in this repo
 - [This repository is public](CONTRIBUTING.md#this-repository-is-public)
 - [Money](CONTRIBUTING.md#money) and [Schemas](CONTRIBUTING.md#schemas)
 

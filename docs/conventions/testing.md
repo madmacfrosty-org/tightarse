@@ -4,6 +4,9 @@ Every rule below exists because of a specific failure in this repository. None
 is general advice, and none should be kept if the reason for it stops being
 true.
 
+[test-strategy.md](test-strategy.md) covers *where* a test belongs — the funnel
+from unit tests down to canaries. This file is about *how* to write one.
+
 See also [CONTRIBUTING](../../CONTRIBUTING.md) for the wider conventions, and
 [the fixtures rule](../../CONTRIBUTING.md#this-repository-is-public), which is
 where test data must come from and why.
