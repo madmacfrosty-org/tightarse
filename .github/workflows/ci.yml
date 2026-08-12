@@ -44,8 +44,11 @@ jobs:
       - name: Create the local ledger table
         run: npm run create-test-table -w @tightarse/ledger
 
-      - name: Test
-        run: npm test
+      # Coverage thresholds are pinned per package at what it achieves today, so
+      # this fails when coverage falls rather than when it misses an arbitrary
+      # target. See vitest.shared.ts.
+      - name: Test with coverage thresholds
+        run: npm run test:coverage
 
       # The web stack deploys web/dist as an asset, so synth cannot run without
       # it. CI never built it, and every push since "Add the dashboard hosting

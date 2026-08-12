@@ -5,7 +5,16 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "scripts": { "build": "tsc --build", "test": "vitest run" },
-  "dependencies": { "@tightarse/ledger": "*", "@tightarse/schema": "*" },
-  "devDependencies": { "vitest": "^2.1.0" }
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@tightarse/ledger": "*",
+    "@tightarse/schema": "*"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.0"
+  }
 }
