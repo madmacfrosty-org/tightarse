@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { TrueLayerClient, TrueLayerError, historyFrom, MAX_HISTORY_MONTHS, SANDBOX } from "./index.js";
+import { TrueLayerClient, TrueLayerError, historyFrom, MAX_HISTORY_MONTHS, SANDBOX , historyMonthsFor } from "./index.js";
 
 const creds = { clientId: "id", clientSecret: "secret" };
 
@@ -68,5 +68,31 @@ describe("history window", () => {
     expect(historyFrom(1, new Date("2024-03-31T00:00:00Z"))).toBe("2024-02-29");
     expect(historyFrom(60, new Date("2026-08-10T00:00:00Z"))).toBe("2021-08-10");
     expect(historyFrom(60, new Date("2026-03-31T00:00:00Z"))).toBe("2021-03-31");
+  });
+});
+
+describe("historyMonthsFor", () => {
+  const connectedAt = "2026-08-13T09:00:00.000Z";
+  const at = (minutes: number) => new Date(Date.parse(connectedAt) + minutes * 60_000);
+
+  it("asks for the full five years inside the exemption window", () => {
+    // This is the only moment deep history is available, and it does not come
+    // back. First Direct gave sixty months here; a sync deferred to the next
+    // morning would have yielded ninety days.
+    expect(historyMonthsFor(connectedAt, at(0))).toBe(60);
+    expect(historyMonthsFor(connectedAt, at(30))).toBe(60);
+  });
+
+  it("asks for ninety days once the window has closed", () => {
+    // The provider refuses a longer request outright — 403 on the whole call,
+    // not a truncated result — so every daily sync fetched nothing at all.
+    expect(historyMonthsFor(connectedAt, at(60))).toBe(3);
+    expect(historyMonthsFor(connectedAt, at(60 * 24))).toBe(3);
+  });
+
+  it("stops short of the documented hour", () => {
+    // Asking a minute late costs the run rather than degrading gracefully.
+    expect(historyMonthsFor(connectedAt, at(44))).toBe(60);
+    expect(historyMonthsFor(connectedAt, at(46))).toBe(3);
   });
 });

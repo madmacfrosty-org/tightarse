@@ -48,6 +48,39 @@ export interface TokenSet {
  */
 export const MAX_HISTORY_MONTHS = 60;
 
+/**
+ * What unattended access may ask for once the consent's SCA exemption lapses.
+ *
+ * Deep history is available only in a window of roughly an hour after the
+ * household authorises at their bank. After that the provider refuses any
+ * request reaching further back than 90 days — with a 403 on the whole call,
+ * not a truncated result — so asking for sixty months returns nothing at all.
+ */
+export const UNATTENDED_HISTORY_MONTHS = 3;
+
+/**
+ * How long the deep-history exemption lasts after consent.
+ *
+ * Documented as about an hour. Treated as slightly less, because asking for
+ * sixty months a minute after it closes costs the whole run rather than
+ * degrading to ninety days.
+ */
+export const DEEP_HISTORY_WINDOW_MINUTES = 45;
+
+/**
+ * How many months to request for a connection consented at `connectedAt`.
+ *
+ * The constraint is time since consent, not whether a sync has run before. A
+ * connection whose first sync failed has still lost its deep history, and would
+ * otherwise ask for sixty months every day for ever, taking a 403 each time.
+ */
+export function historyMonthsFor(connectedAt: string, now = new Date()): number {
+  const age = now.getTime() - Date.parse(connectedAt);
+  return age <= DEEP_HISTORY_WINDOW_MINUTES * 60_000
+    ? MAX_HISTORY_MONTHS
+    : UNATTENDED_HISTORY_MONTHS;
+}
+
 export class TrueLayerError extends Error {
   constructor(
     message: string,

@@ -11,6 +11,7 @@ import {
   PER_ITEM_ENDPOINTS,
   RESOURCES,
   MAX_HISTORY_MONTHS,
+  historyMonthsFor,
   historyFrom,
   itemDataset,
   listDataset,
@@ -135,6 +136,11 @@ export interface RefreshOutput {
   skipped: string[];
   consentExpired: boolean;
   daysUntilConsentExpiry: number;
+  /**
+   * How far back the items may be fetched, decided here because this is where
+   * the connection — and so its consent age — is known.
+   */
+  historyMonths: number;
 }
 
 /**
@@ -166,6 +172,7 @@ export async function refreshAndList(
         skipped: [],
         consentExpired: true,
         daysUntilConsentExpiry: daysUntilExpiry(connection),
+        historyMonths: historyMonthsFor(connection.connectedAt),
       };
     }
     throw err;
@@ -204,6 +211,7 @@ export async function refreshAndList(
     skipped,
     consentExpired: false,
     daysUntilConsentExpiry: daysUntilExpiry(connection),
+    historyMonths: historyMonthsFor(connection.connectedAt),
   };
 }
 

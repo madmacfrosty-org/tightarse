@@ -236,3 +236,48 @@ describe("recordOutcome", () => {
     log.mockRestore();
   });
 });
+
+describe("history window", () => {
+  it("asks for five years while the exemption window is open", async () => {
+    const { deps, gets } = fakes(() => ({ results: [{ account_id: "a1" }] }));
+    const out = await refreshAndList(deps, {
+      connection: connection({ connectedAt: new Date().toISOString() }),
+    });
+    expect(out.historyMonths).toBe(60);
+
+    await fetchItem(deps, {
+      tenantId: "frost",
+      accessToken: "a",
+      resource: "accounts",
+      itemId: "a1",
+      historyMonths: out.historyMonths,
+    });
+    const txCall = gets.find((g) => g.includes("/transactions?from="));
+    const from = new Date(txCall!.match(/from=([0-9-]+)/)![1]!);
+    const years = (Date.now() - from.getTime()) / (365.25 * 86_400_000);
+    expect(years).toBeGreaterThan(4.9);
+  });
+
+  it("asks for ninety days once it has closed", async () => {
+    // The bug this fixes: every daily sync asked for sixty months, the provider
+    // refused the whole call with a 403, and the ledger stopped moving while
+    // balances kept updating — so nothing looked wrong.
+    const { deps, gets } = fakes(() => ({ results: [{ account_id: "a1" }] }));
+    const yesterday = new Date(Date.now() - 24 * 3600_000).toISOString();
+    const out = await refreshAndList(deps, { connection: connection({ connectedAt: yesterday }) });
+    expect(out.historyMonths).toBe(3);
+
+    await fetchItem(deps, {
+      tenantId: "frost",
+      accessToken: "a",
+      resource: "accounts",
+      itemId: "a1",
+      historyMonths: out.historyMonths,
+    });
+    const txCall = gets.find((g) => g.includes("/transactions?from="));
+    const from = new Date(txCall!.match(/from=([0-9-]+)/)![1]!);
+    const days = (Date.now() - from.getTime()) / 86_400_000;
+    expect(days).toBeLessThanOrEqual(93);
+    expect(days).toBeGreaterThan(85);
+  });
+});

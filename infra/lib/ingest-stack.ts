@@ -167,6 +167,7 @@ export class IngestStack extends cdk.Stack {
       "accessToken.$": "$.accessToken",
       "resource.$": "$.resource",
       "itemId.$": "$.itemId",
+      "historyMonths.$": "$.historyMonths",
     });
     // The retry that justifies the whole structure. A 500 or a throttle on one
     // account no longer costs a day of freshness.
@@ -200,6 +201,9 @@ export class IngestStack extends cdk.Stack {
               itemSelector: {
                 "tenantId.$": "$.connection.tenantId",
                 "accessToken.$": "$.accessToken",
+                // Decided per connection from its consent age: sixty months
+                // inside the SCA exemption window, ninety days after it.
+                "historyMonths.$": "$.historyMonths",
                 "resource.$": "$$.Map.Item.Value.resource",
                 "itemId.$": "$$.Map.Item.Value.itemId",
               },
