@@ -44,6 +44,12 @@ __pycache__/
 # logs & coverage
 *.log
 coverage/
+# vitest --coverage.reportsDirectory; committed once because a guarded append
+# silently matched the line above and never ran.
+.cov/
+**/.cov/
+.stryker-tmp/
+.stryker/
 
 # spike probe output — statistics only, but still not for the repo
 spike/*/out/

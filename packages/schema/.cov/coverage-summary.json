@@ -1,3 +1,0 @@
-{"total": {"lines":{"total":204,"covered":137,"skipped":0,"pct":67.15},"statements":{"total":204,"covered":137,"skipped":0,"pct":67.15},"functions":{"total":18,"covered":7,"skipped":0,"pct":38.88},"branches":{"total":18,"covered":18,"skipped":0,"pct":100},"branchesTrue":{"total":0,"covered":0,"skipped":0,"pct":"Unknown"}}
-,"/Users/agentdev/tightarse/packages/schema/src/index.ts": {"lines":{"total":204,"covered":137,"skipped":0,"pct":67.15},"functions":{"total":18,"covered":7,"skipped":0,"pct":38.88},"statements":{"total":204,"covered":137,"skipped":0,"pct":67.15},"branches":{"total":18,"covered":18,"skipped":0,"pct":100}}
-}
