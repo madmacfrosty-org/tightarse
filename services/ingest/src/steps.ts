@@ -33,23 +33,57 @@ import { Connections, daysUntilExpiry, type Connection } from "./connections.js"
  * recoverability.
  */
 
-const sm = new SecretsManagerClient({});
-const s3 = new S3Client({});
+/**
+ * Everything these steps reach outside themselves.
+ *
+ * Passed in rather than constructed here, so a test can supply fakes. This file
+ * used to build its own Secrets Manager and S3 clients at module scope, which
+ * made it untestable and left it at 7.5% coverage — the least-checked code in
+ * the repository, and the code that spends a budget of four provider calls per
+ * consent per day.
+ *
+ * `steps-handler.ts` is the only place that constructs the real ones.
+ */
+export interface StepDeps {
+  readonly truelayer: TrueLayerClient;
+  readonly connections: Connections;
+  readonly s3: S3Client;
+  readonly rawBucket: string;
+  readonly tenantId: string;
+  /** "live" or "sandbox", recorded in the raw envelope. */
+  readonly environment: string;
+  readonly alertTopicArn?: string | undefined;
+  readonly sns?: SNSClient | undefined;
+}
 
-function required(name: string): string {
+export function required(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`Missing ${name}`);
   return v;
 }
 
-async function client(): Promise<TrueLayerClient> {
+/**
+ * Build the real dependencies from the environment.
+ *
+ * Called by the Lambda entry point, and by nothing a test runs. The TrueLayer
+ * client needs a secret, so this is async.
+ */
+export async function realDeps(): Promise<StepDeps> {
+  const sm = new SecretsManagerClient({});
   const raw = await sm.send(new GetSecretValueCommand({ SecretId: required("CLIENT_SECRET_ID") }));
   const creds = JSON.parse(raw.SecretString ?? "{}") as { clientId: string; clientSecret: string };
-  return new TrueLayerClient(creds, process.env["TL_ENV"] === "sandbox" ? SANDBOX : LIVE);
-}
+  const sandbox = process.env["TL_ENV"] === "sandbox";
 
-function connections(): Connections {
-  return new Connections(required("CONNECTION_SECRET_PREFIX"), sm);
+  return {
+    truelayer: new TrueLayerClient(creds, sandbox ? SANDBOX : LIVE),
+    connections: new Connections(required("CONNECTION_SECRET_PREFIX"), sm),
+    s3: new S3Client({}),
+    rawBucket: required("RAW_BUCKET"),
+    tenantId: required("TENANT_ID"),
+    environment: sandbox ? "sandbox" : "live",
+    alertTopicArn: process.env["ALERT_TOPIC_ARN"],
+    sns: process.env["ALERT_TOPIC_ARN"] ? new SNSClient({}) : undefined,
+  };
 }
 
 // ------------------------------------------------------------------ listing
@@ -68,10 +102,11 @@ function connections(): Connections {
  * started with no input at all still works — Step Functions defaults that to
  * `{}`, whereas a missing JSONPath reference is an error.
  */
-export async function listConnections(args: {
-  input?: { connectionId?: string };
-}): Promise<{ connections: Connection[] }> {
-  const all = await connections().list(required("TENANT_ID"));
+export async function listConnections(
+  deps: StepDeps,
+  args: { input?: { connectionId?: string } },
+): Promise<{ connections: Connection[] }> {
+  const all = await deps.connections.list(deps.tenantId);
   return { connections: selectConnections(all, args?.input) };
 }
 
@@ -111,9 +146,12 @@ export interface RefreshOutput {
  * the bank can fix it, and a thrown error would be retried by the state machine
  * for no purpose.
  */
-export async function refreshAndList(input: { connection: Connection }): Promise<RefreshOutput> {
-  const tl = await client();
-  const conns = connections();
+export async function refreshAndList(
+  deps: StepDeps,
+  input: { connection: Connection },
+): Promise<RefreshOutput> {
+  const tl = deps.truelayer;
+  const conns = deps.connections;
   const { connection } = input;
 
   let tokens;
@@ -144,7 +182,7 @@ export async function refreshAndList(input: { connection: Connection }): Promise
   for (const resource of RESOURCES) {
     try {
       const res = await tl.get(tokens.accessToken, `/data/v1/${resource}`);
-      await land(connection.tenantId, listDataset(resource), null, res.body);
+      await land(deps, connection.tenantId, listDataset(resource), null, res.body);
       for (const a of (res.body as { results?: Array<{ account_id?: string }> }).results ?? []) {
         if (a.account_id) items.push({ resource, itemId: a.account_id });
       }
@@ -186,8 +224,11 @@ export interface FetchInput {
  * the retry policy applies; endpoints the provider does not offer are reported
  * as skipped, because retrying a 501 forever helps nobody.
  */
-export async function fetchItem(input: FetchInput): Promise<{ objects: number; skipped: string[] }> {
-  const tl = await client();
+export async function fetchItem(
+  deps: StepDeps,
+  input: FetchInput,
+): Promise<{ objects: number; skipped: string[] }> {
+  const tl = deps.truelayer;
   const { tenantId, accessToken, resource, itemId } = input;
   const now = new Date();
   const from = historyFrom(input.historyMonths ?? MAX_HISTORY_MONTHS, now);
@@ -201,11 +242,11 @@ export async function fetchItem(input: FetchInput): Promise<{ objects: number; s
     accessToken,
     `/data/v1/${resource}/${itemId}/transactions?from=${from}&to=${to}`,
   );
-  await land(tenantId, transactionsDataset(resource), itemId, txRes.body, { from, to });
+  await land(deps, tenantId, transactionsDataset(resource), itemId, txRes.body, { from, to });
   objects += 1;
 
   const detail = await tl.get(accessToken, `/data/v1/${resource}/${itemId}`);
-  await land(tenantId, itemDataset(resource), itemId, detail.body);
+  await land(deps, tenantId, itemDataset(resource), itemId, detail.body);
   objects += 1;
 
   for (const spec of PER_ITEM_ENDPOINTS) {
@@ -213,7 +254,7 @@ export async function fetchItem(input: FetchInput): Promise<{ objects: number; s
     const dataset = spec.dataset(resource);
     try {
       const res = await tl.get(accessToken, `/data/v1/${resource}/${itemId}/${spec.suffix}`);
-      await land(tenantId, dataset, itemId, res.body);
+      await land(deps, tenantId, dataset, itemId, res.body);
       objects += 1;
     } catch (err) {
       if (spec.optional && err instanceof TrueLayerError && err.isNotApplicable) {
@@ -247,7 +288,10 @@ const NUDGE_DAYS = 10;
  * Runs whether or not items failed, so a partial sync still updates
  * lastSyncedAt and still warns about an expiring consent.
  */
-export async function recordOutcome(input: OutcomeInput): Promise<{ problems: string[] }> {
+export async function recordOutcome(
+  deps: StepDeps,
+  input: OutcomeInput,
+): Promise<{ problems: string[] }> {
   const { connection } = input;
   const problems: string[] = [];
   const results = input.results ?? [];
@@ -255,7 +299,7 @@ export async function recordOutcome(input: OutcomeInput): Promise<{ problems: st
   if (input.consentExpired) {
     problems.push(`Consent for ${connection.connectionId} has expired — reconnect at the bank.`);
   } else {
-    await connections().update({ ...connection, lastSyncedAt: new Date().toISOString() });
+    await deps.connections.update({ ...connection, lastSyncedAt: new Date().toISOString() });
   }
 
   const failed = results.filter((r) => r.Error);
@@ -281,11 +325,10 @@ export async function recordOutcome(input: OutcomeInput): Promise<{ problems: st
     }),
   );
 
-  const topic = process.env["ALERT_TOPIC_ARN"];
-  if (problems.length > 0 && topic) {
-    await new SNSClient({}).send(
+  if (problems.length > 0 && deps.alertTopicArn && deps.sns) {
+    await deps.sns.send(
       new PublishCommand({
-        TopicArn: topic,
+        TopicArn: deps.alertTopicArn,
         Subject: "Tightarse: attention needed",
         Message: problems.join("\n"),
       }),
@@ -297,6 +340,7 @@ export async function recordOutcome(input: OutcomeInput): Promise<{ problems: st
 // -------------------------------------------------------------------- shared
 
 async function land(
+  deps: StepDeps,
   tenantId: string,
   dataset: string,
   accountId: string | null,
@@ -306,7 +350,7 @@ async function land(
   const fetchedAt = new Date().toISOString();
   const payload = JSON.stringify({
     captureVersion: 1,
-    environment: process.env["TL_ENV"] ?? "live",
+    environment: deps.environment,
     endpoint: dataset,
     params,
     accountId,
@@ -314,9 +358,9 @@ async function land(
     httpStatus: 200,
     body,
   });
-  await s3.send(
+  await deps.s3.send(
     new PutObjectCommand({
-      Bucket: required("RAW_BUCKET"),
+      Bucket: deps.rawBucket,
       Key: rawObjectKey({
         tenantId,
         dataset,
