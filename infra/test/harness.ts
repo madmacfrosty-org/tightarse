@@ -1,3 +1,6 @@
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { envSettings, config } from "../lib/config";
@@ -28,9 +31,27 @@ export interface Stacks {
   web: cdk.Stack;
 }
 
+/**
+ * WebStack deploys web/dist as a bucket asset, and CDK resolves assets during
+ * synthesis whether or not bundling is skipped — so without this the infra
+ * tests fail wherever the dashboard has not been built. They passed locally
+ * only because a previous build had left dist behind, which made them depend on
+ * a build artefact without saying so.
+ *
+ * The content is irrelevant: what is under test is the infrastructure around
+ * the asset, not the asset.
+ */
+function ensureWebDist(): void {
+  const dist = path.join(fileURLToPath(new URL("../../web", import.meta.url)), "dist");
+  if (existsSync(path.join(dist, "index.html"))) return;
+  mkdirSync(dist, { recursive: true });
+  writeFileSync(path.join(dist, "index.html"), "<!doctype html><title>test</title>");
+}
+
 export function buildApp(
   context: Record<string, unknown> = {},
 ): Stacks {
+  ensureWebDist();
   const app = new cdk.App({
     context: {
       // Skip esbuild for every stack.
