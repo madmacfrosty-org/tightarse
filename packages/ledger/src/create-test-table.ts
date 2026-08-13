@@ -18,14 +18,17 @@ import {
   ResourceInUseException,
 } from "@aws-sdk/client-dynamodb";
 
-const endpoint = process.env["LEDGER_TEST_ENDPOINT"] ?? "http://localhost:8000";
+// No endpoint means a real DynamoDB in the test region, not the emulator.
+const endpoint = process.env["LEDGER_TEST_ENDPOINT"] || undefined;
 const tableName = process.env["LEDGER_TEST_TABLE"] ?? "Ledger";
 
 const client = new DynamoDBClient({
-  endpoint,
+  ...(endpoint ? { endpoint } : {}),
   region: process.env["AWS_REGION"] ?? "eu-west-1",
-  // DynamoDB Local validates that credentials exist, not what they are.
-  credentials: { accessKeyId: "local", secretAccessKey: "local" },
+  // DynamoDB Local validates that credentials exist, not what they are. Against
+  // real DynamoDB these must NOT be supplied, or the ambient profile is ignored
+  // and every call fails as UnrecognizedClientException.
+  ...(endpoint ? { credentials: { accessKeyId: "local", secretAccessKey: "local" } } : {}),
 });
 
 async function main(): Promise<void> {
@@ -56,11 +59,11 @@ async function main(): Promise<void> {
         ],
       }),
     );
-    console.log(`created ${tableName} at ${endpoint}`);
+    console.log(`created ${tableName} at ${endpoint ?? "real DynamoDB"}`);
   } catch (err) {
     // Re-running against a live container is normal, not a failure.
     if (err instanceof ResourceInUseException) {
-      console.log(`${tableName} already exists at ${endpoint}`);
+      console.log(`${tableName} already exists at ${endpoint ?? "real DynamoDB"}`);
     } else {
       throw err;
     }
