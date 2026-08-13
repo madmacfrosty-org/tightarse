@@ -12,7 +12,7 @@ const summary = {
   spend: -1120392_44,
   net: -49924_55,
   byCategory: [{ category: "Groceries", total: -75830, count: 12, provisional: false }],
-  byMonth: [{ month: "2026-07", income: 320000, spend: -280000, net: 40000, count: 90 }],
+  byMonth: [{ month: "2026-07", income: 320000, spend: -280000, net: 40000 }],
   internalTransfersNetted: true,
   transferCount: 225,
   transferTotal: 616033_18,

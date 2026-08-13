@@ -66,8 +66,8 @@ describe("CategoryBars", () => {
 
 describe("MonthlyFlow", () => {
   const months = [
-    { month: "2026-06", income: 320000, spend: -280000, net: 40000, count: 90 },
-    { month: "2026-07", income: 310000, spend: -350000, net: -40000, count: 88 },
+    { month: "2026-06", income: 320000, spend: -280000, net: 40000 },
+    { month: "2026-07", income: 310000, spend: -350000, net: -40000 },
   ];
 
   it("draws a pair of marks per month", () => {
@@ -77,7 +77,7 @@ describe("MonthlyFlow", () => {
 
   it("survives a month with no activity without dividing by zero", () => {
     const { container } = render(
-      <MonthlyFlow data={[{ month: "2026-08", income: 0, spend: 0, net: 0, count: 0 }]} />,
+      <MonthlyFlow data={[{ month: "2026-08", income: 0, spend: 0, net: 0 }]} />,
     );
     expect(container.innerHTML).not.toContain("NaN");
   });
