@@ -24,11 +24,14 @@ export default defineConfig({
         "src/main.tsx",
       ],
       reporter: ["text-summary", "json-summary"],
+      // Measured with no .env.local, which is CI. loadConfig takes a different
+      // branch when build-time values are present, so a threshold pinned on a
+      // developer machine fails the build on a machine difference.
       thresholds: {
-        lines: 83.3,
+        lines: 84.6,
         functions: 58.3,
-        branches: 80.1,
-        statements: 83.3,
+        branches: 84.5,
+        statements: 84.6,
         autoUpdate: false,
       },
     },
