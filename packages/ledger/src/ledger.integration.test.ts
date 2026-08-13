@@ -23,6 +23,25 @@ const TABLE = process.env["LEDGER_TEST_TABLE"];
 const ENDPOINT = process.env["LEDGER_TEST_ENDPOINT"];
 const TENANT = `itest-${Date.now()}`;
 
+/**
+ * Retry until a condition holds, for reads that are eventually consistent.
+ *
+ * Only index reads need this. The base table is read-after-write consistent and
+ * anything using it should fail immediately rather than be given time to pass.
+ */
+async function eventually<T>(
+  read: () => Promise<T>,
+  ok: (value: T) => boolean,
+  attempts = 20,
+): Promise<T> {
+  let last = await read();
+  for (let i = 0; i < attempts && !ok(last); i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    last = await read();
+  }
+  return last;
+}
+
 const suite = TABLE ? describe : describe.skip;
 
 const txn = (over: Partial<Transaction> = {}): Transaction => ({
@@ -187,7 +206,16 @@ suite("Ledger (integration)", () => {
     await ledger.putTransactions([
       txn({ accountId: "accB", normalisedProviderTransactionId: "b1", timestamp: "2026-02-01T00:00:00Z" }),
     ]);
-    const rows = await ledger.listAccountRange(TENANT, "accB", { from: "2026-01-01", to: "2026-03-01" });
+
+    // A global secondary index is eventually consistent: a write is visible on
+    // the base table immediately and on the index a moment later. Querying at
+    // once returned nothing on a table created seconds earlier. Polling states
+    // that property rather than hiding it behind a fixed sleep, which would be
+    // both slower and still occasionally wrong.
+    const rows = await eventually(
+      () => ledger.listAccountRange(TENANT, "accB", { from: "2026-01-01", to: "2026-03-01" }),
+      (r) => r.length === 1,
+    );
     expect(rows).toHaveLength(1);
     expect(rows[0]!["accountId"]).toBe("accB");
   });

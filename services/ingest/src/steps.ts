@@ -11,7 +11,8 @@ import {
   PER_ITEM_ENDPOINTS,
   RESOURCES,
   MAX_HISTORY_MONTHS,
-  historyMonthsFor,
+  syncWindow,
+  type SyncWindow,
   historyFrom,
   itemDataset,
   listDataset,
@@ -137,10 +138,11 @@ export interface RefreshOutput {
   consentExpired: boolean;
   daysUntilConsentExpiry: number;
   /**
-   * How far back the items may be fetched, decided here because this is where
-   * the connection — and so its consent age — is known.
+   * The date range the items may be fetched over, decided here because this is
+   * where the connection — its consent age and its last successful sync — is
+   * known.
    */
-  historyMonths: number;
+  window: SyncWindow;
 }
 
 /**
@@ -172,7 +174,7 @@ export async function refreshAndList(
         skipped: [],
         consentExpired: true,
         daysUntilConsentExpiry: daysUntilExpiry(connection),
-        historyMonths: historyMonthsFor(connection.connectedAt),
+        window: syncWindow(connection),
       };
     }
     throw err;
@@ -211,7 +213,9 @@ export async function refreshAndList(
     skipped,
     consentExpired: false,
     daysUntilConsentExpiry: daysUntilExpiry(connection),
-    historyMonths: historyMonthsFor(connection.connectedAt),
+    // Computed from the connection as it was BEFORE this run, so a failure
+    // leaves the next window wide enough to cover what this one missed.
+    window: syncWindow(connection),
   };
 }
 
@@ -222,7 +226,9 @@ export interface FetchInput {
   accessToken: string;
   resource: Resource;
   itemId: string;
-  historyMonths?: number;
+  /** The range from refreshAndList. Absent falls back to the safe minimum. */
+  from?: string;
+  to?: string;
 }
 
 /**
@@ -239,8 +245,11 @@ export async function fetchItem(
   const tl = deps.truelayer;
   const { tenantId, accessToken, resource, itemId } = input;
   const now = new Date();
-  const from = historyFrom(input.historyMonths ?? MAX_HISTORY_MONTHS, now);
-  const to = now.toISOString().slice(0, 10);
+  // Never widen a missing range into the full history: that is the request the
+  // provider refuses outright once the exemption has lapsed.
+  const fallback = syncWindow({ connectedAt: new Date(0).toISOString() }, now);
+  const from = input.from ?? fallback.from;
+  const to = input.to ?? fallback.to;
 
   let objects = 0;
   const skipped: string[] = [];
@@ -293,8 +302,15 @@ const NUDGE_DAYS = 10;
 /**
  * Final step: record what happened and raise anything a human must act on.
  *
- * Runs whether or not items failed, so a partial sync still updates
- * lastSyncedAt and still warns about an expiring consent.
+ * Runs whether or not items failed, so a partial sync still warns about an
+ * expiring consent.
+ *
+ * lastSyncedAt advances ONLY when every item succeeded, because the next run's
+ * window is measured from it. It used to move on any run that did not hit an
+ * expired consent — so two days of every item failing with 403 still read as
+ * "synced minutes ago", and a window computed from that would have sailed past
+ * the missing data and never gone back for it. A gap that looks healthy is
+ * worse than one that fails loudly.
  */
 export async function recordOutcome(
   deps: StepDeps,
@@ -304,13 +320,14 @@ export async function recordOutcome(
   const problems: string[] = [];
   const results = input.results ?? [];
 
+  const failed = results.filter((r) => r.Error);
+
   if (input.consentExpired) {
     problems.push(`Consent for ${connection.connectionId} has expired — reconnect at the bank.`);
-  } else {
+  } else if (failed.length === 0) {
     await deps.connections.update({ ...connection, lastSyncedAt: new Date().toISOString() });
   }
 
-  const failed = results.filter((r) => r.Error);
   for (const f of failed) problems.push(`${connection.connectionId}: ${f.Error} ${f.Cause ?? ""}`.trim());
 
   const days = input.daysUntilConsentExpiry ?? daysUntilExpiry(connection);

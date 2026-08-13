@@ -182,7 +182,8 @@ describe("recordOutcome", () => {
       connection: connection(),
       results: [{ objects: 3 }, { Error: "States.TaskFailed", Cause: "boom" }],
     });
-    expect(updated[0]?.lastSyncedAt).toBeDefined();
+    // Not marked as synced — see the lastSyncedAt tests below.
+    expect(updated).toHaveLength(0);
     expect(out.problems.some((p) => p.includes("States.TaskFailed"))).toBe(true);
   });
 
@@ -237,47 +238,76 @@ describe("recordOutcome", () => {
   });
 });
 
-describe("history window", () => {
-  it("asks for five years while the exemption window is open", async () => {
+describe("sync window", () => {
+  const spanDays = (from: string, to: string) => (Date.parse(to) - Date.parse(from)) / 86_400_000;
+
+  it("asks for the full history while the exemption window is open", async () => {
     const { deps, gets } = fakes(() => ({ results: [{ account_id: "a1" }] }));
     const out = await refreshAndList(deps, {
       connection: connection({ connectedAt: new Date().toISOString() }),
     });
-    expect(out.historyMonths).toBe(60);
+    expect(out.window.deepHistory).toBe(true);
 
     await fetchItem(deps, {
       tenantId: "frost",
       accessToken: "a",
       resource: "accounts",
       itemId: "a1",
-      historyMonths: out.historyMonths,
+      from: out.window.from,
+      to: out.window.to,
     });
-    const txCall = gets.find((g) => g.includes("/transactions?from="));
-    const from = new Date(txCall!.match(/from=([0-9-]+)/)![1]!);
-    const years = (Date.now() - from.getTime()) / (365.25 * 86_400_000);
-    expect(years).toBeGreaterThan(4.9);
+    const call = gets.find((g) => g.includes("/transactions?from="))!;
+    const [, from, to] = call.match(/from=([0-9-]+)&to=([0-9-]+)/)!;
+    expect(spanDays(from!, to!) / 365.25).toBeGreaterThan(4.9);
   });
 
-  it("asks for ninety days once it has closed", async () => {
-    // The bug this fixes: every daily sync asked for sixty months, the provider
-    // refused the whole call with a 403, and the ledger stopped moving while
-    // balances kept updating — so nothing looked wrong.
+  it("never asks for more than 88 days once it has closed", async () => {
+    // 92 days was refused outright: the provider denies the whole call rather
+    // than truncating, so every item failed and the ledger stopped moving.
     const { deps, gets } = fakes(() => ({ results: [{ account_id: "a1" }] }));
-    const yesterday = new Date(Date.now() - 24 * 3600_000).toISOString();
-    const out = await refreshAndList(deps, { connection: connection({ connectedAt: yesterday }) });
-    expect(out.historyMonths).toBe(3);
+    const old = new Date(Date.now() - 40 * 86_400_000).toISOString();
+    const out = await refreshAndList(deps, { connection: connection({ connectedAt: old }) });
 
     await fetchItem(deps, {
       tenantId: "frost",
       accessToken: "a",
       resource: "accounts",
       itemId: "a1",
-      historyMonths: out.historyMonths,
+      from: out.window.from,
+      to: out.window.to,
     });
-    const txCall = gets.find((g) => g.includes("/transactions?from="));
-    const from = new Date(txCall!.match(/from=([0-9-]+)/)![1]!);
-    const days = (Date.now() - from.getTime()) / 86_400_000;
-    expect(days).toBeLessThanOrEqual(93);
-    expect(days).toBeGreaterThan(85);
+    const call = gets.find((g) => g.includes("/transactions?from="))!;
+    const [, from, to] = call.match(/from=([0-9-]+)&to=([0-9-]+)/)!;
+    expect(spanDays(from!, to!)).toBeLessThanOrEqual(88);
+  });
+
+  it("falls back to a safe window rather than the full history", async () => {
+    // A missing range must not widen into sixty months — that is exactly the
+    // request the provider refuses.
+    const { deps, gets } = fakes();
+    await fetchItem(deps, { tenantId: "frost", accessToken: "a", resource: "accounts", itemId: "a1" });
+    const call = gets.find((g) => g.includes("/transactions?from="))!;
+    const [, from, to] = call.match(/from=([0-9-]+)&to=([0-9-]+)/)!;
+    expect(spanDays(from!, to!)).toBeLessThanOrEqual(88);
+  });
+});
+
+describe("lastSyncedAt", () => {
+  it("advances only when every item succeeded", async () => {
+    // The next window is measured from it. It used to move on any run that did
+    // not hit an expired consent, so two days of every item failing still read
+    // as "synced minutes ago" — and the gap would never have been revisited.
+    const { deps, updated } = fakes();
+    await recordOutcome(deps, {
+      connection: connection(),
+      results: [{ objects: 4 }, { Error: "TrueLayerError", Cause: "403" }],
+    });
+    expect(updated).toHaveLength(0);
+  });
+
+  it("advances on a clean run", async () => {
+    const { deps, updated } = fakes();
+    await recordOutcome(deps, { connection: connection(), results: [{ objects: 4 }] });
+    expect(updated[0]?.lastSyncedAt).toBeDefined();
   });
 });

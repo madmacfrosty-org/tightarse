@@ -49,14 +49,31 @@ export interface TokenSet {
 export const MAX_HISTORY_MONTHS = 60;
 
 /**
- * What unattended access may ask for once the consent's SCA exemption lapses.
+ * The widest window unattended access may ask for, in days.
  *
- * Deep history is available only in a window of roughly an hour after the
- * household authorises at their bank. After that the provider refuses any
- * request reaching further back than 90 days — with a 403 on the whole call,
- * not a truncated result — so asking for sixty months returns nothing at all.
+ * Once the SCA exemption lapses a bank returns at most 90 days, and refuses
+ * anything longer with 403 access_denied on the whole call rather than
+ * truncating it. Counted in days deliberately: three calendar months is 89 to
+ * 92 depending on where you start, and the first attempt at this fix asked for
+ * 13 May to 13 August — 92 days — and was refused for being two days greedy.
+ *
+ * 88 rather than 90 because providers under-deliver even inside the limit;
+ * Monzo is documented as returning 88.
  */
-export const UNATTENDED_HISTORY_MONTHS = 3;
+export const UNATTENDED_HISTORY_DAYS = 88;
+
+/**
+ * The narrowest routine window.
+ *
+ * A daily sync only needs the last day, but pending rows settle over several
+ * days and card transactions frequently arrive dated earlier than they appear.
+ * A window that starts exactly where the last one ended loses those for ever,
+ * so the floor buys about a week of overlap for nothing.
+ */
+export const MIN_SYNC_DAYS = 10;
+
+/** Added to a measured gap, for the same late-arrival reason. */
+export const SYNC_OVERLAP_DAYS = 3;
 
 /**
  * How long the deep-history exemption lasts after consent.
@@ -67,18 +84,45 @@ export const UNATTENDED_HISTORY_MONTHS = 3;
  */
 export const DEEP_HISTORY_WINDOW_MINUTES = 45;
 
+const DAY_MS = 86_400_000;
+
+export interface SyncWindow {
+  /** Inclusive start, YYYY-MM-DD. */
+  from: string;
+  /** Inclusive end, YYYY-MM-DD. */
+  to: string;
+  /** True while the SCA exemption still allows the full history. */
+  deepHistory: boolean;
+}
+
 /**
- * How many months to request for a connection consented at `connectedAt`.
+ * The date range to request for one connection.
  *
- * The constraint is time since consent, not whether a sync has run before. A
- * connection whose first sync failed has still lost its deep history, and would
- * otherwise ask for sixty months every day for ever, taking a 403 each time.
+ * Inside the exemption window, everything the bank will give — this is the only
+ * moment it is available and it does not come back. After that, enough to cover
+ * the gap since the last SUCCESSFUL sync, plus overlap, bounded at both ends.
+ *
+ * `lastSyncedAt` absent means nothing has ever been fetched, so it asks for the
+ * widest window allowed rather than the narrowest: a connection that has never
+ * worked has the most to catch up on, not the least.
  */
-export function historyMonthsFor(connectedAt: string, now = new Date()): number {
-  const age = now.getTime() - Date.parse(connectedAt);
-  return age <= DEEP_HISTORY_WINDOW_MINUTES * 60_000
-    ? MAX_HISTORY_MONTHS
-    : UNATTENDED_HISTORY_MONTHS;
+export function syncWindow(
+  connection: { connectedAt: string; lastSyncedAt?: string | undefined },
+  now = new Date(),
+): SyncWindow {
+  const to = now.toISOString().slice(0, 10);
+  const age = now.getTime() - Date.parse(connection.connectedAt);
+
+  if (age <= DEEP_HISTORY_WINDOW_MINUTES * 60_000) {
+    return { from: historyFrom(MAX_HISTORY_MONTHS, now), to, deepHistory: true };
+  }
+
+  const gapDays = connection.lastSyncedAt
+    ? (now.getTime() - Date.parse(connection.lastSyncedAt)) / DAY_MS + SYNC_OVERLAP_DAYS
+    : UNATTENDED_HISTORY_DAYS;
+
+  const days = Math.min(UNATTENDED_HISTORY_DAYS, Math.max(MIN_SYNC_DAYS, Math.ceil(gapDays)));
+  return { from: new Date(now.getTime() - days * DAY_MS).toISOString().slice(0, 10), to, deepHistory: false };
 }
 
 export class TrueLayerError extends Error {
