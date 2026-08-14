@@ -48,6 +48,10 @@ function fakes(
     environment: "live",
     alertTopicArn: "arn:aws:sns:eu-west-1:1:alerts",
     truelayer: {
+      // The real client counts data calls; the fake reports what it recorded.
+      get calls() {
+        return gets.length;
+      },
       refresh: vi.fn(async () => ({ accessToken: "access-new", refreshToken: "refresh-new" })),
       get: vi.fn(async (_token: string, path: string) => {
         gets.push(path);
@@ -309,5 +313,50 @@ describe("lastSyncedAt", () => {
     const { deps, updated } = fakes();
     await recordOutcome(deps, { connection: connection(), results: [{ objects: 4 }] });
     expect(updated[0]?.lastSyncedAt).toBeDefined();
+  });
+});
+
+describe("provider call accounting", () => {
+  it("reports the calls a fetch spent", async () => {
+    // Unattended access is capped at four per 24 hours per consent. A run that
+    // quietly spends more is invisible until the next one is refused — which is
+    // how a card came to be fetched five times for one sync.
+    const { deps } = fakes();
+    const out = await fetchItem(deps, {
+      tenantId: "frost",
+      accessToken: "a",
+      resource: "accounts",
+      itemId: "acc-1",
+    });
+    expect(out.providerCalls).toBeGreaterThan(0);
+  });
+
+  it("totals the listing step's calls with the items'", async () => {
+    // refreshAndList spends calls the per-item results cannot know about.
+    const { deps } = fakes();
+    const emitted: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((l: string) => emitted.push(l));
+    await recordOutcome(deps, {
+      connection: connection(),
+      refreshCalls: 2,
+      results: [{ providerCalls: 6 }, { providerCalls: 4 }],
+    });
+    spy.mockRestore();
+    const doc = emitted.map((l) => JSON.parse(l)).find((d) => "ProviderCalls" in d);
+    expect(doc.ProviderCalls).toBe(12);
+  });
+
+  it("times the run from when the listing step began", async () => {
+    const { deps } = fakes();
+    const emitted: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((l: string) => emitted.push(l));
+    await recordOutcome(deps, {
+      connection: connection(),
+      startedAt: new Date(Date.now() - 5_000).toISOString(),
+      results: [{ objects: 4 }],
+    });
+    spy.mockRestore();
+    const doc = emitted.map((l) => JSON.parse(l)).find((d) => "SyncDurationMs" in d);
+    expect(doc.SyncDurationMs).toBeGreaterThanOrEqual(4_900);
   });
 });

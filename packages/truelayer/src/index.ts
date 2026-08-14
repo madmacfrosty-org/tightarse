@@ -178,6 +178,23 @@ export class TrueLayerClient {
    * Callers must persist whatever comes back — keeping the original is how a
    * connection silently dies days later.
    */
+  /**
+   * Data calls made by this client.
+   *
+   * Unattended access is capped at four per 24 hours per consent, and a run
+   * that quietly spends five is the failure that cost a card five redundant
+   * fetches. A client is built once per Lambda invocation, so this is the count
+   * for one step; the outcome step totals them.
+   *
+   * Token refreshes are not counted: they are not data calls and do not count
+   * against the cap.
+   */
+  get calls(): number {
+    return this.callsMade;
+  }
+
+  private callsMade = 0;
+
   async refresh(refreshToken: string): Promise<TokenSet> {
     return this.token({ grant_type: "refresh_token", refresh_token: refreshToken });
   }
@@ -224,6 +241,9 @@ export class TrueLayerClient {
 
   /** A raw GET against the Data API, returning the complete response envelope. */
   async get(accessToken: string, path: string): Promise<{ status: number; body: unknown }> {
+    // Counted before the call, not after, so a request that fails still spends
+    // its share of the allowance — which is exactly what the provider does.
+    this.callsMade += 1;
     const res = await fetch(`${this.env.api}${path}`, {
       headers: { authorization: `Bearer ${accessToken}` },
     });

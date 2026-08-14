@@ -222,6 +222,10 @@ export class IngestStack extends cdk.Stack {
                   "connection.$": "$.connection",
                   "daysUntilConsentExpiry.$": "$.daysUntilConsentExpiry",
                   "results.$": "$.results",
+                  // The listing step's own calls and start time: the per-item
+                  // results cannot know either.
+                  "refreshCalls.$": "$.providerCalls",
+                  "startedAt.$": "$.startedAt",
                 }),
               ),
           ),

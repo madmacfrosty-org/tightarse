@@ -134,3 +134,39 @@ describe("syncWindow", () => {
     expect(days(w)).toBe(88);
   });
 });
+
+describe("call counting", () => {
+  const client = () =>
+    new TrueLayerClient({ clientId: "id", clientSecret: "secret" }, SANDBOX);
+
+  it("counts a data call even when it fails", async () => {
+    // The provider charges the attempt against the allowance whatever it
+    // returns, so counting successes would understate what was spent — and the
+    // whole point of the metric is to see the cap coming.
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("no", { status: 403 })));
+    const c = client();
+    await expect(c.get("token", "/data/v1/accounts")).rejects.toThrow();
+    expect(c.calls).toBe(1);
+  });
+
+  it("accumulates across calls", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ results: [] }), { status: 200 })));
+    const c = client();
+    await c.get("t", "/data/v1/accounts");
+    await c.get("t", "/data/v1/cards");
+    expect(c.calls).toBe(2);
+  });
+
+  it("does not count a token refresh", async () => {
+    // A refresh is not a data call and does not count against the cap.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ access_token: "a", refresh_token: "r", expires_in: 3600 }), { status: 200 }),
+      ),
+    );
+    const c = client();
+    await c.refresh("refresh-token");
+    expect(c.calls).toBe(0);
+  });
+});

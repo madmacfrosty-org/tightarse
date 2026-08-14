@@ -144,6 +144,10 @@ export interface RefreshOutput {
    * known.
    */
   window: SyncWindow;
+  /** Data calls this step spent, against the four-per-24-hours allowance. */
+  providerCalls: number;
+  /** When this connection's run began, so the outcome can time it. */
+  startedAt: string;
 }
 
 /**
@@ -159,6 +163,7 @@ export async function refreshAndList(
   deps: StepDeps,
   input: { connection: Connection },
 ): Promise<RefreshOutput> {
+  const startedAt = new Date().toISOString();
   const tl = deps.truelayer;
   const conns = deps.connections;
   const { connection } = input;
@@ -176,6 +181,8 @@ export async function refreshAndList(
         consentExpired: true,
         daysUntilConsentExpiry: daysUntilExpiry(connection),
         window: syncWindow(connection),
+        providerCalls: deps.truelayer.calls,
+        startedAt,
       };
     }
     throw err;
@@ -217,6 +224,8 @@ export async function refreshAndList(
     // Computed from the connection as it was BEFORE this run, so a failure
     // leaves the next window wide enough to cover what this one missed.
     window: syncWindow(connection),
+    providerCalls: deps.truelayer.calls,
+    startedAt,
   };
 }
 
@@ -242,7 +251,7 @@ export interface FetchInput {
 export async function fetchItem(
   deps: StepDeps,
   input: FetchInput,
-): Promise<{ objects: number; skipped: string[]; transactions: number }> {
+): Promise<{ objects: number; skipped: string[]; transactions: number; providerCalls: number }> {
   const tl = deps.truelayer;
   const { tenantId, accessToken, resource, itemId } = input;
   const now = new Date();
@@ -290,7 +299,7 @@ export async function fetchItem(
     }
   }
 
-  return { objects, skipped, transactions };
+  return { objects, skipped, transactions, providerCalls: deps.truelayer.calls };
 }
 
 // ------------------------------------------------------------------ outcome
@@ -299,10 +308,15 @@ export interface OutcomeInput {
   connection: Connection;
   consentExpired?: boolean;
   daysUntilConsentExpiry?: number;
+  /** Calls spent by refreshAndList, which the results do not include. */
+  refreshCalls?: number;
+  /** From refreshAndList, so the run can be timed end to end. */
+  startedAt?: string;
   results?: Array<{
     objects?: number;
     skipped?: string[];
     transactions?: number;
+    providerCalls?: number;
     Error?: string;
     Cause?: string;
   }>;
@@ -372,7 +386,13 @@ export async function recordOutcome(
       ItemsSkipped: results.reduce((n, r) => n + (r.skipped?.length ?? 0), 0),
       ConsentDaysRemaining: days,
       SyncProblems: problems.length,
+      // Against a cap of four per 24 hours per consent. A run that spends more
+      // than it should is invisible until the next one is refused.
+      ProviderCalls:
+        (input.refreshCalls ?? 0) + results.reduce((n, r) => n + (r.providerCalls ?? 0), 0),
+      SyncDurationMs: input.startedAt ? Date.now() - Date.parse(input.startedAt) : 0,
     },
+    units: { SyncDurationMs: "Milliseconds" },
     properties: {
       // High cardinality, so a property: searchable, not billed, not alarmed.
       connectionId: connection.connectionId,
