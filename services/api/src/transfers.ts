@@ -58,6 +58,13 @@ export function detectTransfers(
 
   // Group by absolute amount: a transfer's two legs are equal and opposite, so
   // only rows sharing a magnitude can ever pair.
+  // Three guards below survive mutation testing and are meant to: each is a
+  // fast path rather than behaviour. Dropping the zero check leaves zeroes in
+  // their own bucket, where they match neither the debit nor the credit filter
+  // and are skipped two lines later; dropping the length checks reaches loops
+  // that produce no candidates. They are kept because they say what the code
+  // means and cost nothing over nine thousand rows — not because removing them
+  // would change an answer.
   const byAmount = new Map<number, LedgerRow[]>();
   for (const r of rows) {
     if (r.amount === 0) continue;

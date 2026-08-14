@@ -118,3 +118,125 @@ describe("netting invariant", () => {
     expect(s.byCategory.map((c) => c.category)).toEqual(["PURCHASE"]);
   });
 });
+
+/**
+ * Written against surviving mutants. Every case below is a line the existing
+ * tests executed without checking — the matcher decides what counts as spending
+ * rather than money moving between your own accounts, so a wrong answer here
+ * misstates the totals rather than crashing.
+ */
+describe("detectTransfers, the edges", () => {
+  const at = (day: number) => `2026-03-${String(day).padStart(2, "0")}T00:00:00Z`;
+
+  it("ignores zero-amount rows instead of pairing them with each other", () => {
+    // Two zeroes are equal and opposite in the most useless possible way.
+    const d = detectTransfers([
+      row({ dedupKey: "z1", amount: 0, accountId: "accA" }),
+      row({ dedupKey: "z2", amount: 0, accountId: "accB" }),
+    ]);
+    expect(d.pairs).toHaveLength(0);
+  });
+
+  it("never pairs an amount that appears only once", () => {
+    const d = detectTransfers([row({ dedupKey: "lonely", amount: -1234, accountId: "accA" })]);
+    expect(d.pairs).toHaveLength(0);
+  });
+
+  it("needs one of each direction, not two of the same", () => {
+    // Two debits of the same size in different accounts is two purchases, not
+    // a transfer. Same for two credits.
+    expect(
+      detectTransfers([
+        row({ dedupKey: "d1", amount: -5000, accountId: "accA" }),
+        row({ dedupKey: "d2", amount: -5000, accountId: "accB" }),
+      ]).pairs,
+    ).toHaveLength(0);
+    expect(
+      detectTransfers([
+        row({ dedupKey: "c1", amount: 5000, accountId: "accA" }),
+        row({ dedupKey: "c2", amount: 5000, accountId: "accB" }),
+      ]).pairs,
+    ).toHaveLength(0);
+  });
+
+  it("pairs a credit that lands before its debit", () => {
+    // The gap is measured absolutely. Banks do not agree on which leg posts
+    // first, and a card payment often shows on the card before the account.
+    const d = detectTransfers([
+      row({ dedupKey: "out", amount: -7500, accountId: "accA", timestamp: at(10) }),
+      row({ dedupKey: "in", amount: 7500, accountId: "accB", timestamp: at(8) }),
+    ]);
+    expect(d.pairs).toHaveLength(1);
+  });
+
+  it("pairs at the window boundary and not beyond it", () => {
+    const pair = (daysApart: number) =>
+      detectTransfers([
+        row({ dedupKey: "out", amount: -900, accountId: "accA", timestamp: at(10) }),
+        row({ dedupKey: "in", amount: 900, accountId: "accB", timestamp: at(10 + daysApart) }),
+      ]).pairs;
+    expect(pair(3)).toHaveLength(1);
+    expect(pair(4)).toHaveLength(0);
+  });
+
+  it("honours a widened window", () => {
+    const d = detectTransfers(
+      [
+        row({ dedupKey: "out", amount: -900, accountId: "accA", timestamp: at(10) }),
+        row({ dedupKey: "in", amount: 900, accountId: "accB", timestamp: at(16) }),
+      ],
+      { windowDays: 7 },
+    );
+    expect(d.pairs).toHaveLength(1);
+  });
+
+  it("pairs each leg with its nearest counterpart, not the first it finds", () => {
+    // A monthly standing order of the same amount. Without nearest-first
+    // matching, March's debit pairs with a credit weeks away and the real
+    // pairs are left unmatched — which shows up as phantom spending.
+    const d = detectTransfers([
+      row({ dedupKey: "out1", amount: -50000, accountId: "accA", timestamp: at(1) }),
+      row({ dedupKey: "in1", amount: 50000, accountId: "accB", timestamp: at(2) }),
+      row({ dedupKey: "out2", amount: -50000, accountId: "accA", timestamp: at(20) }),
+      row({ dedupKey: "in2", amount: 50000, accountId: "accB", timestamp: at(21) }),
+    ]);
+    expect(d.pairs).toHaveLength(2);
+    for (const p of d.pairs) {
+      expect(p.daysApart).toBeLessThanOrEqual(1);
+    }
+    expect(d.pairs.map((p) => [p.out, p.in]).sort()).toEqual([
+      ["out1", "in1"],
+      ["out2", "in2"],
+    ]);
+  });
+
+  it("reports the amount moved as a positive figure", () => {
+    const d = detectTransfers([
+      row({ dedupKey: "out", amount: -12345, accountId: "accA" }),
+      row({ dedupKey: "in", amount: 12345, accountId: "accB" }),
+    ]);
+    expect(d.pairs[0]!.amount).toBe(12345);
+    expect(d.totalMoved).toBe(12345);
+  });
+});
+
+describe("nearest-first matching", () => {
+  const at = (day: number) => `2026-03-${String(day).padStart(2, "0")}T00:00:00Z`;
+
+  it("prefers the closest counterpart even when array order suggests otherwise", () => {
+    // Constructed so the first pairing the loops reach is NOT the nearest:
+    // out1 meets in1 first at three days apart, while in2 is one day away.
+    // Without the sort both still pair — inside the window — but against the
+    // wrong partners, and `daysApart` is the only thing that shows it.
+    const d = detectTransfers([
+      row({ dedupKey: "out1", amount: -4200, accountId: "accA", timestamp: at(1) }),
+      row({ dedupKey: "out2", amount: -4200, accountId: "accA", timestamp: at(3) }),
+      row({ dedupKey: "in1", amount: 4200, accountId: "accB", timestamp: at(4) }),
+      row({ dedupKey: "in2", amount: 4200, accountId: "accB", timestamp: at(2) }),
+    ]);
+
+    expect(d.pairs).toHaveLength(2);
+    expect(d.pairs.every((p) => p.daysApart <= 1)).toBe(true);
+    expect(d.pairs.map((p) => `${p.out}->${p.in}`).sort()).toEqual(["out1->in2", "out2->in1"]);
+  });
+});

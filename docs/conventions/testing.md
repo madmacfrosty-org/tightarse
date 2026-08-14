@@ -149,9 +149,14 @@ In order of preference:
    survives because the branch has no observable effect is dead code with a
    test-shaped hole around it.
 3. **Leave it, with a comment saying why.** Legitimate for equivalent
-   mutants — a change that cannot alter behaviour, such as reordering an
-   independent guard. Rare. If you are reaching for this often, the tests are
-   asserting the implementation rather than the requirement.
+   mutants — a change that cannot alter behaviour. Rare. If you are reaching for
+   this often, the tests are asserting the implementation rather than the
+   requirement.
+
+   `transfers.ts` has eight, all guards that are fast paths rather than
+   behaviour: removing the zero check leaves zeroes in a bucket that matches
+   neither the debit nor the credit filter and is skipped two lines later. The
+   comment there says so, so nobody chases them twice.
 
 Never chase the score with tests that assert the code back to itself. A test
 written by reading the implementation kills the mutant and verifies nothing; two
@@ -159,12 +164,25 @@ bugs in this repository were enshrined exactly that way.
 
 ### Where it applies
 
-Configured for `packages/schema`, `packages/truelayer`, `services/transform`,
-`services/api` and `agents/categoriser` — the packages that are mostly decisions
-rather than plumbing. CLIs and batch entry points are excluded from mutation
-(`*-cli.ts`, `run.ts`): they are sequences of I/O, where a survivor tells you
-little and a kill costs a lot of mocking.
+Every package except `packages/ledger`, with `break` pinned per package at what
+it scores today — a ratchet, like coverage. `incremental: true` caches the
+report so later runs only re-test what changed.
 
-Packages dominated by AWS calls — `ledger`, `ingest` — are not configured yet.
-Their risk is better addressed by the integration tests, and by extracting
-decisions into functions that can be tested at all, as `selectConnections` was.
+`ledger` is deliberately excluded. Its code is exercised by integration tests
+that skip without a table, so all 222 mutants come back NoCoverage and the score
+reads 3.81% — a number that measures the absence of a database rather than the
+quality of anything. Running the integration suite once per mutant would mean
+thousands of DynamoDB calls to learn that.
+
+Starting floors, which say more about coverage than quality while coverage is
+still low:
+
+```
+metrics    100.0     categoriser  41.0     ingest      32.9
+auth        55.5     truelayer    39.6     transform   28.4
+fixtures    35.9     api          31.7     schema      25.8
+```
+
+A package total is dragged down by files with no tests at all — 207 of the api's
+mutants are simply uncovered — so read the killed/survived split for quality and
+the total for a ratchet.

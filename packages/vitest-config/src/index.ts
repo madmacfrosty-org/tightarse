@@ -27,6 +27,10 @@ export const coverageBase = {
     // Creates the table the integration tests run against. Test infrastructure
     // cannot meaningfully test itself.
     "src/create-test-table.ts",
+    // A local development server whose logic is the deployed handler's. Agreed
+    // excluded under the rule that only code containing no decision is exempt:
+    // this one wires a port to a function that has its own tests.
+    "src/serve.ts",
   ],
   reporter: ["text-summary", "json-summary"] as string[],
 };

@@ -6,8 +6,13 @@
     "src/**/*.ts",
     "!src/**/*.test.ts",
     "!src/**/*-cli.ts",
-    "!src/run.ts"
+    "!src/run.ts",
+    "!src/serve.ts",
+    "!src/create-test-table.ts"
   ],
+  "vitest": {
+    "related": false
+  },
   "reporters": [
     "clear-text",
     "json"
@@ -15,15 +20,12 @@
   "jsonReporter": {
     "fileName": ".stryker/mutation.json"
   },
+  "incremental": true,
+  "incrementalFile": ".stryker/incremental.json",
   "thresholds": {
     "high": 90,
     "low": 70,
-    "break": 31.7
+    "break": 55.5
   },
-  "tempDirName": ".stryker-tmp",
-  "incremental": true,
-  "incrementalFile": ".stryker/incremental.json",
-  "vitest": {
-    "related": false
-  }
+  "tempDirName": ".stryker-tmp"
 }
