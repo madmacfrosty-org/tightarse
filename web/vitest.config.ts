@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+import { autoUpdate } from "@tightarse/vitest-config";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
@@ -32,7 +33,7 @@ export default defineConfig({
         functions: 58.3,
         branches: 84.5,
         statements: 84.6,
-        autoUpdate: false,
+        autoUpdate,
       },
     },
   },

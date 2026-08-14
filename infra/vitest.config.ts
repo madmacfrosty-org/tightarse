@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+import { autoUpdate } from "@tightarse/vitest-config";
 
 /**
  * Infra is measured over lib/ and bin/ rather than src/, so it does not use
@@ -25,7 +26,7 @@ export default defineConfig({
         functions: 78.5,
         branches: 88.5,
         statements: 89.4,
-        autoUpdate: false,
+        autoUpdate,
       },
     },
   },

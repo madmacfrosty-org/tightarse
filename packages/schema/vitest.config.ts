@@ -1,9 +1,20 @@
-import { testConfig } from "@tightarse/vitest-config";
+import { defineConfig } from "vitest/config";
+import { coverageBase, autoUpdate } from "@tightarse/vitest-config";
 
-// Pinned to what this package covers today. Raise them; never lower them.
-export default testConfig({
-  lines: 67.1,
-  functions: 38.8,
-  branches: 100.0,
-  statements: 67.1,
+// Thresholds are literal here so `autoUpdate` can raise them as coverage lands;
+// it rewrites this file and can only find them written out. Raise them, never
+// lower them.
+export default defineConfig({
+  test: {
+    coverage: {
+      ...coverageBase,
+      thresholds: {
+        lines: 67.15,
+        functions: 38.88,
+        branches: 100.0,
+        statements: 67.15,
+        autoUpdate,
+      },
+    },
+  },
 });
