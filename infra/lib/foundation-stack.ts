@@ -160,6 +160,94 @@ export class FoundationStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, "GitHubDeployRoleArn", { value: deployRole.roleArn });
 
+    // ------------------------------------------------- CI integration-test role
+    //
+    // Lets the test job create and destroy its own DynamoDB table, so the
+    // ledger's integration tests run against real DynamoDB rather than an
+    // emulator whose conditional-write and transaction semantics differ.
+    //
+    // Separate from the deploy role on purpose. That role's single power is
+    // assuming the CDK bootstrap roles, which carry admin — so widening its
+    // trust to cover the test job, which runs on every pull request, would hand
+    // a deployment path to any branch. This role can do nothing but DynamoDB,
+    // and only to tables it is allowed to name.
+    //
+    // Trust is scoped to refs rather than to an environment, because the test
+    // job must run on pull requests and an environment is where the deploy
+    // approval rule lives. A fork's pull request carries the fork's subject and
+    // matches nothing here.
+    const citestRole = new iam.Role(this, "GitHubCiTestRole", {
+      roleName: `${config.appName}-${settings.name}-github-citest`,
+      description: "Assumed by CI to create and destroy ephemeral integration-test tables.",
+      maxSessionDuration: cdk.Duration.hours(1),
+      assumedBy: new iam.WebIdentityPrincipal(githubOidc.openIdConnectProviderArn, {
+        StringEquals: {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": [
+            `${config.githubSubjectPrefixImmutable}:pull_request`,
+            `repo:${config.githubRepo}:pull_request`,
+            `${config.githubSubjectPrefixImmutable}:ref:refs/heads/main`,
+            `repo:${config.githubRepo}:ref:refs/heads/main`,
+          ],
+        },
+      }),
+    });
+
+    // Two independent restrictions, because either alone leaves a way through.
+    //
+    // The resource ARNs pin both the region and the name prefix, and would be
+    // enough on their own for these actions. `aws:RequestedRegion` is here for
+    // what it does to a mistake later: an action added to this list that AWS
+    // does not support resource-level permissions for degrades to `*`, and the
+    // region condition is then the only thing between CI and eu-west-1. It
+    // costs nothing and it fails closed.
+    //
+    // The index ARN is not optional. `Query` against gsi1-account is authorised
+    // against the index, not the table, so omitting it leaves every query in
+    // the suite failing as AccessDenied — a template that deploys perfectly and
+    // a permission that does not work, which is this project's recurring bug.
+    const citestTables = [
+      `arn:aws:dynamodb:${config.citestRegion}:${this.account}:table/${config.citestTablePrefix}*`,
+      `arn:aws:dynamodb:${config.citestRegion}:${this.account}:table/${config.citestTablePrefix}*/index/*`,
+    ];
+
+    citestRole.addToPolicy(
+      new iam.PolicyStatement({
+        sid: "EphemeralTestTables",
+        actions: [
+          // Lifecycle: the workflow creates a table per run and deletes it.
+          "dynamodb:CreateTable",
+          "dynamodb:DeleteTable",
+          "dynamodb:DescribeTable",
+          "dynamodb:UpdateTimeToLive",
+          "dynamodb:DescribeTimeToLive",
+          "dynamodb:TagResource",
+          "dynamodb:ListTagsOfResource",
+          // Data plane, as the ledger uses it.
+          "dynamodb:PutItem",
+          "dynamodb:GetItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:Query",
+          "dynamodb:Scan",
+          "dynamodb:BatchWriteItem",
+          "dynamodb:BatchGetItem",
+          // putEnrichment is a TransactWriteItems carrying a ConditionCheck,
+          // which is authorised as its own action and is precisely the
+          // behaviour DynamoDB Local gets wrong.
+          "dynamodb:TransactWriteItems",
+          "dynamodb:TransactGetItems",
+          "dynamodb:ConditionCheckItem",
+        ],
+        resources: citestTables,
+        conditions: {
+          StringEquals: { "aws:RequestedRegion": config.citestRegion },
+        },
+      }),
+    );
+
+    new cdk.CfnOutput(this, "GitHubCiTestRoleArn", { value: citestRole.roleArn });
+
     new cdk.CfnOutput(this, "ClientSecretName", { value: this.clientSecret.secretName });
     new cdk.CfnOutput(this, "ConnectionSecretPrefix", { value: this.connectionSecretPrefix });
     new cdk.CfnOutput(this, "DataKeyArn", { value: this.dataKey.keyArn });

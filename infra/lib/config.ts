@@ -39,6 +39,26 @@ export const config = {
    * rename, or someone later claiming the abandoned name, cannot satisfy it.
    */
   githubSubjectPrefixImmutable: "repo:madmacfrosty@10167941/tightarse@1328000897",
+  /**
+   * Region for integration tests that need a real DynamoDB.
+   *
+   * Deliberately not `region`. An ephemeral test table in eu-west-1 would sit
+   * beside the ledger, and the only thing keeping the two apart would be an
+   * environment variable holding the right table name. Putting the tests in a
+   * different region means the credential itself can be denied eu-west-1, so
+   * reaching real data is impossible rather than merely discouraged.
+   *
+   * London hosts no AgentCore Runtime, which is why the app is not here — but
+   * a test table needs nothing but DynamoDB.
+   */
+  citestRegion: "eu-west-2",
+  /**
+   * The only table names CI may create, and the second half of the restriction.
+   *
+   * Region alone would still allow a table called `Ledger` in eu-west-2, which
+   * is exactly the name a copy-pasted command would use.
+   */
+  citestTablePrefix: "tightarse-citest-",
   /** Ingest cadence. Unattended open banking access is capped at 4 calls per
    *  24h per consent, so daily leaves plenty of headroom for manual refreshes. */
   ingestScheduleCron: { minute: "0", hour: "5" },

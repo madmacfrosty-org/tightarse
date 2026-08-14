@@ -66,6 +66,97 @@ describe("GitHub deploy role", () => {
   });
 });
 
+describe("CI integration-test role", () => {
+  const citest = () =>
+    policyStatements(foundation).filter((s) => s["Sid"] === "EphemeralTestTables");
+
+  const resourcesOf = (s: Record<string, unknown>): string[] => {
+    const r = s["Resource"];
+    return (Array.isArray(r) ? r : [r]) as string[];
+  };
+
+  it("cannot reach the region the ledger lives in", () => {
+    // The whole point of the restriction. An ephemeral table beside the real
+    // ledger would be separated from it only by an environment variable
+    // holding the right name, and the integration suites deliberately do not
+    // clean up after themselves.
+    const statements = citest();
+    expect(statements).toHaveLength(1);
+
+    for (const s of statements) {
+      expect(s["Condition"]).toMatchObject({
+        StringEquals: { "aws:RequestedRegion": "eu-west-2" },
+      });
+      for (const arn of resourcesOf(s)) {
+        expect(arn).toContain(":eu-west-2:");
+        expect(arn).not.toContain(":eu-west-1:");
+      }
+    }
+  });
+
+  it("cannot name a table anything but tightarse-citest-*", () => {
+    // Region alone still permits a table called `Ledger` in eu-west-2, which is
+    // the name any copy-pasted command would reach for.
+    for (const s of citest()) {
+      for (const arn of resourcesOf(s)) {
+        expect(arn).toMatch(/:table\/tightarse-citest-\*/);
+      }
+    }
+  });
+
+  it("can query the account index and not only the base table", () => {
+    // Query against gsi1-account is authorised on the index ARN, not the
+    // table's. Omitting it deploys cleanly and then fails every query in the
+    // suite as AccessDenied — valid CloudFormation, useless at runtime, which
+    // is how the last two IAM incidents here presented.
+    const arns = citest().flatMap(resourcesOf);
+    expect(arns.some((a) => a.endsWith("/index/*"))).toBe(true);
+  });
+
+  it("can do nothing but DynamoDB", () => {
+    // It is assumable from any pull request, so its permissions are the only
+    // thing limiting what a branch can do. Notably it must not be able to
+    // assume the deploy role's bootstrap roles.
+    for (const s of citest()) {
+      const actions = s["Action"];
+      for (const a of (Array.isArray(actions) ? actions : [actions]) as string[]) {
+        expect(a.startsWith("dynamodb:")).toBe(true);
+      }
+    }
+  });
+
+  it("is a different role from the one that can deploy", () => {
+    // If these ever merge, every pull request gains a path to the CDK
+    // bootstrap roles, which carry admin.
+    const roles = Object.values(foundation.findResources("AWS::IAM::Role"));
+    const names = roles.map((r: any) => r.Properties?.RoleName).filter(Boolean);
+    expect(names).toContain("tightarse-dev-github-deploy");
+    expect(names).toContain("tightarse-dev-github-citest");
+  });
+
+  it("is not assumable by a fork, or by a job that declares no ref", () => {
+    // The provider alone vouches that a caller is *some* GitHub workflow. The
+    // sub condition is what says it is ours, and both subject forms are needed
+    // because GitHub is migrating to immutable numeric ids.
+    const roles = foundation.findResources("AWS::IAM::Role");
+    const citestRole = Object.values(roles).find(
+      (r: any) => r.Properties?.RoleName === "tightarse-dev-github-citest",
+    ) as any;
+
+    const subs = (citestRole.Properties.AssumeRolePolicyDocument.Statement as any[])
+      .map((s) => s.Condition?.StringEquals?.["token.actions.githubusercontent.com:sub"])
+      .filter(Boolean)
+      .flat() as string[];
+
+    expect(subs).toContain("repo:madmacfrosty/tightarse:pull_request");
+    expect(subs).toContain("repo:madmacfrosty/tightarse:ref:refs/heads/main");
+    expect(subs.some((s) => /^repo:[^@]+@\d+\/[^@]+@\d+:pull_request$/.test(s))).toBe(true);
+    // No wildcards: a bare `repo:owner/repo:*` would accept a workflow_dispatch
+    // from any branch anyone can push.
+    expect(subs.every((s) => !s.includes("*"))).toBe(true);
+  });
+});
+
 describe("secrets", () => {
   it("declares the TrueLayer client secret without a value", () => {
     // A generated or inline value would put a credential in the template, and
