@@ -12,21 +12,20 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    # The ledger's integration tests were skipping on every push for want of a
-    # table, which is a green tick that means nothing. DynamoDB Local costs a
-    # few seconds and runs them for real.
-    services:
-      dynamodb:
-        image: amazon/dynamodb-local:latest
-        ports:
-          - 8000:8000
+    permissions:
+      contents: read
+      # For the integration tests' table. Without this GitHub will not mint the
+      # token at all, and the failure reads as a credentials error rather than
+      # as a missing permission.
+      id-token: write
 
     env:
-      LEDGER_TEST_TABLE: Ledger
-      LEDGER_TEST_ENDPOINT: http://localhost:8000
-      AWS_REGION: eu-west-1
-      AWS_ACCESS_KEY_ID: local
-      AWS_SECRET_ACCESS_KEY: local
+      # A table per run, in a region that holds no real data, under the only
+      # name prefix the credential is allowed to touch. run_attempt is in the
+      # name because a re-run of the same workflow would otherwise collide with
+      # a table the first attempt may not have finished deleting.
+      LEDGER_TEST_TABLE: tightarse-citest-${{ github.run_id }}-${{ github.run_attempt }}
+      AWS_REGION: eu-west-2
 
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +43,27 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Create the local ledger table
+      # Real DynamoDB rather than the emulator, because the emulator is wrong in
+      # exactly the place this schema is interesting: the same suite took
+      # different paths against Local and against real DynamoDB, and
+      # putEnrichment is a TransactWriteItems carrying a ConditionCheck, which
+      # is where the divergence concentrates.
+      #
+      # This role can do nothing but DynamoDB, only in eu-west-2, and only to
+      # tables named tightarse-citest-*. It is deliberately not the deploy role:
+      # that one can assume the CDK bootstrap roles, and this job runs on every
+      # pull request.
+      #
+      # A pull request from a fork carries the fork's OIDC subject, matches no
+      # trust policy here, and fails this step. That is the intended outcome —
+      # the alternative is a run whose integration tests skip in silence.
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::707256068475:role/tightarse-dev-github-citest
+          aws-region: eu-west-2
+          role-session-name: gha-citest-${{ github.run_id }}
+
+      - name: Create the ephemeral ledger table
         run: npm run create-test-table -w @tightarse/ledger
 
       # Coverage thresholds are pinned per package at what it achieves today, so
@@ -52,6 +71,13 @@ jobs:
       # target. See vitest.shared.ts.
       - name: Test with coverage thresholds
         run: npm run test:coverage
+
+      # always(), because a failed test run still leaves a table behind, and a
+      # table per run adds up. The script refuses any name outside the citest
+      # prefix, so a mistyped variable here cannot delete anything that matters.
+      - name: Destroy the ephemeral ledger table
+        if: always()
+        run: npm run create-test-table -w @tightarse/ledger -- --delete
 
       # The web stack deploys web/dist as an asset, so synth cannot run without
       # it. CI never built it, and every push since "Add the dashboard hosting

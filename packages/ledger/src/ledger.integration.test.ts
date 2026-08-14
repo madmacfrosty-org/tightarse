@@ -3,20 +3,23 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { dedupKey, type Transaction } from "@tightarse/schema";
 import { Ledger } from "./ledger";
+import { resolveTestTarget } from "./test-table";
 
 /**
  * Integration tests against a real DynamoDB.
  *
- * Parameterised by endpoint so they run against either the deployed dev table
- * or DynamoDB Local:
+ * Parameterised by endpoint so they run against either an ephemeral table in
+ * the test region or DynamoDB Local:
  *
- *   LEDGER_TEST_TABLE=<name> AWS_PROFILE=tightarse-dev npm test -w @tightarse/ledger
+ *   LEDGER_TEST_TABLE=tightarse-citest-local npm test -w @tightarse/ledger
  *   LEDGER_TEST_TABLE=Ledger LEDGER_TEST_ENDPOINT=http://localhost:8000 npm test …
  *
  * Skipped entirely when unset, so CI without credentials stays green.
  *
- * Everything is written under a throwaway tenant and deleted afterwards — these
- * must never leave rows in a table that also holds real financial data.
+ * Nothing is written under a tenant that is cleaned up afterwards, and nothing
+ * sweeps rows — see `testLedger` below. What keeps these away from real
+ * financial data is `resolveTestTarget`, which refuses any table on real
+ * DynamoDB that is not named for this purpose, in the region that holds none.
  */
 
 const TABLE = process.env["LEDGER_TEST_TABLE"];
@@ -58,14 +61,29 @@ const suite = TABLE ? describe : describe.skip;
  * assumption is what breaks.
  */
 function testLedger(): { ledger: Ledger; doc: DynamoDBDocumentClient } {
+  // Throws rather than falling back if this run is aimed anywhere it should not
+  // be. Reached only inside a suite that already skipped without a table, so an
+  // unconfigured machine still gets a skip rather than a failure.
+  const target = resolveTestTarget(process.env);
   const doc = DynamoDBDocumentClient.from(
     new DynamoDBClient({
-      region: process.env["AWS_REGION"] ?? "eu-west-1",
-      ...(ENDPOINT ? { endpoint: ENDPOINT } : {}),
+      region: target.region,
+      ...(target.endpoint ? { endpoint: target.endpoint } : {}),
+      // DynamoDB Local checks that credentials exist, not what they are, and
+      // supplying them here is what lets the documented local command work.
+      // Without it the run depends on the machine having some ambient profile,
+      // which CI provided in its env block and a laptop does not — so these
+      // twelve failed with CredentialsProviderError against a healthy emulator.
+      //
+      // Against real DynamoDB they must NOT be supplied, or the ambient profile
+      // is ignored and every call fails as UnrecognizedClientException.
+      ...(target.endpoint
+        ? { credentials: { accessKeyId: "local", secretAccessKey: "local" } }
+        : {}),
     }),
     { marshallOptions: { removeUndefinedValues: true } },
   );
-  return { ledger: new Ledger({ tableName: TABLE!, client: doc }), doc };
+  return { ledger: new Ledger({ tableName: target.tableName, client: doc }), doc };
 }
 
 

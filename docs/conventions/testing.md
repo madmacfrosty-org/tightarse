@@ -68,19 +68,38 @@ declared in one `suite()` is invisible in the next produced two failures in a
 single afternoon.
 
 They do not clean up after themselves, deliberately. The store is thrown away
-after every run — an ephemeral table in the test region, a fresh DynamoDB Local
-container in CI — so sweeping rows protects nothing and fails confusingly when
-the scoping is wrong. If you ever point these at a store that outlives the run,
-that assumption is what breaks.
+after every run — an ephemeral table created and destroyed by the workflow, or a
+DynamoDB Local container on a laptop — so sweeping rows protects nothing and
+fails confusingly when the scoping is wrong. If you ever point these at a store
+that outlives the run, that assumption is what breaks.
 
-Integration tests run against DynamoDB Local and skip without it:
+**Where a run may point is not a matter of care.** `resolveTestTarget` refuses
+any table on real DynamoDB that is not named `tightarse-citest-*`, in
+`eu-west-2`, and refuses to default a name at all. The old defaults were
+`Ledger` in `eu-west-1` — the live table's name, in the live region — so a
+script run with ambient credentials and nothing set found the household ledger,
+reported "already exists", and exited successfully. The CI credential carries
+the same two restrictions, so a mistake has to defeat both.
+
+CI runs them against real DynamoDB, on a table per run:
 
 ```sh
+# CI, and anything wanting the semantics that actually ship
+LEDGER_TEST_TABLE=tightarse-citest-$USER npm run create-test-table -w @tightarse/ledger
+LEDGER_TEST_TABLE=tightarse-citest-$USER npm test -w @tightarse/ledger
+
+# Locally, against the emulator, which needs no credentials and no region
 LEDGER_TEST_TABLE=Ledger LEDGER_TEST_ENDPOINT=http://localhost:8000 npm test
 ```
 
-CI always sets both, so they always run there. Ten of them skipped silently on
-every push for weeks, which is a green tick that means nothing.
+The emulator command supplies its own dummy credentials now. It used to rely on
+whatever profile the machine happened to have, which CI set in its `env:` block
+and a laptop did not, so all twelve failed with `CredentialsProviderError`
+against a perfectly healthy emulator.
+
+The table name is set statically in the workflow, so these cannot skip there.
+Ten of them skipped silently on every push for weeks, which is a green tick that
+means nothing.
 
 **Read the whole test output, not the summary line.** `npm test` prints a
 per-workspace "N passed" that stays green while an entire suite fails to

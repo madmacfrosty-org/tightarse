@@ -67,7 +67,8 @@ Real client, real API surface, no network and no account. Catches what unit
 tests cannot: key construction, condition expressions, query and pagination
 semantics, marshalling.
 
-It does not catch what the emulator gets wrong, and it does get things wrong.
+This is now the *inner loop* stage rather than the authoritative one, because it
+does not catch what the emulator gets wrong, and it does get things wrong.
 Measured here: the same suite took different paths against Local and against
 real DynamoDB, 79.03% branch coverage versus 81.2%. Conditional writes and
 transactions are where the divergence concentrates, and `putEnrichment` — a
@@ -77,13 +78,21 @@ transactions are where the divergence concentrates, and `putEnrichment` — a
 
 Costs credentials, network and pennies. Earns it by catching what an emulator
 cannot: transaction and conditional-write semantics, consistency, error shapes,
-IAM, encryption.
+IAM, encryption. CI runs the ledger suite here, on a table created and destroyed
+per run, which is what makes it authoritative rather than occasional.
 
 Runs in an isolated region and an ephemeral table, never against the household
-ledger. That isolation should be enforced by the credential — an
-`aws:RequestedRegion` condition makes it structurally impossible to reach real
-data, rather than a matter of pointing the right environment variable at the
-right table.
+ledger. That isolation is enforced twice over, because either half alone leaves
+a way through. The `tightarse-dev-github-citest` role carries an
+`aws:RequestedRegion` condition pinning it to `eu-west-2` and resource ARNs
+pinning it to `tightarse-citest-*`, so the credential cannot reach real data;
+and `resolveTestTarget` refuses the same combinations in code, for a laptop
+whose profile has no such restriction. Neither is a matter of pointing the right
+environment variable at the right table.
+
+That role is deliberately not the deploy role. The deploy role's one power is
+assuming the CDK bootstrap roles, which carry admin, and the test job runs on
+every pull request — merging them would hand a deployment path to any branch.
 
 ### 5. Synthetic canaries against the deployed system
 
@@ -104,10 +113,10 @@ Honest as of the funnel being written down:
 | Stage | State |
 |---|---|
 | 1 unit | ~130 tests, 48.8% lines where tests exist; mutation testing on five packages |
-| 2 snapshot | none — no template or state machine snapshots |
-| 3 DynamoDB Local | 13 ledger tests, running in CI |
-| 4 real AWS | none as a discipline; done ad hoc against the live ledger, which is the wrong thing |
-| 5 canaries | none |
+| 2 snapshot | none, and dropped on purpose — the infra assertion tests cover what has actually broken |
+| 3 DynamoDB Local | the inner loop; the same 13 ledger tests, on demand |
+| 4 real AWS | 13 ledger tests per CI run, on an ephemeral eu-west-2 table |
+| 5 canaries | none — still the gap that matters most |
 
 The gap that matters most is 5, because every incident this project has had was
 infrastructure or wiring, and stages 1 to 3 cannot see any of it.
