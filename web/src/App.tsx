@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { apiGet, completeSignIn, currentIdentity, signIn, signOut, type Identity } from "./auth";
 import { ConnectBank, Connected } from "./Connect";
 import { CategoryBars, MonthlyFlow, money, type CategoryDatum, type MonthDatum } from "./charts";
+import { netPosition, rangeFor, tileBalance, type AccountRow } from "./positions";
 
 interface Summary {
   currency: string | null;
@@ -17,15 +18,6 @@ interface Summary {
   transferCount: number;
   transferTotal: number;
   enrichedCount: number;
-}
-
-interface AccountRow {
-  accountId: string;
-  displayName: string;
-  institutionName: string;
-  currentBalance?: number;
-  availableBalance?: number;
-  isCard?: boolean;
 }
 
 interface TxnRow {
@@ -79,8 +71,7 @@ export function App() {
 
   useEffect(() => {
     if (!identity) return;
-    const to = new Date().toISOString().slice(0, 10);
-    const from = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
+    const { from, to } = rangeFor(days, new Date());
     const q = `?from=${from}&to=${to}`;
     setError(null);
     Promise.all([
@@ -108,15 +99,7 @@ export function App() {
   if (error) return <div className="page error">{error}</div>;
   if (!summary) return <div className="page loading">Loading…</div>;
 
-  // A card is a card because it came from the cards endpoint — the ledger
-  // records that. It used to be inferred from "available exceeds current",
-  // which is true of a credit card with headroom and false of Amex, which
-  // reports no available balance at all: a £567.90 debt was shown as cash.
-  const cards = accounts.filter((a) => a.isCard);
-  const cardIds = new Set(cards.map((c) => c.accountId));
-  const inCredit = accounts.filter((a) => !cardIds.has(a.accountId));
-  const netCash = inCredit.reduce((s, a) => s + (a.currentBalance ?? 0), 0);
-  const owed = cards.reduce((s, a) => s + (a.currentBalance ?? 0), 0);
+  const { cardIds, net } = netPosition(accounts);
 
   return (
     <div className="page">
@@ -165,8 +148,8 @@ export function App() {
         <p className="note">
           Cash across current accounts, less anything owed on cards.
         </p>
-        <div className="hero" style={{ color: netCash + owed * -1 < 0 ? "var(--out)" : "var(--text-primary)" }}>
-          {money(netCash - owed)}
+        <div className="hero" style={{ color: net < 0 ? "var(--out)" : "var(--text-primary)" }}>
+          {money(net)}
         </div>
         <div className="tiles">
           {accounts.map((a) => (
@@ -175,7 +158,9 @@ export function App() {
                 {cardIds.has(a.accountId) ? "Card" : "Account"} · {a.institutionName}
               </div>
               <div className="value">
-                {a.currentBalance === undefined ? "—" : money(cardIds.has(a.accountId) ? -a.currentBalance : a.currentBalance)}
+                {tileBalance(a, cardIds.has(a.accountId)) === undefined
+                  ? "—"
+                  : money(tileBalance(a, cardIds.has(a.accountId))!)}
               </div>
               <div className="meta">
                 {a.availableBalance === undefined

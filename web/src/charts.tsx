@@ -1,4 +1,11 @@
 import { useState, type ReactNode } from "react";
+import {
+  compact,
+  categoryScale,
+  flowScale,
+  type CategoryDatum,
+  type MonthDatum,
+} from "./chart-scales";
 
 /**
  * Hand-rolled SVG charts.
@@ -15,12 +22,6 @@ export const money = (minor: number, opts: { sign?: boolean } = {}): string => {
   return opts.sign ? `+${s}` : s;
 };
 
-const compact = (minor: number): string => {
-  const abs = Math.abs(minor) / 100;
-  if (abs >= 1000) return `£${Math.round(abs / 1000)}k`;
-  return `£${Math.round(abs)}`;
-};
-
 function useTooltip() {
   const [tip, setTip] = useState<{ x: number; y: number; content: ReactNode } | null>(null);
   const node = tip ? (
@@ -33,12 +34,7 @@ function useTooltip() {
 
 // ---------------------------------------------------------------- category bars
 
-export interface CategoryDatum {
-  category: string;
-  total: number;
-  count: number;
-  provisional: boolean;
-}
+export type { CategoryDatum, MonthDatum } from "./chart-scales";
 
 /**
  * Magnitude, low to high — so a bar chart with a single sequential hue, not
@@ -47,32 +43,23 @@ export interface CategoryDatum {
  */
 export function CategoryBars({ data }: { data: CategoryDatum[] }) {
   const { setTip, node } = useTooltip();
-  const spend = data.filter((d) => d.total < 0).sort((a, b) => a.total - b.total);
-  if (spend.length === 0) return <p className="subtle">No spending in this period.</p>;
-
-  const max = Math.abs(spend[0]!.total);
   const rowH = 28;
   const barH = 16;
   const labelW = 150;
   const valueW = 96;
   const width = 720;
-  const plotW = width - labelW - valueW;
-  const height = spend.length * rowH;
 
-  // More-is-darker across the sequential ramp.
-  const steps = ["--seq-700", "--seq-550", "--seq-400", "--seq-250", "--seq-100"];
-  const stepFor = (v: number) => {
-    const ratio = Math.abs(v) / max;
-    const i = Math.min(steps.length - 1, Math.floor((1 - ratio) * steps.length));
-    return `var(${steps[i]})`;
-  };
+  const { bars } = categoryScale(data, { plotWidth: width - labelW - valueW });
+  if (bars.length === 0) return <p className="subtle">No spending in this period.</p>;
+
+  const height = bars.length * rowH;
 
   return (
     <div className="chart-scroll">
       <svg width={width} height={height} role="img" aria-label="Spending by category">
-        {spend.map((d, i) => {
+        {bars.map((d, i) => {
           const y = i * rowH;
-          const w = Math.max(2, (Math.abs(d.total) / max) * plotW);
+          const w = d.width;
           return (
             <g
               key={d.category}
@@ -103,7 +90,7 @@ export function CategoryBars({ data }: { data: CategoryDatum[] }) {
                 fontSize={12.5}
                 fill={d.provisional ? "var(--provisional)" : "var(--text-secondary)"}
               >
-                {d.category.length > 20 ? `${d.category.slice(0, 19)}…` : d.category}
+                {d.label}
               </text>
               <rect
                 x={labelW}
@@ -111,7 +98,7 @@ export function CategoryBars({ data }: { data: CategoryDatum[] }) {
                 width={w}
                 height={barH}
                 rx={4}
-                fill={stepFor(d.total)}
+                fill={d.fill}
               />
               <text
                 x={labelW + w + 8}
@@ -133,13 +120,6 @@ export function CategoryBars({ data }: { data: CategoryDatum[] }) {
 
 // ---------------------------------------------------------------- monthly flow
 
-export interface MonthDatum {
-  month: string;
-  income: number;
-  spend: number;
-  net: number;
-}
-
 /**
  * Money in and money out around a zero baseline — polarity, so a diverging pair
  * rather than two arbitrary categorical hues. Both series are direct-labelled by
@@ -149,13 +129,16 @@ export function MonthlyFlow({ data }: { data: MonthDatum[] }) {
   const { setTip, node } = useTooltip();
   if (data.length === 0) return <p className="subtle">No transactions in this period.</p>;
 
-  const max = Math.max(...data.map((d) => Math.max(d.income, Math.abs(d.spend))), 1);
-  const colW = Math.max(48, Math.min(84, 720 / data.length));
-  const barW = Math.min(18, colW / 2 - 3);
-  const width = Math.max(720, data.length * colW);
-  const plotH = 200;
-  const axisY = plotH / 2;
-  const height = plotH + 28;
+  const {
+    bars,
+    max,
+    width,
+    columnWidth: colW,
+    barWidth: barW,
+    plotHeight: plotH,
+    axisY,
+    height,
+  } = flowScale(data);
 
   return (
     <div className="chart-scroll">
@@ -167,10 +150,8 @@ export function MonthlyFlow({ data }: { data: MonthDatum[] }) {
           </g>
         ))}
 
-        {data.map((d, i) => {
-          const cx = i * colW + colW / 2;
-          const inH = (d.income / max) * (axisY - 8);
-          const outH = (Math.abs(d.spend) / max) * (axisY - 8);
+        {bars.map((d) => {
+          const { cx, inHeight: inH, outHeight: outH } = d;
           return (
             <g
               key={d.month}
@@ -190,12 +171,12 @@ export function MonthlyFlow({ data }: { data: MonthDatum[] }) {
               }
               onMouseLeave={() => setTip(null)}
             >
-              <rect x={i * colW} y={0} width={colW} height={plotH} fill="transparent" />
+              <rect x={d.x} y={0} width={colW} height={plotH} fill="transparent" />
               {/* 2px gap either side of the baseline keeps the two fills apart */}
               <rect x={cx - barW - 1} y={axisY - inH} width={barW} height={Math.max(2, inH)} rx={4} fill="var(--in)" />
               <rect x={cx + 1} y={axisY + 1} width={barW} height={Math.max(2, outH)} rx={4} fill="var(--out)" />
               <text x={cx} y={plotH + 16} textAnchor="middle" fontSize={11} fill="var(--text-muted)">
-                {d.month.slice(2)}
+                {d.label}
               </text>
             </g>
           );

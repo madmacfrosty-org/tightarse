@@ -29,10 +29,10 @@ export default defineConfig({
       // branch when build-time values are present, so a threshold pinned on a
       // developer machine fails the build on a machine difference.
       thresholds: {
-        lines: 84.6,
-        functions: 58.3,
-        branches: 84.5,
-        statements: 84.6,
+        lines: 86.06,
+        functions: 62.5,
+        branches: 87.19,
+        statements: 86.06,
         autoUpdate,
       },
     },
