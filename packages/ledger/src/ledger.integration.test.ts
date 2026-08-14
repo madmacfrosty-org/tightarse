@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { DynamoDBClient, DeleteItemCommand } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { describe, it, expect, beforeAll } from "vitest";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { dedupKey, type Transaction } from "@tightarse/schema";
 import { Ledger } from "./ledger";
 
@@ -44,6 +44,31 @@ async function eventually<T>(
 
 const suite = TABLE ? describe : describe.skip;
 
+/**
+ * One client and one tenant for every suite.
+ *
+ * Three suites used to build this each for themselves, and because a `ledger`
+ * declared in one `suite()` is invisible in the next, that produced two
+ * failures in a single afternoon.
+ *
+ * Nothing cleans up. The store is thrown away after every run — an ephemeral
+ * table in the test region, a fresh DynamoDB Local container in CI — so
+ * sweeping rows protects nothing and fails confusingly when the scoping is
+ * wrong. If these are ever pointed at a store that outlives the run, that
+ * assumption is what breaks.
+ */
+function testLedger(): { ledger: Ledger; doc: DynamoDBDocumentClient } {
+  const doc = DynamoDBDocumentClient.from(
+    new DynamoDBClient({
+      region: process.env["AWS_REGION"] ?? "eu-west-1",
+      ...(ENDPOINT ? { endpoint: ENDPOINT } : {}),
+    }),
+    { marshallOptions: { removeUndefinedValues: true } },
+  );
+  return { ledger: new Ledger({ tableName: TABLE!, client: doc }), doc };
+}
+
+
 const txn = (over: Partial<Transaction> = {}): Transaction => ({
   tenantId: TENANT,
   accountId: "accA",
@@ -63,39 +88,7 @@ suite("Ledger (integration)", () => {
   let doc: DynamoDBDocumentClient;
 
   beforeAll(() => {
-    doc = DynamoDBDocumentClient.from(
-      new DynamoDBClient({
-        region: process.env["AWS_REGION"] ?? "eu-west-1",
-        ...(ENDPOINT ? { endpoint: ENDPOINT } : {}),
-      }),
-      { marshallOptions: { removeUndefinedValues: true } },
-    );
-    ledger = new Ledger({ tableName: TABLE!, client: doc });
-  });
-
-  afterAll(async () => {
-    // Sweep every partition this suite could have written to.
-    const raw = new DynamoDBClient({
-      region: process.env["AWS_REGION"] ?? "eu-west-1",
-      ...(ENDPOINT ? { endpoint: ENDPOINT } : {}),
-    });
-    for (const pk of [`T#${TENANT}#TX`, `T#${TENANT}`, `T#${TENANT}#PEND#accA`, `T#${TENANT}#PEND#accB`]) {
-      const res = await doc.send(
-        new QueryCommand({
-          TableName: TABLE!,
-          KeyConditionExpression: "pk = :pk",
-          ExpressionAttributeValues: { ":pk": pk },
-        }),
-      );
-      for (const item of res.Items ?? []) {
-        await raw.send(
-          new DeleteItemCommand({
-            TableName: TABLE!,
-            Key: { pk: { S: String(item["pk"]) }, sk: { S: String(item["sk"]) } },
-          }),
-        );
-      }
-    }
+    ({ ledger, doc } = testLedger());
   });
 
   it("round-trips transactions through a date range query", async () => {
@@ -243,38 +236,7 @@ suite("Ledger account merge (integration)", () => {
   let doc: DynamoDBDocumentClient;
 
   beforeAll(() => {
-    doc = DynamoDBDocumentClient.from(
-      new DynamoDBClient({
-        region: process.env["AWS_REGION"] ?? "eu-west-1",
-        ...(ENDPOINT ? { endpoint: ENDPOINT } : {}),
-      }),
-      { marshallOptions: { removeUndefinedValues: true } },
-    );
-    ledger = new Ledger({ tableName: TABLE!, client: doc });
-  });
-
-  afterAll(async () => {
-    // This suite runs after the first suite's afterAll, so it must sweep its
-    // own rows or it leaves them behind in a table holding real financial data.
-    const raw = new DynamoDBClient({
-      region: process.env["AWS_REGION"] ?? "eu-west-1",
-      ...(ENDPOINT ? { endpoint: ENDPOINT } : {}),
-    });
-    const res = await doc.send(
-      new QueryCommand({
-        TableName: TABLE!,
-        KeyConditionExpression: "pk = :pk",
-        ExpressionAttributeValues: { ":pk": `T#${TENANT}` },
-      }),
-    );
-    for (const item of res.Items ?? []) {
-      await raw.send(
-        new DeleteItemCommand({
-          TableName: TABLE!,
-          Key: { pk: { S: String(item["pk"]) }, sk: { S: String(item["sk"]) } },
-        }),
-      );
-    }
+    ({ ledger, doc } = testLedger());
   });
 
   it("does not lose a balance when account details are written afterwards", async () => {
@@ -334,23 +296,11 @@ suite("household access", () => {
   const bob = `bob-${TENANT}@example.com`;
 
   beforeAll(() => {
-    doc = DynamoDBDocumentClient.from(
-      new DynamoDBClient({
-        region: process.env["AWS_REGION"] ?? "eu-west-1",
-        ...(ENDPOINT ? { endpoint: ENDPOINT } : {}),
-      }),
-      { marshallOptions: { removeUndefinedValues: true } },
-    );
-    ledger = new Ledger({ tableName: TABLE!, client: doc });
+    ({ ledger, doc } = testLedger());
   });
 
   // Member rows live in their own partitions, so the other suites' sweeps by
   // tenant partition do not reach them. Left behind, they are live grants.
-  afterAll(async () => {
-    await ledger.deleteMember(alice);
-    await ledger.deleteMember(bob);
-  });
-
   it("grants, lists and revokes", async () => {
     await ledger.putMember({ email: alice, tenantId: TENANT, addedAt: new Date().toISOString() });
     await ledger.putMember({ email: bob, tenantId: TENANT, addedAt: new Date().toISOString() });
