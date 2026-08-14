@@ -22,6 +22,19 @@ export interface ConnectDeps {
   readonly connections: Connections;
   readonly redirectUri: string;
   readonly providers: string;
+  /** TrueLayer application client id, for the consent URL. */
+  readonly clientId: string;
+  /** Provider authorisation host — sandbox or live. */
+  readonly authBase: string;
+  /**
+   * Start the first sync for a brand-new connection, without waiting for it.
+   *
+   * A function rather than a client and an ARN, because what matters at this
+   * seam is whether it is called at all: the deep-history window shuts within
+   * the hour, and a connection that misses it is silently reduced to 90 days.
+   * Undefined where no state machine is configured.
+   */
+  readonly startSync?: ((connectionId: string) => Promise<void>) | undefined;
 }
 
 /**
@@ -104,12 +117,55 @@ export async function completeConnect(
   return { connectionId: connection.connectionId, consentExpiresAt: connection.consentExpiresAt };
 }
 
-/** Lambda entry point for both routes. */
-export async function handler(event: {
+export interface ConnectEvent {
   rawPath?: string;
   queryStringParameters?: Record<string, string | undefined> | null;
   requestContext?: { authorizer?: { jwt?: { claims?: Record<string, unknown> } } };
-}) {
+}
+
+/**
+ * Build the real dependencies from the environment.
+ *
+ * Called by the Lambda entry point, and by nothing a test runs. Async because
+ * the TrueLayer client needs the application secret.
+ */
+export async function realConnectDeps(): Promise<ConnectDeps> {
+  const sm = new SecretsManagerClient({});
+  const raw = await sm.send(
+    new GetSecretValueCommand({ SecretId: required("CLIENT_SECRET_ID") }),
+  );
+  const creds = JSON.parse(raw.SecretString ?? "{}") as { clientId: string; clientSecret: string };
+  const sandbox = process.env["TL_ENV"] === "sandbox";
+  const machine = process.env["SYNC_STATE_MACHINE_ARN"];
+
+  return {
+    truelayer: new TrueLayerClient(creds, sandbox ? SANDBOX : LIVE),
+    connections: new Connections(required("CONNECTION_SECRET_PREFIX"), sm),
+    redirectUri: required("CONNECT_REDIRECT_URI"),
+    providers: process.env["TL_PROVIDERS"] ?? "uk-ob-all uk-oauth-all",
+    clientId: creds.clientId,
+    authBase: sandbox ? SANDBOX.auth : LIVE.auth,
+    ...(machine
+      ? {
+          startSync: async (connectionId: string) => {
+            await new SFNClient({}).send(
+              new StartExecutionCommand({
+                stateMachineArn: machine,
+                name: `connect-${connectionId}`.slice(0, 80),
+                // Only the connection just made. Its deep-history window is the
+                // one that shuts within the hour; the others are synced on
+                // schedule and have their own rate limits to protect.
+                input: JSON.stringify({ connectionId }),
+              }),
+            );
+          },
+        }
+      : {}),
+  };
+}
+
+/** Both routes, against dependencies the caller supplies. */
+export async function connectRoutes(deps: ConnectDeps, event: ConnectEvent) {
   const tenantId = event.requestContext?.authorizer?.jwt?.claims?.["custom:tenant"];
   if (typeof tenantId !== "string" || tenantId.length === 0) {
     // Same rule as the read API: the household comes from a verified claim,
@@ -117,19 +173,6 @@ export async function handler(event: {
     // connection to somebody else's ledger.
     return json(403, { error: "No household on this identity" });
   }
-
-  const sm = new SecretsManagerClient({});
-  const raw = await sm.send(
-    new GetSecretValueCommand({ SecretId: required("CLIENT_SECRET_ID") }),
-  );
-  const creds = JSON.parse(raw.SecretString ?? "{}") as { clientId: string; clientSecret: string };
-  const sandbox = process.env["TL_ENV"] === "sandbox";
-  const deps: ConnectDeps = {
-    truelayer: new TrueLayerClient(creds, sandbox ? SANDBOX : LIVE),
-    connections: new Connections(required("CONNECTION_SECRET_PREFIX"), sm),
-    redirectUri: required("CONNECT_REDIRECT_URI"),
-    providers: process.env["TL_PROVIDERS"] ?? "uk-ob-all uk-oauth-all",
-  };
 
   const path = event.rawPath ?? "";
   const params = event.queryStringParameters ?? {};
@@ -145,12 +188,7 @@ export async function handler(event: {
     const providers =
       requested && ALLOWED_PROVIDERS.includes(requested) ? requested : deps.providers;
     return json(200, {
-      url: authorisationUrl(
-        creds.clientId,
-        { ...deps, providers },
-        state,
-        sandbox ? SANDBOX.auth : LIVE.auth,
-      ),
+      url: authorisationUrl(deps.clientId, { ...deps, providers }, state, deps.authBase),
       state,
     });
   }
@@ -172,19 +210,7 @@ export async function handler(event: {
       // at all until someone noticed the charts were short. Starting the state
       // machine returns to the browser at once while the fetch runs with
       // per-account retries behind it.
-      const machine = process.env["SYNC_STATE_MACHINE_ARN"];
-      if (machine) {
-        await new SFNClient({}).send(
-          new StartExecutionCommand({
-            stateMachineArn: machine,
-            name: `connect-${result.connectionId}`.slice(0, 80),
-            // Only the connection just made. Its deep-history window is the one
-            // that shuts within the hour; the others are synced on schedule and
-            // have their own rate limits to protect.
-            input: JSON.stringify({ connectionId: result.connectionId }),
-          }),
-        );
-      }
+      await deps.startSync?.(result.connectionId);
 
       return json(200, result);
     } catch (err) {
@@ -196,6 +222,19 @@ export async function handler(event: {
   }
 
   return json(404, { error: `No route for ${path}` });
+}
+
+/**
+ * Lambda entry point for both routes, and the only place a client is
+ * constructed.
+ *
+ * Built per invocation rather than cached, matching `steps-handler.ts` and the
+ * code this replaced: the dependencies include the TrueLayer application
+ * secret, and caching it across warm invocations would mean a rotated secret
+ * was not picked up until the next cold start.
+ */
+export async function handler(event: ConnectEvent) {
+  return connectRoutes(await realConnectDeps(), event);
 }
 
 function json(statusCode: number, body: unknown) {

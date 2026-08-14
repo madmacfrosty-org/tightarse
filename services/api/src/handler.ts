@@ -17,10 +17,28 @@ interface HttpEvent {
   };
 }
 
-const ledger = new Ledger({
-  tableName: process.env["TABLE_NAME"] ?? "",
-  region: process.env["AWS_REGION"] ?? "eu-west-1",
-});
+/**
+ * Everything this handler reaches outside itself.
+ *
+ * A structural type rather than `Ledger`, so a test supplies the two methods
+ * the routes use and the compiler still checks every call. The client used to
+ * be built at module scope, which put the routing — including the tenant rule
+ * below, the single most important line in this file — behind a constructor
+ * that needs a table and a region, and left it entirely untested.
+ */
+export interface ApiDeps {
+  readonly ledger: Pick<Ledger, "listRange" | "listAccounts">;
+}
+
+/** Built by the entry point below, and by nothing a test runs. */
+export function realDeps(): ApiDeps {
+  return {
+    ledger: new Ledger({
+      tableName: process.env["TABLE_NAME"] ?? "",
+      region: process.env["AWS_REGION"] ?? "eu-west-1",
+    }),
+  };
+}
 
 function tenantFrom(event: HttpEvent): string {
   const claims = event.requestContext?.authorizer?.jwt?.claims ?? {};
@@ -54,13 +72,13 @@ function json(statusCode: number, body: unknown) {
   };
 }
 
-export async function handler(event: HttpEvent) {
+export async function route(deps: ApiDeps, event: HttpEvent) {
   try {
     const tenantId = tenantFrom(event);
     const range = rangeFrom(event);
     const path = event.rawPath ?? "/";
 
-    const { transactions, enrichments } = await ledger.listRange(tenantId, range);
+    const { transactions, enrichments } = await deps.ledger.listRange(tenantId, range);
     const txns = transactions as unknown as LedgerRow[];
     const enr = enrichments as unknown as EnrichmentRow[];
 
@@ -71,7 +89,7 @@ export async function handler(event: HttpEvent) {
       return json(200, { range, transactions: mergeEnrichments(txns, enr) });
     }
     if (path.endsWith("/accounts")) {
-      return json(200, { accounts: await ledger.listAccounts(tenantId) });
+      return json(200, { accounts: await deps.ledger.listAccounts(tenantId) });
     }
     return json(404, { error: `No route for ${path}` });
   } catch (err) {
@@ -81,4 +99,18 @@ export async function handler(event: HttpEvent) {
     // and table structure.
     return json(statusCode, { error: statusCode === 500 ? "Internal error" : message });
   }
+}
+
+/**
+ * Lambda entry point, and the only place a client is constructed.
+ *
+ * Memoised so a warm container reuses the connection pool, which is what the
+ * module-scope constructor was buying. Deferring it to the first call keeps
+ * that and leaves the module importable without a table configured.
+ */
+let deps: ApiDeps | undefined;
+
+export async function handler(event: HttpEvent) {
+  deps ??= realDeps();
+  return route(deps, event);
 }

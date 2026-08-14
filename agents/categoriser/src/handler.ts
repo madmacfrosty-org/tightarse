@@ -17,7 +17,7 @@
  */
 import { Ledger } from "@tightarse/ledger";
 import { emit } from "@tightarse/metrics";
-import { enrichmentMetrics, prepare, writeRuleEnrichments } from "./batch.js";
+import { enrichmentMetrics, prepare, writeRuleEnrichments, type BatchLedger } from "./batch.js";
 
 function required(name: string): string {
   const v = process.env[name];
@@ -30,17 +30,45 @@ export interface CategoriseEvent {
   backfillDays?: number;
 }
 
-export async function handler(event: CategoriseEvent = {}): Promise<{
+/**
+ * Everything this run reaches outside itself.
+ *
+ * The client used to be constructed inside the handler, which meant nothing
+ * could test the one decision that matters here — that `enrichment: "off"` is
+ * honoured — without a table and a region. `backfillDays` and `tenantId` come
+ * in the same way, so a test does not have to mutate `process.env`.
+ */
+export interface CategoriseDeps {
+  readonly ledger: BatchLedger & Pick<Ledger, "getSettings">;
+  readonly tenantId: string;
+  /** Lookback when the event does not override it. */
+  readonly defaultBackfillDays: number;
+  readonly environment: string;
+}
+
+/** Built by the entry point below, and by nothing a test runs. */
+export function realDeps(): CategoriseDeps {
+  return {
+    ledger: new Ledger({
+      tableName: required("TABLE_NAME"),
+      region: process.env["AWS_REGION"] ?? "eu-west-1",
+    }),
+    tenantId: process.env["TENANT_ID"] ?? "frost",
+    defaultBackfillDays: Number(process.env["BACKFILL_DAYS"] ?? "45"),
+    environment: process.env["ENVIRONMENT"] ?? "dev",
+  };
+}
+
+export async function categorise(
+  deps: CategoriseDeps,
+  event: CategoriseEvent = {},
+): Promise<{
   backlog: number;
   matched: number;
   written: number;
   customRules: number;
 }> {
-  const tenantId = process.env["TENANT_ID"] ?? "frost";
-  const ledger = new Ledger({
-    tableName: required("TABLE_NAME"),
-    region: process.env["AWS_REGION"] ?? "eu-west-1",
-  });
+  const { ledger, tenantId } = deps;
 
   // Mode is a household setting and "off" means off — a schedule must respect
   // it, or turning enrichment off would silently do nothing.
@@ -51,7 +79,7 @@ export async function handler(event: CategoriseEvent = {}): Promise<{
     return { backlog: 0, matched: 0, written: 0, customRules: 0 };
   }
 
-  const days = event.backfillDays ?? Number(process.env["BACKFILL_DAYS"] ?? "45");
+  const days = event.backfillDays ?? deps.defaultBackfillDays;
   const to = new Date();
   const from = new Date(to.getTime() - days * 86_400_000);
   const range = { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
@@ -63,7 +91,7 @@ export async function handler(event: CategoriseEvent = {}): Promise<{
   // is a merchant, a person's name, or an employer.
   emit({
     namespace: "Tightarse",
-    environment: process.env["ENVIRONMENT"] ?? "dev",
+    environment: deps.environment,
     metrics: enrichmentMetrics(prepared, written),
     properties: { tenantId, mode },
   });
@@ -87,4 +115,17 @@ export async function handler(event: CategoriseEvent = {}): Promise<{
     written,
     customRules: prepared.customRuleCount,
   };
+}
+
+/**
+ * Lambda entry point, and the only place a client is constructed.
+ *
+ * Built per invocation, as the previous code did — this handler constructed its
+ * Ledger inside itself rather than at module scope. Caching across warm
+ * invocations would be cheap and probably right, but it also changes when
+ * TABLE_NAME and BACKFILL_DAYS are read, and that is not a trade to make
+ * silently inside a refactor.
+ */
+export async function handler(event: CategoriseEvent = {}) {
+  return categorise(realDeps(), event);
 }

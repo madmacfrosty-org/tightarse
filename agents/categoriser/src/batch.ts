@@ -10,6 +10,16 @@
  * attached, and it does not belong on a schedule.
  */
 import type { Ledger } from "@tightarse/ledger";
+
+/**
+ * The ledger, narrowed to what this file actually calls.
+ *
+ * Structural rather than the concrete class so a caller — notably the handler's
+ * tests — can pass an object with these three methods and still be typechecked.
+ * Taking the whole `Ledger` forced anything testing this path to construct a
+ * real client, which needs a table and a region.
+ */
+export type BatchLedger = Pick<Ledger, "listToEnrich" | "getCustomRules" | "putEnrichment">;
 import { applyRules, compileCustom, RULES_VERSION } from "./rules.js";
 import type { Candidate, Classification } from "./categorise.js";
 
@@ -30,7 +40,7 @@ export interface Range {
 
 /** Read the backlog and apply rules to it. Writes nothing. */
 export async function prepare(
-  ledger: Ledger,
+  ledger: BatchLedger,
   tenantId: string,
   range: Range,
   limit?: number,
@@ -87,7 +97,7 @@ export function enrichmentMetrics(
  * running this twice changes nothing and a partial run simply resumes.
  */
 export async function writeRuleEnrichments(
-  ledger: Ledger,
+  ledger: BatchLedger,
   tenantId: string,
   prepared: Pick<Prepared, "classifications" | "timestamps">,
   producedAt = new Date().toISOString(),

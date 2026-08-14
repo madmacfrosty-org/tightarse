@@ -26,12 +26,32 @@ interface PreTokenEvent {
   };
 }
 
-const ledger = new Ledger({
-  tableName: process.env["TABLE_NAME"] ?? "",
-  region: process.env["AWS_REGION"] ?? "eu-west-1",
-});
+/**
+ * Everything this trigger reaches outside itself.
+ *
+ * A structural type rather than `Ledger`, so a test supplies an object with one
+ * method and the compiler still checks the call. Mocking the module worked, but
+ * it tested a handler wired to a mock at import time rather than the wiring
+ * that ships — and it silently stopped covering anything the constructor does.
+ */
+export interface PreTokenDeps {
+  readonly ledger: Pick<Ledger, "getMemberTenant">;
+}
 
-export async function handler(event: PreTokenEvent): Promise<PreTokenEvent> {
+/** Built by the entry point below, and by nothing a test runs. */
+export function realDeps(): PreTokenDeps {
+  return {
+    ledger: new Ledger({
+      tableName: process.env["TABLE_NAME"] ?? "",
+      region: process.env["AWS_REGION"] ?? "eu-west-1",
+    }),
+  };
+}
+
+export async function issueTenantClaim(
+  deps: PreTokenDeps,
+  event: PreTokenEvent,
+): Promise<PreTokenEvent> {
   const attrs = event.request.userAttributes;
 
   // Only a verified email may be trusted to identify a person. An unverified
@@ -45,7 +65,7 @@ export async function handler(event: PreTokenEvent): Promise<PreTokenEvent> {
     return event;
   }
 
-  const tenantId = await ledger.getMemberTenant(email);
+  const tenantId = await deps.ledger.getMemberTenant(email);
   if (!tenantId) {
     // Logged so an intended family member who cannot get in is diagnosable,
     // without recording anything about what they were trying to reach.
@@ -62,4 +82,19 @@ export async function handler(event: PreTokenEvent): Promise<PreTokenEvent> {
   };
   console.log(JSON.stringify({ decision: "claim-issued", tenantId }));
   return event;
+}
+
+/**
+ * Lambda entry point, and the only place a client is constructed.
+ *
+ * Memoised rather than built per invocation, so a warm container reuses the
+ * connection pool — the reason the constructor sat at module scope in the first
+ * place. Deferring it to the first call keeps that benefit and still leaves the
+ * module importable without the environment set.
+ */
+let deps: PreTokenDeps | undefined;
+
+export async function handler(event: PreTokenEvent): Promise<PreTokenEvent> {
+  deps ??= realDeps();
+  return issueTenantClaim(deps, event);
 }
