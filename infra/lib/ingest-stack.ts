@@ -252,6 +252,7 @@ export class IngestStack extends cdk.Stack {
     });
 
     // Once a day. Unattended access is capped at four calls per 24 hours per
+    // account, endpoint and consent, so daily spends one of four per resource
     // consent and a sync makes several per account, so hourly would breach it.
     new events.Rule(this, "DailySync", {
       schedule: events.Schedule.cron(config.ingestScheduleCron),

@@ -96,8 +96,9 @@ export async function realDeps(): Promise<StepDeps> {
  *
  * Every connection for the household by default — that is the daily run. A
  * connect passes the one it just created, so adding a second card does not
- * spend the other connections' unattended-call budget (four per 24 hours, per
- * consent) or give an unrelated failure a chance to muddy the execution that
+ * spend the other connections' unattended-call budget (four per 24 hours for
+ * each account, endpoint and consent) or give an unrelated failure a chance to
+ * muddy the execution that
  * matters. With one connection this was free; with a household holding several
  * it is not.
  *
@@ -144,7 +145,7 @@ export interface RefreshOutput {
    * known.
    */
   window: SyncWindow;
-  /** Data calls this step spent, against the four-per-24-hours allowance. */
+  /** Data calls this step spent. The limit is four per resource per 24 hours. */
   providerCalls: number;
   /** When this connection's run began, so the outcome can time it. */
   startedAt: string;
@@ -386,8 +387,9 @@ export async function recordOutcome(
       ItemsSkipped: results.reduce((n, r) => n + (r.skipped?.length ?? 0), 0),
       ConsentDaysRemaining: days,
       SyncProblems: problems.length,
-      // Against a cap of four per 24 hours per consent. A run that spends more
-      // than it should is invisible until the next one is refused.
+      // The limit is four per 24 hours for each account, endpoint and consent,
+      // so what matters is calls per RESOURCE, not the total: divide by
+      // ItemsAttempted and anything far above one endpoint-set is retrying.
       ProviderCalls:
         (input.refreshCalls ?? 0) + results.reduce((n, r) => n + (r.providerCalls ?? 0), 0),
       SyncDurationMs: input.startedAt ? Date.now() - Date.parse(input.startedAt) : 0,

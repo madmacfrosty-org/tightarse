@@ -181,7 +181,9 @@ export class TrueLayerClient {
   /**
    * Data calls made by this client.
    *
-   * Unattended access is capped at four per 24 hours per consent, and a run
+   * Unattended access is capped at four per 24 hours for each account,
+   * endpoint and consent — so one call per resource per run leaves room for
+   * four runs a day, and it is a retry loop that breaches it. A run
    * that quietly spends five is the failure that cost a card five redundant
    * fetches. A client is built once per Lambda invocation, so this is the count
    * for one step; the outcome step totals them.
@@ -283,7 +285,8 @@ export interface EndpointSpec {
    * Direct debits and standing orders are account concepts; the card paths do
    * not exist and return 404. Calling them anyway failed the whole per-item
    * step, which then retried four times, re-fetching transactions and balances
-   * on every attempt and burning calls against the four-per-24-hours cap.
+   * on every attempt — five requests for the same account and endpoint against a
+ * limit of four per 24 hours.
    */
   readonly resources: readonly Resource[];
 }

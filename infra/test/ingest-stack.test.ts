@@ -65,7 +65,8 @@ describe("sync state machine", () => {
 
 describe("schedules", () => {
   it("syncs daily and categorises an hour later", () => {
-    // Unattended access is capped at four calls per 24 hours per consent, so
+    // Unattended access is capped at four calls per 24 hours per account,
+    // endpoint and consent, so
     // daily. Categorisation follows the sync rather than racing it.
     ingest.hasResourceProperties("AWS::Events::Rule", {
       ScheduleExpression: "cron(0 5 * * ? *)",

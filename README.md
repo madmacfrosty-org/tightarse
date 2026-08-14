@@ -96,8 +96,9 @@ version:
 - **Consent expiry is a first-class concern.** UK rules require consent
   reconfirmation every 90 days or data access stops, and there is a scheduled
   nudge before that happens. Unattended access is capped at four calls per 24
-  hours per consent, so ingest runs daily, not hourly, and a connect syncs only
-  the connection it just created.
+  hours for *each* account, endpoint and consent — Article 36(5)(b) of
+  Commission Delegated Regulation (EU) 2018/389 — so a daily run costs one of
+  the four per resource, and a retry loop is what actually breaches it.
 
 - **`eu-west-1` (Ireland), not London.** `eu-west-2` lacks Bedrock AgentCore
   Runtime. UK GDPR adequacy covers EU storage.

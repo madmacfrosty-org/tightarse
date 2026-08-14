@@ -78,7 +78,7 @@ describe("listConnections", () => {
   });
 
   it("returns only the one a connect just made", async () => {
-    // Adding a card must not spend the others' four-calls-per-24-hours.
+    // Adding a card must not spend the others' unattended-call allowance.
     const { deps } = fakes();
     const out = await listConnections(deps, { input: { connectionId: "conn-2" } });
     expect(out.connections.map((c) => c.connectionId)).toEqual(["conn-2"]);
@@ -318,7 +318,8 @@ describe("lastSyncedAt", () => {
 
 describe("provider call accounting", () => {
   it("reports the calls a fetch spent", async () => {
-    // Unattended access is capped at four per 24 hours per consent. A run that
+    // Unattended access is capped at four per 24 hours for each account,
+    // endpoint and consent. A run that
     // quietly spends more is invisible until the next one is refused — which is
     // how a card came to be fetched five times for one sync.
     const { deps } = fakes();

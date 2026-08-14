@@ -23,7 +23,8 @@ describe("selectConnections", () => {
 
   it("returns only the connection a connect just made", () => {
     // Adding a second Amex must not spend the others' unattended-call budget
-    // (four per 24 hours, per consent), nor let an unrelated failure muddy the
+    // (four per 24 hours per account, endpoint and consent), nor let an
+    // unrelated failure muddy the
     // execution whose deep-history window is the one closing.
     expect(selectConnections(all, { connectionId: "her-amex" }).map((c) => c.connectionId)).toEqual([
       "her-amex",

@@ -39,7 +39,7 @@ have ratified the sign bug rather than caught it.
 `transformObject(deps, key)` and `completeConnect(deps, args)` can be tested
 against fakes. `steps.ts` builds its Secrets Manager and S3 clients at module
 scope and sits at 7.5% coverage, which is not a coincidence — it is the file
-that spends the four-calls-per-day budget and decides what gets fetched. A
+that spends the unattended-call allowance and decides what gets fetched. A
 Lambda entry point is the only place that should call a constructor.
 
 **Name the behaviour and its consequence, not the function.** "refuses a
