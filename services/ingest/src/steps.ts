@@ -20,6 +20,7 @@ import {
   type Resource,
 } from "@tightarse/truelayer";
 import { rawObjectKey } from "@tightarse/schema";
+import { emit } from "@tightarse/metrics";
 import { Connections, daysUntilExpiry, type Connection } from "./connections.js";
 
 /**
@@ -241,7 +242,7 @@ export interface FetchInput {
 export async function fetchItem(
   deps: StepDeps,
   input: FetchInput,
-): Promise<{ objects: number; skipped: string[] }> {
+): Promise<{ objects: number; skipped: string[]; transactions: number }> {
   const tl = deps.truelayer;
   const { tenantId, accessToken, resource, itemId } = input;
   const now = new Date();
@@ -261,6 +262,10 @@ export async function fetchItem(
   );
   await land(deps, tenantId, transactionsDataset(resource), itemId, txRes.body, { from, to });
   objects += 1;
+  // Counted here because this is the only place that sees the response. It is
+  // the number anomaly detection watches: a current account that does thirty a
+  // day going to zero is a signal, and nothing else in the run would show it.
+  const transactions = ((txRes.body as { results?: unknown[] }).results ?? []).length;
 
   const detail = await tl.get(accessToken, `/data/v1/${resource}/${itemId}`);
   await land(deps, tenantId, itemDataset(resource), itemId, detail.body);
@@ -285,7 +290,7 @@ export async function fetchItem(
     }
   }
 
-  return { objects, skipped };
+  return { objects, skipped, transactions };
 }
 
 // ------------------------------------------------------------------ outcome
@@ -294,10 +299,19 @@ export interface OutcomeInput {
   connection: Connection;
   consentExpired?: boolean;
   daysUntilConsentExpiry?: number;
-  results?: Array<{ objects?: number; skipped?: string[]; Error?: string; Cause?: string }>;
+  results?: Array<{
+    objects?: number;
+    skipped?: string[];
+    transactions?: number;
+    Error?: string;
+    Cause?: string;
+  }>;
 }
 
 const NUDGE_DAYS = 10;
+
+/** One namespace for the whole application. */
+export const METRIC_NAMESPACE = "Tightarse";
 
 /**
  * Final step: record what happened and raise anything a human must act on.
@@ -340,15 +354,31 @@ export async function recordOutcome(
   }
 
   // Counts only. A transaction body must never reach CloudWatch.
-  console.log(
-    JSON.stringify({
+  //
+  // Emitted as metrics rather than a plain log line so the shape of a sync can
+  // be watched over time. A connection returning nothing is not a failure — a
+  // dormant account has nothing to return — so this is measured rather than
+  // alarmed on directly, and anomaly detection decides what is unusual for
+  // this household.
+  const transactions = results.reduce((n, r) => n + (r.transactions ?? 0), 0);
+  emit({
+    namespace: METRIC_NAMESPACE,
+    environment: deps.environment,
+    metrics: {
+      TransactionsFetched: transactions,
+      ObjectsLanded: results.reduce((n, r) => n + (r.objects ?? 0), 0),
+      ItemsAttempted: results.length,
+      ItemsFailed: failed.length,
+      ItemsSkipped: results.reduce((n, r) => n + (r.skipped?.length ?? 0), 0),
+      ConsentDaysRemaining: days,
+      SyncProblems: problems.length,
+    },
+    properties: {
+      // High cardinality, so a property: searchable, not billed, not alarmed.
       connectionId: connection.connectionId,
-      items: results.length,
-      failed: failed.length,
-      objects: results.reduce((n, r) => n + (r.objects ?? 0), 0),
-      daysUntilConsentExpiry: days,
-    }),
-  );
+      consentExpired: input.consentExpired === true,
+    },
+  });
 
   if (problems.length > 0 && deps.alertTopicArn && deps.sns) {
     await deps.sns.send(

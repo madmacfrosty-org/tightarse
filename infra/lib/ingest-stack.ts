@@ -10,6 +10,8 @@ import * as subs from "aws-cdk-lib/aws-sns-subscriptions";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import * as cwActions from "aws-cdk-lib/aws-cloudwatch-actions";
 import type * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import type * as kms from "aws-cdk-lib/aws-kms";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
@@ -317,6 +319,7 @@ export class IngestStack extends cdk.Stack {
         TABLE_NAME: table.tableName,
         TENANT_ID: "frost",
         BACKFILL_DAYS: "45",
+        ENVIRONMENT: settings.name,
       },
       logGroup: new logs.LogGroup(this, "CategoriseLogs", {
         retention: settings.name === "prod" ? logs.RetentionDays.ONE_YEAR : logs.RetentionDays.ONE_WEEK,
@@ -332,6 +335,97 @@ export class IngestStack extends cdk.Stack {
       description: "Categorise newly landed transactions with rules",
       schedule: events.Schedule.cron({ minute: "0", hour: "6" }),
       targets: [new targets.LambdaFunction(categorise)],
+    });
+
+    // ----------------------------------------------------------- monitoring
+
+    // The sync spent two days fetching nothing while every execution reported
+    // SUCCEEDED: balances kept updating, so nothing looked wrong. Metrics come
+    // from the Lambdas in embedded metric format; these are the alarms.
+    const metric = (metricName: string, statistic = "Sum") =>
+      new cloudwatch.Metric({
+        namespace: "Tightarse",
+        metricName,
+        dimensionsMap: { Environment: settings.name },
+        statistic,
+        period: cdk.Duration.hours(24),
+      });
+
+    const alarmAction = new cwActions.SnsAction(alerts);
+
+    // An item failing is unambiguous, so it is a threshold rather than a
+    // pattern. Four items failed every day and only an execution's output said
+    // so, which nobody reads.
+    const itemsFailed = new cloudwatch.Alarm(this, "SyncItemsFailed", {
+      alarmName: `tightarse-${settings.name}-sync-items-failed`,
+      alarmDescription: "One or more accounts could not be fetched in a sync run.",
+      metric: metric("ItemsFailed"),
+      threshold: 0,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    itemsFailed.addAlarmAction(alarmAction);
+
+    // Reconfirmation needs a person at a browser, so the warning has to arrive
+    // with time to act rather than on the day access stops.
+    const consentExpiring = new cloudwatch.Alarm(this, "ConsentExpiring", {
+      alarmName: `tightarse-${settings.name}-consent-expiring`,
+      alarmDescription: "A bank consent lapses soon and needs reconfirming in a browser.",
+      metric: metric("ConsentDaysRemaining", "Minimum"),
+      threshold: 10,
+      comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_OR_EQUAL_TO_THRESHOLD,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.MISSING,
+    });
+    consentExpiring.addAlarmAction(alarmAction);
+
+    // Transactions fetched is the one that cannot be a threshold. Zero is
+    // normal for a dormant account and alarming on it would page for nothing,
+    // which trains everyone to ignore the alarm that matters. Anomaly detection
+    // learns what is normal for this household instead.
+    //
+    // It needs history before it means anything — expect INSUFFICIENT_DATA for
+    // the first couple of weeks rather than a working alarm.
+    const detectorMetric = {
+      metricName: "TransactionsFetched",
+      namespace: "Tightarse",
+      dimensions: [{ name: "Environment", value: settings.name }],
+      stat: "Sum",
+    };
+    new cloudwatch.CfnAnomalyDetector(this, "TransactionsFetchedDetector", {
+      singleMetricAnomalyDetector: detectorMetric,
+    });
+
+    // CfnAlarm rather than the L2: only the low-level construct exposes
+    // ThresholdMetricId, which is what makes an alarm anomaly-based.
+    new cloudwatch.CfnAlarm(this, "TransactionsFetchedAnomaly", {
+      alarmName: `tightarse-${settings.name}-transactions-anomalous`,
+      alarmDescription:
+        "Transactions fetched is outside the band learned for this household — either a feed has stopped, or something changed.",
+      comparisonOperator: "LessThanLowerOrGreaterThanUpperThreshold",
+      evaluationPeriods: 1,
+      thresholdMetricId: "band",
+      treatMissingData: "missing",
+      alarmActions: [alerts.topicArn],
+      metrics: [
+        {
+          id: "fetched",
+          returnData: true,
+          metricStat: {
+            metric: detectorMetric,
+            period: cdk.Duration.hours(24).toSeconds(),
+            stat: "Sum",
+          },
+        },
+        {
+          id: "band",
+          // Two standard deviations: wide enough that an ordinary quiet
+          // weekend does not page, narrow enough to catch a feed stopping.
+          expression: "ANOMALY_DETECTION_BAND(fetched, 2)",
+          returnData: true,
+        },
+      ],
     });
 
     // --------------------------------------------------------------- connect

@@ -104,3 +104,58 @@ describe("alerting", () => {
     });
   });
 });
+
+describe("monitoring", () => {
+  it("alarms when any item fails", () => {
+    // Four items failed every day for two days and only an execution's output
+    // said so, which nobody reads.
+    ingest.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      MetricName: "ItemsFailed",
+      Namespace: "Tightarse",
+      Threshold: 0,
+      ComparisonOperator: "GreaterThanThreshold",
+    });
+  });
+
+  it("alarms before a consent lapses, not on the day", () => {
+    ingest.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      MetricName: "ConsentDaysRemaining",
+      Statistic: "Minimum",
+      Threshold: 10,
+      ComparisonOperator: "LessThanOrEqualToThreshold",
+    });
+  });
+
+  it("watches transactions fetched with anomaly detection, not a threshold", () => {
+    // Zero is normal for a dormant account. A threshold would page for nothing
+    // and train everyone to ignore the alarm that matters.
+    expect(
+      Object.keys(ingest.findResources("AWS::CloudWatch::AnomalyDetector")).length,
+    ).toBe(1);
+    ingest.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      ComparisonOperator: "LessThanLowerOrGreaterThanUpperThreshold",
+      ThresholdMetricId: "band",
+      Metrics: Match.arrayWith([
+        Match.objectLike({ Id: "band", Expression: "ANOMALY_DETECTION_BAND(fetched, 2)" }),
+      ]),
+    });
+  });
+
+  it("sends every alarm to the alert topic", () => {
+    // An alarm nobody is told about is a dashboard widget.
+    for (const [id, alarm] of Object.entries(ingest.findResources("AWS::CloudWatch::Alarm"))) {
+      expect((alarm as any).Properties?.AlarmActions, `alarm ${id}`).toBeDefined();
+      expect((alarm as any).Properties?.AlarmActions.length, `alarm ${id}`).toBeGreaterThan(0);
+    }
+  });
+
+  it("dimensions metrics by environment only", () => {
+    // Every distinct dimension combination is separately billed, and an alarm
+    // in CDK cannot name a connection created at runtime.
+    for (const alarm of Object.values(ingest.findResources("AWS::CloudWatch::Alarm"))) {
+      const dims = (alarm as any).Properties?.Dimensions;
+      if (!dims) continue;
+      expect(dims.map((d: any) => d.Name)).toEqual(["Environment"]);
+    }
+  });
+});

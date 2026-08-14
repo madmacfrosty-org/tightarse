@@ -2,8 +2,8 @@ import { testConfig } from "@tightarse/vitest-config";
 
 // Pinned to what this package covers today. Raise them; never lower them.
 export default testConfig({
-  lines: 28.8,
-  functions: 36.3,
-  branches: 81.0,
-  statements: 28.8,
+  lines: 30.2,
+  functions: 38.4,
+  branches: 83.7,
+  statements: 30.2,
 });

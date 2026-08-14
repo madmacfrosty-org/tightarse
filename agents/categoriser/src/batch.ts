@@ -60,6 +60,27 @@ export async function prepare(
 }
 
 /**
+ * The numbers worth watching from one categorisation run.
+ *
+ * Here rather than in the handler because the handler cannot be tested — it
+ * builds its own ledger client — and a metric nobody has ever verified is
+ * indistinguishable from one that is wrong.
+ */
+export function enrichmentMetrics(
+  prepared: Pick<Prepared, "candidates" | "classifications" | "unmatched" | "customRuleCount">,
+  written: number,
+): Record<string, number> {
+  return {
+    EnrichmentBacklog: prepared.candidates.length,
+    EnrichmentMatched: prepared.classifications.length,
+    EnrichmentWritten: written,
+    EnrichmentUnmatched: prepared.unmatched.length,
+    CustomRules: prepared.customRuleCount,
+  };
+}
+
+
+/**
  * Persist rule-derived enrichments.
  *
  * Idempotent: putEnrichment is a conditional write against the transaction, so

@@ -22,6 +22,9 @@
     },
     {
       "path": "../transform"
+    },
+    {
+      "path": "../../packages/metrics"
     }
   ]
 }

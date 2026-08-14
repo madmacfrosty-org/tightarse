@@ -16,7 +16,8 @@
  * new rule should be applied to history.
  */
 import { Ledger } from "@tightarse/ledger";
-import { prepare, writeRuleEnrichments } from "./batch.js";
+import { emit } from "@tightarse/metrics";
+import { enrichmentMetrics, prepare, writeRuleEnrichments } from "./batch.js";
 
 function required(name: string): string {
   const v = process.env[name];
@@ -60,6 +61,13 @@ export async function handler(event: CategoriseEvent = {}): Promise<{
 
   // Counts and categories only. A description must never reach CloudWatch — it
   // is a merchant, a person's name, or an employer.
+  emit({
+    namespace: "Tightarse",
+    environment: process.env["ENVIRONMENT"] ?? "dev",
+    metrics: enrichmentMetrics(prepared, written),
+    properties: { tenantId, mode },
+  });
+
   console.log(
     JSON.stringify({
       tenantId,
