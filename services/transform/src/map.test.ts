@@ -8,20 +8,25 @@ import {
   type RawTransaction,
 } from "./map.js";
 
-const raw = (over: Partial<RawTransaction> = {}): RawTransaction => ({
-  timestamp: "2026-08-08T00:00:00Z",
-  description: "SHOP 123",
-  transaction_type: "DEBIT",
-  transaction_category: "PURCHASE",
-  transaction_classification: [],
-  amount: -12.99,
-  currency: "GBP",
-  transaction_id: "unstable",
-  provider_transaction_id: "prov",
-  normalised_provider_transaction_id: "norm",
-  running_balance: { currency: "GBP", amount: 1234.56 },
-  ...over,
-});
+type Overrides<T> = { [K in keyof T]?: undefined extends T[K] ? T[K] | undefined : T[K] };
+
+const raw = (over: Overrides<RawTransaction> = {}): RawTransaction =>
+  // An optional field set to undefined is absent for our purposes; the spread
+  // type cannot say that under exactOptionalPropertyTypes.
+  ({
+    timestamp: "2026-08-08T00:00:00Z",
+    description: "SHOP 123",
+    transaction_type: "DEBIT",
+    transaction_category: "PURCHASE",
+    transaction_classification: [],
+    amount: -12.99,
+    currency: "GBP",
+    transaction_id: "unstable",
+    provider_transaction_id: "prov",
+    normalised_provider_transaction_id: "norm",
+    running_balance: { currency: "GBP", amount: 1234.56 },
+    ...over,
+  }) as RawTransaction;
 
 const ctx = { tenantId: "frost", accountId: "acc1", status: "settled" as const };
 

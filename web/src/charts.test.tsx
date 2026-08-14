@@ -57,7 +57,7 @@ describe("CategoryBars", () => {
     // gap, not a property worth locking in, and this test asserts the current
     // behaviour rather than endorsing it.
     const { container } = render(<CategoryBars data={data} />);
-    const labels = [...container.querySelectorAll("text")];
+    const labels = Array.from(container.querySelectorAll("text"));
     const provisional = labels.find((t) => t.textContent === "Other");
     const settled = labels.find((t) => t.textContent === "Groceries");
     expect(provisional?.getAttribute("fill")).not.toBe(settled?.getAttribute("fill"));

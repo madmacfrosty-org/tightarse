@@ -2,14 +2,27 @@ import { describe, it, expect } from "vitest";
 import { buildPrompt, parseResponse, type Candidate } from "./categorise.js";
 import { CATEGORIES, isCategory } from "./taxonomy.js";
 
-const cand = (over: Partial<Candidate> = {}): Candidate => ({
-  dedupKey: "n:1",
-  description: "TESCO STORES 3456",
-  amount: -1299,
-  currency: "GBP",
-  providerCategory: "PURCHASE",
-  ...over,
-});
+/**
+ * Overrides for a test-data builder.
+ *
+ * `Partial<T>` cannot express "remove this field" under
+ * exactOptionalPropertyTypes, and a blanket `| undefined` would let a REQUIRED
+ * field be blanked, which is a different bug. Undefined is allowed only where
+ * the property is already optional.
+ */
+type Overrides<T> = { [K in keyof T]?: undefined extends T[K] ? T[K] | undefined : T[K] };
+
+const cand = (over: Overrides<Candidate> = {}): Candidate =>
+  // An optional field set to undefined is absent for our purposes; the spread
+  // type cannot say that under exactOptionalPropertyTypes.
+  ({
+    dedupKey: "n:1",
+    description: "TESCO STORES 3456",
+    amount: -1299,
+    currency: "GBP",
+    providerCategory: "PURCHASE",
+    ...over,
+  }) as Candidate;
 
 describe("buildPrompt", () => {
   it("shows amounts in major units, since that is how a human reads them", () => {

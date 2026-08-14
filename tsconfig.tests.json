@@ -1,0 +1,47 @@
+{
+  "//": "Typechecks the test files that the build excludes. Emits nothing \u2014 it exists so a wrong shape in a test is a compiler error rather than a passing test. A test once passed rows with no dedupKey into the transfer detector; they collided on undefined, the whole ledger was skipped as one transfer, and the types forbade it while nothing was looking. infra and web are checked under their own configs, which deliberately differ: infra relaxes exactOptionalPropertyTypes for CDK, and web already includes its tests.",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "types": [
+      "node"
+    ],
+    "jsx": "react-jsx",
+    "lib": [
+      "ES2023",
+      "DOM"
+    ],
+    "paths": {
+      "@tightarse/schema": [
+        "./packages/schema/src/index.ts"
+      ],
+      "@tightarse/ledger": [
+        "./packages/ledger/src/index.ts"
+      ],
+      "@tightarse/truelayer": [
+        "./packages/truelayer/src/index.ts"
+      ],
+      "@tightarse/fixtures": [
+        "./packages/fixtures/src/index.ts"
+      ],
+      "@tightarse/metrics": [
+        "./packages/metrics/src/index.ts"
+      ],
+      "@tightarse/transform": [
+        "./services/transform/src/index.ts"
+      ]
+    },
+    "baseUrl": ".",
+    "module": "esnext",
+    "moduleResolution": "bundler"
+  },
+  "include": [
+    "packages/*/src/**/*.test.ts",
+    "services/*/src/**/*.test.ts",
+    "agents/*/src/**/*.test.ts"
+  ]
+}

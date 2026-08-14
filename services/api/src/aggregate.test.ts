@@ -1,17 +1,30 @@
 import { describe, it, expect } from "vitest";
 import { summarise, mergeEnrichments, type LedgerRow, type EnrichmentRow } from "./aggregate.js";
 
-const row = (over: Partial<LedgerRow> = {}): LedgerRow => ({
-  dedupKey: "n:1",
-  timestamp: "2026-03-15T00:00:00Z",
-  amount: -1299,
-  currency: "GBP",
-  description: "SHOP",
-  accountId: "acc1",
-  providerCategory: "PURCHASE",
-  transactionType: "DEBIT",
-  ...over,
-});
+/**
+ * Overrides for a test-data builder.
+ *
+ * `Partial<T>` cannot express "remove this field" under
+ * exactOptionalPropertyTypes, and a blanket `| undefined` would let a REQUIRED
+ * field be blanked, which is a different bug. Undefined is allowed only where
+ * the property is already optional.
+ */
+type Overrides<T> = { [K in keyof T]?: undefined extends T[K] ? T[K] | undefined : T[K] };
+
+const row = (over: Overrides<LedgerRow> = {}): LedgerRow =>
+  // An optional field set to undefined is absent for our purposes; the spread
+  // type cannot say that under exactOptionalPropertyTypes.
+  ({
+    dedupKey: "n:1",
+    timestamp: "2026-03-15T00:00:00Z",
+    amount: -1299,
+    currency: "GBP",
+    description: "SHOP",
+    accountId: "acc1",
+    providerCategory: "PURCHASE",
+    transactionType: "DEBIT",
+    ...over,
+  }) as LedgerRow;
 
 const range = { from: "2026-01-01", to: "2026-12-31" };
 

@@ -38,6 +38,9 @@ jobs:
 
       - run: npm ci
 
+      # Covers test files too, under three configs: the strict root one, infra's
+      # relaxed CDK settings, and web's own. Test files are excluded from the
+      # build, so until this existed nothing checked their types.
       - name: Typecheck
         run: npm run typecheck
 

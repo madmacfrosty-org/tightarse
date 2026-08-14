@@ -290,6 +290,7 @@ suite("Ledger account merge (integration)", () => {
       displayName: "Test",
       institutionName: "TEST-BANK",
       currency: "GBP",
+      isCard: false,
     };
 
     await ledger.putAccount(account, { current: 181447, available: 558553 });

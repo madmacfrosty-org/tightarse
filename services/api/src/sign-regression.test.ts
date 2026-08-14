@@ -3,7 +3,7 @@ import { generateHousehold } from "@tightarse/fixtures";
 import { mapTransaction } from "@tightarse/transform";
 import { dedupKey } from "@tightarse/schema";
 import { detectTransfers } from "./transfers.js";
-import { summarise } from "./aggregate.js";
+import { summarise, type LedgerRow } from "./aggregate.js";
 
 /**
  * The regression test for the most expensive bug this project has had.
@@ -36,11 +36,17 @@ const map = (raws: ReturnType<typeof generateHousehold>["cardTransactions"], acc
     return { ...t, dedupKey: dedupKey(t) };
   });
 
+/**
+ * mapTransaction produces a full Transaction; the aggregation reads the smaller
+ * LedgerRow it projects onto. The cast states that relationship rather than
+ * widening a production type to suit a test — the shapes differ only in
+ * optional fields, which exactOptionalPropertyTypes treats as incompatible.
+ */
 const rows = [
   ...map(household.currentAccountTransactions, "acc-current-0001"),
   ...map(household.savingsTransactions, "acc-savings-0001"),
   ...map(household.cardTransactions, "card-0001"),
-];
+] as unknown as LedgerRow[];
 
 describe("card sign regression", () => {
   it("treats a card purchase as spending", () => {
