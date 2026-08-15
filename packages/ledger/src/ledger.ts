@@ -441,6 +441,54 @@ export class Ledger {
     );
   }
 
+  /**
+   * Flag a reading whose arithmetic did not work, and by how much.
+   *
+   * The number is kept and marked rather than hidden or corrected. A synthetic
+   * transaction that makes the sum come out right is a healthy-looking figure
+   * over missing data; a marked one says what it is.
+   */
+  async markBalanceReadingDirty(
+    tenantId: string,
+    accountId: string,
+    fetchedAt: string,
+    discrepancy: number,
+  ): Promise<void> {
+    const { pk, sk } = keys.balanceReading(tenantId, accountId, fetchedAt);
+    await this.doc.send(
+      new UpdateCommand({
+        TableName: this.table,
+        Key: { pk, sk },
+        UpdateExpression: "SET #dirty = :dirty, #discrepancy = :discrepancy",
+        ExpressionAttributeNames: { "#dirty": "dirty", "#discrepancy": "discrepancy" },
+        ExpressionAttributeValues: { ":dirty": true, ":discrepancy": discrepancy },
+        // Only touch a reading that exists. Creating one here would invent a
+        // balance out of a failed check.
+        ConditionExpression: "attribute_exists(pk)",
+      }),
+    );
+  }
+
+  /**
+   * Clear a mark on a reading that now reconciles.
+   *
+   * The reconciliation recomputes from scratch every run, so a break explained
+   * by a late transaction has to be able to stop being one. Without this, marks
+   * would only ever accumulate.
+   */
+  async clearBalanceReadingDirty(tenantId: string, accountId: string, fetchedAt: string): Promise<void> {
+    const { pk, sk } = keys.balanceReading(tenantId, accountId, fetchedAt);
+    await this.doc.send(
+      new UpdateCommand({
+        TableName: this.table,
+        Key: { pk, sk },
+        UpdateExpression: "REMOVE #dirty, #discrepancy",
+        ExpressionAttributeNames: { "#dirty": "dirty", "#discrepancy": "discrepancy" },
+        ConditionExpression: "attribute_exists(pk)",
+      }),
+    );
+  }
+
   /** Every balance reading for an account, oldest first. */
   async listBalanceReadings(tenantId: string, accountId: string): Promise<Record<string, unknown>[]> {
     return this.queryAll({

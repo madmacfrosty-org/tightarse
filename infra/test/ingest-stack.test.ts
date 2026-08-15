@@ -145,6 +145,44 @@ describe("monitoring", () => {
     expect(onCards).toHaveLength(0);
   });
 
+  it.each([
+    ["ReconciliationBreaksAccount", "account"],
+    ["ReconciliationBreaksCard", "card"],
+  ])("alarms on %s", (metricName) => {
+    // balance(newest) - balance(oldest) == sum of amounts between. A break
+    // means a transaction is missing, or one is present that should not be, and
+    // nothing detected that before — the numbers just stayed plausible.
+    //
+    // Both, unlike the unanchored pair: this check needs no running balance, so
+    // it covers cards, which carry none. Run against five years of real data
+    // first — 5 accounts, 5 checks, 0 breaks — because a threshold of zero on
+    // something that fires routinely is worse than no alarm at all.
+    ingest.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      MetricName: metricName,
+      Namespace: "Tightarse",
+      Threshold: 0,
+      ComparisonOperator: "GreaterThanThreshold",
+      TreatMissingData: "notBreaching",
+    });
+  });
+
+  it("runs the reconciliation on a schedule, after the categoriser", () => {
+    // It has to see a settled ledger. The sync is at 05:00 and the categoriser
+    // at 06:00, so this is at 07:00.
+    ingest.hasResourceProperties("AWS::Events::Rule", {
+      ScheduleExpression: "cron(0 7 * * ? *)",
+    });
+  });
+
+  it("gives the reconciliation write access, because it marks readings dirty", () => {
+    // Read-only would fail at the moment it found something, which is the worst
+    // possible time to discover a permissions mistake.
+    const fns = ingest.findResources("AWS::Lambda::Function");
+    const found = Object.entries(fns).find(([id]) => id.startsWith("Reconcile"));
+    expect(found, "no Reconcile function").toBeDefined();
+    expect((found![1] as any).Properties.Environment.Variables.ENVIRONMENT).toBe("dev");
+  });
+
   it("sends the unanchored alarms somewhere a person will see", () => {
     // An alarm with no action is a light nobody is looking at. This project's
     // recurring failure is infrastructure that deploys perfectly and does

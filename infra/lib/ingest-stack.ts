@@ -349,6 +349,40 @@ export class IngestStack extends cdk.Stack {
       targets: [new targets.LambdaFunction(categorise)],
     });
 
+    // Reconciliation, after the categoriser so it sees a settled ledger.
+    //
+    // Its own function rather than part of the transform: the transform runs
+    // once per raw object with no ordering between them, so a balance reading
+    // and the transactions it should be checked against arrive as separate
+    // events. Checking at write time would compare against whatever had landed.
+    const reconcile = new NodejsFunction(this, "Reconcile", {
+      ...common,
+      entry: path.join(__dirname, "../../services/ingest/src/reconcile-handler.ts"),
+      handler: "handler",
+      memorySize: 512,
+      // Scans the table and groups in memory. Small at this size, and a single
+      // consistent read beats reconciling one account's balances against
+      // another's transactions.
+      timeout: cdk.Duration.minutes(5),
+      environment: {
+        TABLE_NAME: table.tableName,
+        TENANT_ID: "frost",
+        ENVIRONMENT: settings.name,
+      },
+      logGroup: new logs.LogGroup(this, "ReconcileLogs", {
+        retention: settings.name === "prod" ? logs.RetentionDays.ONE_YEAR : logs.RetentionDays.ONE_WEEK,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      }),
+    });
+    table.grantReadWriteData(reconcile);
+    dataKey.grantEncryptDecrypt(reconcile);
+
+    new events.Rule(this, "DailyReconcile", {
+      description: "Check the ledger's transactions against the balances the bank reported",
+      schedule: events.Schedule.cron({ minute: "0", hour: "7" }),
+      targets: [new targets.LambdaFunction(reconcile)],
+    });
+
     // ----------------------------------------------------------- monitoring
 
     // The sync spent two days fetching nothing while every execution reported
@@ -414,6 +448,40 @@ export class IngestStack extends cdk.Stack {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
     unanchored.addAlarmAction(alarmAction);
+
+    // The bank's arithmetic against ours:
+    //
+    //   balance(newest reading) - balance(oldest) == sum of amounts between
+    //
+    // A break means a transaction is missing, or one is present that should not
+    // be. Either way every balance derived from that series is wrong, and until
+    // this existed nothing detected it — the numbers simply stayed plausible,
+    // which is the worst kind of wrong for money.
+    //
+    // Both an account and a card alarm, unlike the unanchored pair above, and
+    // the difference is the point: this check needs no running balance, so it
+    // covers cards, which carry none. It was run against five years of real
+    // data before being given a threshold — 5 accounts, 5 checks, 0 breaks — so
+    // it is not expected to fire, which is what a threshold of zero requires.
+    for (const [id, metricName, what] of [
+      ["ReconciliationBreaksAccount", "ReconciliationBreaksAccount", "account"],
+      ["ReconciliationBreaksCard", "ReconciliationBreaksCard", "card"],
+    ] as const) {
+      const alarm = new cloudwatch.Alarm(this, id, {
+        alarmName: `tightarse-${settings.name}-reconciliation-${what}`,
+        alarmDescription:
+          `An ${what}'s transactions do not account for the change in its balance. ` +
+          `A transaction is missing, or one is present that should not be. See #33.`,
+        metric: metric(metricName),
+        threshold: 0,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+        evaluationPeriods: 1,
+        // Nothing emitted means the phase did not run, which is its own problem
+        // and not a break.
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      });
+      alarm.addAlarmAction(alarmAction);
+    }
 
     // Reconfirmation needs a person at a browser, so the warning has to arrive
     // with time to act rather than on the day access stops.

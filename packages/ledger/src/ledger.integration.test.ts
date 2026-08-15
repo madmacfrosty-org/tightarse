@@ -400,3 +400,48 @@ suite("balance readings (integration)", () => {
     expect(row!["balance"]).toBe(-56_790);
   });
 });
+
+suite("marking a reading dirty (integration)", () => {
+  let ledger: Ledger;
+  beforeAll(() => { ({ ledger } = testLedger()); });
+
+  const at = "2026-06-01T05:00:00.000Z";
+  const reading = (accountId: string) => ({
+    tenantId: TENANT, accountId, fetchedAt: at, balance: 100_00, currency: "GBP",
+  });
+
+  it("marks a reading and records how far off it was", async () => {
+    await ledger.putBalanceReading(reading("dirty-1"));
+    await ledger.markBalanceReadingDirty(TENANT, "dirty-1", at, -20_00);
+    const [row] = await ledger.listBalanceReadings(TENANT, "dirty-1");
+    expect(row).toMatchObject({ dirty: true, discrepancy: -20_00 });
+  });
+
+  it("clears the mark when the reading reconciles again", async () => {
+    // A break explained by a late transaction has to stop being one, or marks
+    // would only ever accumulate.
+    await ledger.putBalanceReading(reading("dirty-2"));
+    await ledger.markBalanceReadingDirty(TENANT, "dirty-2", at, -1);
+    await ledger.clearBalanceReadingDirty(TENANT, "dirty-2", at);
+    const [row] = await ledger.listBalanceReadings(TENANT, "dirty-2");
+    expect(row).not.toHaveProperty("dirty");
+    expect(row).not.toHaveProperty("discrepancy");
+  });
+
+  it("refuses to mark a reading that does not exist", async () => {
+    // Creating one here would invent a balance out of a failed check.
+    await expect(
+      ledger.markBalanceReadingDirty(TENANT, "dirty-none", at, -1),
+    ).rejects.toThrow();
+    expect(await ledger.listBalanceReadings(TENANT, "dirty-none")).toHaveLength(0);
+  });
+
+  it("leaves the balance itself untouched when marking", async () => {
+    // The number is kept. Marking must not quietly adjust it toward what would
+    // have reconciled.
+    await ledger.putBalanceReading(reading("dirty-3"));
+    await ledger.markBalanceReadingDirty(TENANT, "dirty-3", at, -5_00);
+    const [row] = await ledger.listBalanceReadings(TENANT, "dirty-3");
+    expect(row!["balance"]).toBe(100_00);
+  });
+});

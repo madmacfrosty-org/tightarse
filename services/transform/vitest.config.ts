@@ -9,10 +9,10 @@ export default defineConfig({
     coverage: {
       ...coverageBase,
       thresholds: {
-        lines: 98.47,
-        functions: 95.45,
-        branches: 94.35,
-        statements: 98.47,
+        lines: 98.95,
+        functions: 97.5,
+        branches: 95.81,
+        statements: 98.95,
         autoUpdate,
       },
     },
