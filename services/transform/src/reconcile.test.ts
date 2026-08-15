@@ -9,8 +9,14 @@ import { reconcileAccount, reconciliationMetrics, type Movement, type Reading } 
  * the numbers stay plausible, which is the worst kind of wrong for money.
  */
 
-const reading = (fetchedAt: string, balance: number): Reading => ({
+/**
+ * `asOf` is what everything orders and windows on — the provider's own
+ * timestamp where it gave one. Equal to the fetch time here unless a test is
+ * specifically about the two differing.
+ */
+const reading = (asOf: string, balance: number, fetchedAt = asOf): Reading => ({
   accountId: "acc-1",
+  asOf,
   fetchedAt,
   balance,
 });
@@ -116,8 +122,8 @@ describe("balances that do not", () => {
       [],
     );
     expect(result.breaks[0]).toMatchObject({
-      previousFetchedAt: "2026-01-01T05:00:00.000Z",
-      fetchedAt: "2026-01-03T05:00:00.000Z",
+      previousAsOf: "2026-01-01T05:00:00.000Z",
+      asOf: "2026-01-03T05:00:00.000Z",
     });
   });
 
@@ -140,8 +146,8 @@ describe("balances that do not", () => {
     expect(result.checked).toBe(1);
     expect(result.breaks).toHaveLength(1);
     expect(result.breaks[0]).toMatchObject({
-      previousFetchedAt: "2026-01-01T05:00:00.000Z",
-      fetchedAt: "2026-01-05T05:00:00.000Z",
+      previousAsOf: "2026-01-01T05:00:00.000Z",
+      asOf: "2026-01-05T05:00:00.000Z",
       reported: -90_00,
     });
   });
@@ -160,6 +166,44 @@ describe("balances that do not", () => {
     expect(early.breaks).toHaveLength(0);
     expect(late.breaks).toHaveLength(0);
     expect(split.breaks).toHaveLength(0);
+  });
+});
+
+describe("ordering by when the balance was true", () => {
+  it("orders on asOf, not on when we happened to ask", async () => {
+    // A cached reading can be fetched later while describing an earlier moment,
+    // so the two orders can disagree. Ordering on the fetch time would then put
+    // the span backwards and report a break on a perfectly sound account.
+    //
+    // The staleness here is larger than anything measured — the worst real card
+    // reading was 32 minutes — but the ordering logic is what is under test, and
+    // a smaller gap would not separate the two orders across a day boundary.
+    const fresh = reading("2026-01-02T05:00:00.000Z", 90_00, "2026-01-02T05:00:00.000Z");
+    const stale = reading("2026-01-01T05:00:00.000Z", 100_00, "2026-01-05T05:00:00.000Z");
+
+    const result = reconcileAccount("acc-1", [fresh, stale], [movement("2026-01-02T00:00:00Z", -10_00)]);
+
+    // Oldest by asOf is the stale one, newest is the fresh one.
+    expect(result.breaks).toHaveLength(0);
+    expect(result.checked).toBe(1);
+  });
+
+  it("marks the row identified by both halves of its key", () => {
+    // The row is keyed on asOf and fetchedAt together, so a break has to carry
+    // both or the mark lands on nothing.
+    const result = reconcileAccount(
+      "acc-1",
+      [
+        reading("2026-01-01T05:00:00.000Z", 100_00, "2026-01-01T05:00:00.000Z"),
+        reading("2026-01-03T04:28:00.000Z", 50_00, "2026-01-03T05:00:00.000Z"),
+      ],
+      [],
+    );
+    expect(result.breaks[0]).toMatchObject({
+      asOf: "2026-01-03T04:28:00.000Z",
+      fetchedAt: "2026-01-03T05:00:00.000Z",
+      previousAsOf: "2026-01-01T05:00:00.000Z",
+    });
   });
 });
 

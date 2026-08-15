@@ -49,6 +49,14 @@
 /** A stored balance reading, as much of it as this needs. */
 export interface Reading {
   readonly accountId: string;
+  /**
+   * When the balance was true: the provider's own timestamp where it gave one,
+   * ours otherwise. Everything here orders and windows on this rather than on
+   * `fetchedAt`, because a card balance can be served from data refreshed up to
+   * half an hour before we asked — measured, not assumed.
+   */
+  readonly asOf: string;
+  /** When we asked. Carried so a break can be written back to its own row. */
   readonly fetchedAt: string;
   readonly balance: number;
 }
@@ -62,9 +70,11 @@ export interface Movement {
 export interface Break {
   readonly accountId: string;
   /** The newest reading — the one marked, and the end of the span. */
+  readonly asOf: string;
+  /** That reading's fetch time, which the row is keyed on alongside `asOf`. */
   readonly fetchedAt: string;
   /** The oldest reading, and the start of the span. */
-  readonly previousFetchedAt: string;
+  readonly previousAsOf: string;
   /** What the balance moved by, according to the bank. */
   readonly reported: number;
   /** What our transactions say it should have moved by. */
@@ -100,7 +110,7 @@ export function reconcileAccount(
   readings: readonly Reading[],
   movements: readonly Movement[],
 ): ReconciliationResult {
-  const ordered = [...readings].sort((a, b) => a.fetchedAt.localeCompare(b.fetchedAt));
+  const ordered = [...readings].sort((a, b) => a.asOf.localeCompare(b.asOf));
   const oldest = ordered[0];
   const newest = ordered[ordered.length - 1];
 
@@ -112,10 +122,10 @@ export function reconcileAccount(
   // Both on one day cannot be checked: the transactions between them are a
   // subset of that day's and nothing says which. A limit of the data rather
   // than a discrepancy.
-  if (dayOf(oldest.fetchedAt) === dayOf(newest.fetchedAt)) return { checked: 0, breaks: [] };
+  if (dayOf(oldest.asOf) === dayOf(newest.asOf)) return { checked: 0, breaks: [] };
 
   const window = movements.filter(
-    (m) => dayOf(m.timestamp) > dayOf(oldest.fetchedAt) && dayOf(m.timestamp) <= dayOf(newest.fetchedAt),
+    (m) => dayOf(m.timestamp) > dayOf(oldest.asOf) && dayOf(m.timestamp) <= dayOf(newest.asOf),
   );
 
   const reported = newest.balance - oldest.balance;
@@ -128,8 +138,9 @@ export function reconcileAccount(
     breaks: [
       {
         accountId,
+        asOf: newest.asOf,
         fetchedAt: newest.fetchedAt,
-        previousFetchedAt: oldest.fetchedAt,
+        previousAsOf: oldest.asOf,
         reported,
         observed,
         discrepancy: reported - observed,

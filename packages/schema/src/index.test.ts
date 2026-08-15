@@ -141,18 +141,32 @@ describe("balance readings", () => {
   it("keys one row per fetch, in its own partition per account", () => {
     // Its own partition so reading a series is one query, and so it cannot
     // collide with the account row it describes.
-    expect(keys.balanceReading("frost", "acc-1", "2026-03-15T05:00:00.000Z")).toEqual({
+    expect(keys.balanceReading("frost", "acc-1", "2026-03-15T04:28:00.000Z", "2026-03-15T05:00:00.000Z")).toEqual({
       pk: "T#frost#BAL#acc-1",
-      sk: "2026-03-15T05:00:00.000Z",
+      // Sorted by when the balance was true, made unique by when we asked.
+      sk: "2026-03-15T04:28:00.000Z#2026-03-15T05:00:00.000Z",
     });
   });
 
   it("sorts readings oldest first, because the sort key is the fetch time", () => {
     // Reconciliation walks consecutive readings, so their order has to come
     // from the key rather than from sorting after the fact.
-    const at = (t: string) => keys.balanceReading("frost", "acc-1", t).sk;
+    const at = (t: string) => keys.balanceReading("frost", "acc-1", t, t).sk;
     const stamps = [at("2026-03-15T05:00:00.000Z"), at("2026-01-02T05:00:00.000Z"), at("2026-02-01T05:00:00.000Z")];
     expect([...stamps].sort()).toEqual([stamps[1], stamps[2], stamps[0]]);
+  });
+
+  it("keeps two fetches of the same cached balance as separate rows", () => {
+    // Card data can be served from something refreshed up to half an hour
+    // earlier, so two syncs can legitimately return the same provider
+    // timestamp. Keying on that alone would make the second write overwrite the
+    // first and lose the fact that we asked twice.
+    const cached = "2026-03-15T04:28:00.000Z";
+    const first = keys.balanceReading("frost", "card-1", cached, "2026-03-15T05:00:00.000Z");
+    const second = keys.balanceReading("frost", "card-1", cached, "2026-03-16T05:00:00.000Z");
+    expect(first.sk).not.toBe(second.sk);
+    // And they still sort together, because the provider timestamp leads.
+    expect([second.sk, first.sk].sort()).toEqual([first.sk, second.sk]);
   });
 
   it("accepts a negative balance, which is how money owed is written", () => {
@@ -162,6 +176,7 @@ describe("balance readings", () => {
       tenantId: "frost",
       accountId: "card-1",
       fetchedAt: "2026-03-15T05:00:00.000Z",
+      asOf: "2026-03-15T05:00:00.000Z",
       balance: -56_790,
       currency: "GBP",
     });
@@ -173,6 +188,7 @@ describe("balance readings", () => {
       tenantId: "frost",
       accountId: "card-1",
       fetchedAt: "2026-03-15T05:00:00.000Z",
+      asOf: "2026-03-15T05:00:00.000Z",
       balance: -100,
       currency: "GBP",
     });
@@ -186,6 +202,7 @@ describe("balance readings", () => {
       tenantId: "frost",
       accountId: "acc-1",
       fetchedAt: "2026-03-15T05:00:00.000Z",
+      asOf: "2026-03-15T05:00:00.000Z",
       balance: 100,
       currency: "GBP",
       dirty: true,
@@ -195,7 +212,7 @@ describe("balance readings", () => {
   });
 
   it("refuses a reading with no fetch time, which would not be a series", () => {
-    const without = { tenantId: "frost", accountId: "acc-1", balance: 1, currency: "GBP" };
+    const without = { tenantId: "frost", accountId: "acc-1", asOf: "2026-03-15T05:00:00.000Z", balance: 1, currency: "GBP" };
     expect(BalanceReading.safeParse(without).success).toBe(false);
   });
 });

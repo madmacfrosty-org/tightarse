@@ -166,6 +166,19 @@ describe("monitoring", () => {
     });
   });
 
+  it("alarms only on balance staleness far beyond normal caching", () => {
+    // Accounts were fresh in all 22 real readings; cards stale in 8 of 23, worst
+    // 32 minutes. Caching of tens of minutes is normal and must not fire — the
+    // mistake corrected in 927c593. A day is where a reading would land on the
+    // wrong side of a reconciliation window.
+    ingest.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      MetricName: "BalanceStalenessSeconds",
+      Statistic: "Maximum",
+      Threshold: 86400,
+      ComparisonOperator: "GreaterThanThreshold",
+    });
+  });
+
   it("runs the reconciliation on a schedule, after the categoriser", () => {
     // It has to see a settled ledger. The sync is at 05:00 and the categoriser
     // at 06:00, so this is at 07:00.

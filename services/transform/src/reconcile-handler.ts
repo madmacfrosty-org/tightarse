@@ -46,7 +46,7 @@ export function reconcileConfig(env: NodeJS.ProcessEnv): ReconcileConfig {
  */
 export function groupForReconciliation(rows: readonly Row[]): {
   accounts: Array<{ accountId: string; isCard: boolean }>;
-  readings: Map<string, Array<{ accountId: string; fetchedAt: string; balance: number }>>;
+  readings: Map<string, Array<{ accountId: string; asOf: string; fetchedAt: string; balance: number }>>;
   movements: Map<string, Array<{ timestamp: string; amount: number }>>;
 } {
   const by = <T>(kind: string, pick: (r: Row) => T): Map<string, T[]> => {
@@ -65,6 +65,7 @@ export function groupForReconciliation(rows: readonly Row[]): {
       .map((r) => ({ accountId: String(r["accountId"]), isCard: r["isCard"] === true })),
     readings: by("balanceReading", (r) => ({
       accountId: String(r["accountId"]),
+      asOf: String(r["asOf"]),
       fetchedAt: String(r["fetchedAt"]),
       balance: Number(r["balance"]),
     })),
@@ -92,9 +93,9 @@ export function phaseDepsFrom(
     accounts: async () => accounts,
     readings: async (id) => readings.get(id) ?? [],
     movements: async (id) => movements.get(id) ?? [],
-    markDirty: (id, fetchedAt, discrepancy) =>
-      ledger.markBalanceReadingDirty(tenantId, id, fetchedAt, discrepancy),
-    clearDirty: (id, fetchedAt) => ledger.clearBalanceReadingDirty(tenantId, id, fetchedAt),
+    markDirty: (id, asOf, fetchedAt, discrepancy) =>
+      ledger.markBalanceReadingDirty(tenantId, id, asOf, fetchedAt, discrepancy),
+    clearDirty: (id, asOf, fetchedAt) => ledger.clearBalanceReadingDirty(tenantId, id, asOf, fetchedAt),
   };
 }
 

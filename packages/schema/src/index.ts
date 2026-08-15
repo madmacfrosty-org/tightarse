@@ -378,8 +378,31 @@ export type Member = z.infer<typeof Member>;
 export const BalanceReading = z.object({
   tenantId: TenantId,
   accountId: z.string().min(1),
-  /** When the provider was asked, from the raw envelope. */
+  /** When we asked, from the raw envelope. Always present; our clock. */
   fetchedAt: z.string().datetime(),
+  /**
+   * `update_timestamp` exactly as the provider sent it, absent when it did not.
+   *
+   * Documented for the account balance as "Last update time of the data", and
+   * on the card balance not documented at all — the OpenAPI definition gives it
+   * a datatype and no meaning. So this is stored faithfully and interpreted
+   * cautiously.
+   *
+   * Measured across 45 real responses: present on every one despite being
+   * optional, and never later than our request. Accounts were fresh in all 22
+   * cases; cards were stale in 8 of 23, the worst by 32 minutes. Card data is
+   * evidently served from something refreshed earlier.
+   */
+  providerUpdatedAt: z.string().datetime().optional(),
+  /**
+   * When the balance was true, as far as we can tell: the provider's own
+   * timestamp when it gave one, otherwise ours.
+   *
+   * The one field anything sorts or reconciles on, which is the point of having
+   * it — `providerUpdatedAt` is optional and a reconciliation cannot be written
+   * against a field that might not be there.
+   */
+  asOf: z.string().datetime(),
   balance: Amount,
   /** Funds available to spend. Absent for a card that does not report one. */
   available: Amount.optional(),
@@ -483,9 +506,22 @@ export const keys = {
    * Its own partition per account, so reading a series is one query and cannot
    * collide with the account row it describes.
    */
-  balanceReading: (tenantId: string, accountId: string, fetchedAt: string) => ({
+  /**
+   * One row per balance fetch, ordered by when the balance was true.
+   *
+   * Composite rather than `asOf` alone: two fetches can legitimately return the
+   * same provider timestamp — which is exactly what card caching does, measured
+   * at up to 32 minutes — and keying on it would make the second write
+   * overwrite the first, losing the fact that we asked twice. Keying on
+   * `fetchedAt` alone would sort by when we asked rather than by when the
+   * balance was true, which is the wrong order for reconciliation.
+   *
+   * Both halves are deterministic, so re-transforming the same raw object still
+   * converges. Same shape as the transaction sort key.
+   */
+  balanceReading: (tenantId: string, accountId: string, asOf: string, fetchedAt: string) => ({
     pk: `T#${tenantId}#BAL#${accountId}`,
-    sk: fetchedAt,
+    sk: `${asOf}#${fetchedAt}`,
   }),
 
   pending: (tenantId: string, accountId: string, timestamp: string, providerId: string) => ({

@@ -7,6 +7,7 @@ import {
   isCardDataset,
   type RawTransaction,
   balanceReadingOf,
+  stalenessSeconds,
 } from "./map.js";
 
 type Overrides<T> = { [K in keyof T]?: undefined extends T[K] ? T[K] | undefined : T[K] };
@@ -397,5 +398,63 @@ describe("a balance reading, kept as a series", () => {
     // Without it there is one balance per account and nothing to reconcile
     // against — which is the state this replaces.
     expect(balanceReadingOf(raw(1) as never, { ...ctx, isCard: false }).fetchedAt).toBe(ctx.fetchedAt);
+  });
+
+  it("keeps the provider's own timestamp exactly as sent", () => {
+    // Stored faithfully because the card endpoint documents it not at all — the
+    // OpenAPI definition gives it a datatype and no meaning. Interpreting it is
+    // a separate decision from recording it.
+    const r = balanceReadingOf({ ...raw(100), update_timestamp: "2026-03-15T04:28:00.000Z" } as never, {
+      ...ctx,
+      isCard: true,
+    });
+    expect(r.providerUpdatedAt).toBe("2026-03-15T04:28:00.000Z");
+  });
+
+  it("takes asOf from the provider when it gave one", () => {
+    // Measured on real data: card balances are served from something refreshed
+    // up to 32 minutes before we asked, while accounts were fresh in all 22
+    // cases. Reconciling on our clock would put a reading on the wrong day
+    // whenever a sync ran near midnight.
+    const r = balanceReadingOf({ ...raw(100), update_timestamp: "2026-03-15T04:28:00.000Z" } as never, {
+      ...ctx,
+      isCard: true,
+    });
+    expect(r.asOf).toBe("2026-03-15T04:28:00.000Z");
+    expect(r.asOf).not.toBe(r.fetchedAt);
+  });
+
+  it("falls back to our clock when the provider gave none", () => {
+    // The field is optional on both endpoints. A reconciliation cannot be
+    // written against something that might not be there, so asOf always is.
+    const r = balanceReadingOf(raw(100) as never, { ...ctx, isCard: false });
+    expect(r.asOf).toBe(ctx.fetchedAt);
+    expect(r).not.toHaveProperty("providerUpdatedAt");
+  });
+});
+
+describe("how stale a balance was", () => {
+  const at = (fetchedAt: string, providerUpdatedAt?: string) => ({
+    fetchedAt,
+    ...(providerUpdatedAt ? { providerUpdatedAt } : {}),
+  });
+
+  it("measures how far behind our request the data was", () => {
+    // 32 minutes is the worst seen in real card data, and the reason this is
+    // worth watching rather than assuming.
+    expect(stalenessSeconds(at("2026-03-15T05:00:00.000Z", "2026-03-15T04:28:00.000Z"))).toBe(1920);
+  });
+
+  it("reports zero when the provider gave no timestamp", () => {
+    // No evidence of staleness rather than stale. Treating an absent field as
+    // an old one would alarm on every provider that omits it.
+    expect(stalenessSeconds(at("2026-03-15T05:00:00.000Z"))).toBe(0);
+  });
+
+  it("reports zero for data that claims to be newer than the request", () => {
+    // Never seen in 45 real responses, and it would mean a clock disagreement
+    // rather than freshness. A negative age would read as a healthy negative
+    // number on a graph.
+    expect(stalenessSeconds(at("2026-03-15T05:00:00.000Z", "2026-03-15T06:00:00.000Z"))).toBe(0);
   });
 });

@@ -351,10 +351,13 @@ suite("balance readings (integration)", () => {
     ({ ledger } = testLedger());
   });
 
-  const reading = (accountId: string, fetchedAt: string, balance: number) => ({
+  const reading = (accountId: string, at: string, balance: number) => ({
     tenantId: TENANT,
     accountId,
-    fetchedAt,
+    // Both, because the row is keyed on the pair. Equal here: the interesting
+    // case where they differ is covered in the mapper's tests.
+    asOf: at,
+    fetchedAt: at,
     balance,
     currency: "GBP",
   });
@@ -407,12 +410,12 @@ suite("marking a reading dirty (integration)", () => {
 
   const at = "2026-06-01T05:00:00.000Z";
   const reading = (accountId: string) => ({
-    tenantId: TENANT, accountId, fetchedAt: at, balance: 100_00, currency: "GBP",
+    tenantId: TENANT, accountId, asOf: at, fetchedAt: at, balance: 100_00, currency: "GBP",
   });
 
   it("marks a reading and records how far off it was", async () => {
     await ledger.putBalanceReading(reading("dirty-1"));
-    await ledger.markBalanceReadingDirty(TENANT, "dirty-1", at, -20_00);
+    await ledger.markBalanceReadingDirty(TENANT, "dirty-1", at, at, -20_00);
     const [row] = await ledger.listBalanceReadings(TENANT, "dirty-1");
     expect(row).toMatchObject({ dirty: true, discrepancy: -20_00 });
   });
@@ -421,8 +424,8 @@ suite("marking a reading dirty (integration)", () => {
     // A break explained by a late transaction has to stop being one, or marks
     // would only ever accumulate.
     await ledger.putBalanceReading(reading("dirty-2"));
-    await ledger.markBalanceReadingDirty(TENANT, "dirty-2", at, -1);
-    await ledger.clearBalanceReadingDirty(TENANT, "dirty-2", at);
+    await ledger.markBalanceReadingDirty(TENANT, "dirty-2", at, at, -1);
+    await ledger.clearBalanceReadingDirty(TENANT, "dirty-2", at, at);
     const [row] = await ledger.listBalanceReadings(TENANT, "dirty-2");
     expect(row).not.toHaveProperty("dirty");
     expect(row).not.toHaveProperty("discrepancy");
@@ -431,7 +434,7 @@ suite("marking a reading dirty (integration)", () => {
   it("refuses to mark a reading that does not exist", async () => {
     // Creating one here would invent a balance out of a failed check.
     await expect(
-      ledger.markBalanceReadingDirty(TENANT, "dirty-none", at, -1),
+      ledger.markBalanceReadingDirty(TENANT, "dirty-none", at, at, -1),
     ).rejects.toThrow();
     expect(await ledger.listBalanceReadings(TENANT, "dirty-none")).toHaveLength(0);
   });
@@ -440,7 +443,7 @@ suite("marking a reading dirty (integration)", () => {
     // The number is kept. Marking must not quietly adjust it toward what would
     // have reconciled.
     await ledger.putBalanceReading(reading("dirty-3"));
-    await ledger.markBalanceReadingDirty(TENANT, "dirty-3", at, -5_00);
+    await ledger.markBalanceReadingDirty(TENANT, "dirty-3", at, at, -5_00);
     const [row] = await ledger.listBalanceReadings(TENANT, "dirty-3");
     expect(row!["balance"]).toBe(100_00);
   });

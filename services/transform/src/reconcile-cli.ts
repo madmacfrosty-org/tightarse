@@ -55,6 +55,7 @@ async function main(): Promise<void> {
 
   const readings = byAccount("balanceReading", (r) => ({
     accountId: String(r["accountId"]),
+    asOf: String(r["asOf"]),
     fetchedAt: String(r["fetchedAt"]),
     balance: Number(r["balance"]),
   }));
@@ -70,9 +71,9 @@ async function main(): Promise<void> {
     accounts: async () => accounts,
     readings: async (id) => readings.get(id) ?? [],
     movements: async (id) => movements.get(id) ?? [],
-    markDirty: (id, fetchedAt, discrepancy) =>
-      ledger.markBalanceReadingDirty(tenantId, id, fetchedAt, discrepancy),
-    clearDirty: (id, fetchedAt) => ledger.clearBalanceReadingDirty(tenantId, id, fetchedAt),
+    markDirty: (id, asOf, fetchedAt, discrepancy) =>
+      ledger.markBalanceReadingDirty(tenantId, id, asOf, fetchedAt, discrepancy),
+    clearDirty: (id, asOf, fetchedAt) => ledger.clearBalanceReadingDirty(tenantId, id, asOf, fetchedAt),
   });
 
   console.log(`\n${result.accounts} accounts, ${result.checked} checks, ${result.breaks} breaks`);

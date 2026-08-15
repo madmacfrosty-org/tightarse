@@ -161,3 +161,29 @@ describe("building the real dependencies", () => {
     expect(typeof realDeps().transform).toBe("function");
   });
 });
+
+describe("reporting how stale a balance was", () => {
+  it("emits the staleness for a balance object", async () => {
+    // Watched rather than assumed: the card balance endpoint documents
+    // update_timestamp not at all, so this is what would say if it stopped
+    // meaning what we take it to mean.
+    const { deps: d, lines } = deps(result({ dataset: "truelayer.card_balance", handler: "balance", rows: 1, staleness: 1920 }));
+    await processObject(d, event("k"));
+    const doc = metricsIn(lines).find((m) => "BalanceStalenessSeconds" in m);
+    expect(doc!["BalanceStalenessSeconds"]).toBe(1920);
+  });
+
+  it("emits zero rather than nothing when the provider gave no timestamp", async () => {
+    // No evidence of staleness is itself a data point, and a metric that only
+    // appears on stale readings cannot show that the rest were fresh.
+    const { deps: d, lines } = deps(result({ dataset: "truelayer.balance", handler: "balance", rows: 1, staleness: 0 }));
+    await processObject(d, event("k"));
+    expect(metricsIn(lines).find((m) => "BalanceStalenessSeconds" in m)!["BalanceStalenessSeconds"]).toBe(0);
+  });
+
+  it("emits nothing for an object that is not a balance", async () => {
+    const { deps: d, lines } = deps(result({ unanchored: { card: 0, account: 0 } }));
+    await processObject(d, event("k"));
+    expect(metricsIn(lines).some((m) => "BalanceStalenessSeconds" in m)).toBe(false);
+  });
+});

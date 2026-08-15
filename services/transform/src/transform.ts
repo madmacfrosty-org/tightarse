@@ -8,6 +8,7 @@ import {
   mapBalance,
   isCardDataset,
   balanceReadingOf,
+  stalenessSeconds,
   mapTransaction,
   type RawAccount,
   type RawBalance,
@@ -45,6 +46,14 @@ export interface TransformResult {
    * "nothing to count" and "counted nothing" stay distinguishable.
    */
   unanchored?: { card: number; account: number };
+  /**
+   * For a balance object, how far behind our request the provider's data was,
+   * in seconds. Absent for anything else.
+   *
+   * Zero when the provider sent no timestamp: no evidence of staleness rather
+   * than stale.
+   */
+  staleness?: number;
 }
 
 export interface TransformDeps {
@@ -150,10 +159,14 @@ export async function transformObject(deps: TransformDeps, key: string): Promise
       //
       // The raw zone already holds every fetch, so a replay rebuilds the whole
       // series from objects we have had all along.
-      await deps.ledger.putBalanceReading(
-        balanceReadingOf(raw, { tenantId, accountId, fetchedAt: env.fetchedAt, isCard: isCardDataset(dataset) }),
-      );
-      return { key, dataset, handler, rows: 1 };
+      const reading = balanceReadingOf(raw, {
+        tenantId,
+        accountId,
+        fetchedAt: env.fetchedAt,
+        isCard: isCardDataset(dataset),
+      });
+      await deps.ledger.putBalanceReading(reading);
+      return { key, dataset, handler, rows: 1, staleness: stalenessSeconds(reading) };
     }
 
     default:

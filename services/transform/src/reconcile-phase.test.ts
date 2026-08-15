@@ -11,8 +11,9 @@ import type { Movement, Reading } from "./reconcile";
  * take the mark back when a late transaction explains the break.
  */
 
-const reading = (accountId: string, fetchedAt: string, balance: number): Reading => ({
+const reading = (accountId: string, asOf: string, balance: number, fetchedAt = asOf): Reading => ({
   accountId,
+  asOf,
   fetchedAt,
   balance,
 });
@@ -34,11 +35,11 @@ function deps(
       accounts: async () => [{ accountId: "acc-1", isCard: false }],
       readings: async (id: string) => readings[id] ?? [],
       movements: async (id: string) => movements[id] ?? [],
-      markDirty: async (id: string, fetchedAt: string, discrepancy: number) => {
-        marked.push(`${id}|${fetchedAt}|${discrepancy}`);
+      markDirty: async (id: string, asOf: string, _fetchedAt: string, discrepancy: number) => {
+        marked.push(`${id}|${asOf}|${discrepancy}`);
       },
-      clearDirty: async (id: string, fetchedAt: string) => {
-        cleared.push(`${id}|${fetchedAt}`);
+      clearDirty: async (id: string, asOf: string) => {
+        cleared.push(`${id}|${asOf}`);
       },
       log: () => {},
       ...over,
@@ -168,7 +169,7 @@ describe("grouping a scan for reconciliation", () => {
   const rows = [
     { pk: "T#frost", sk: "ACCOUNT#acc-1", accountId: "acc-1", isCard: false },
     { pk: "T#frost", sk: "ACCOUNT#card-1", accountId: "card-1", isCard: true },
-    { pk: "T#frost#BAL#acc-1", sk: "2026-01-01T05:00:00.000Z", accountId: "acc-1", fetchedAt: "2026-01-01T05:00:00.000Z", balance: 100 },
+    { pk: "T#frost#BAL#acc-1", sk: "2026-01-01T05:00:00.000Z", accountId: "acc-1", asOf: "2026-01-01T05:00:00.000Z", fetchedAt: "2026-01-01T05:00:00.000Z", balance: 100 },
     { pk: "T#frost#TX", sk: "2026-01-02T00:00:00Z#TX#n:a", accountId: "acc-1", timestamp: "2026-01-02T00:00:00Z", amount: -50 },
     { pk: "T#frost#TX", sk: "2026-01-02T00:00:00Z#EN#n:a", accountId: "acc-1", category: "Groceries" },
     { pk: "T#frost", sk: "SETTINGS" },
@@ -201,8 +202,8 @@ describe("wiring a scan to the phase", () => {
   const rows = [
     { pk: "T#frost", sk: "ACCOUNT#acc-1", accountId: "acc-1", isCard: false },
     { pk: "T#frost", sk: "ACCOUNT#acc-2", accountId: "acc-2", isCard: false },
-    { pk: "T#frost#BAL#acc-1", sk: "a", accountId: "acc-1", fetchedAt: "2026-01-01T05:00:00.000Z", balance: 100_00 },
-    { pk: "T#frost#BAL#acc-1", sk: "b", accountId: "acc-1", fetchedAt: "2026-01-03T05:00:00.000Z", balance: 90_00 },
+    { pk: "T#frost#BAL#acc-1", sk: "a", accountId: "acc-1", asOf: "2026-01-01T05:00:00.000Z", fetchedAt: "2026-01-01T05:00:00.000Z", balance: 100_00 },
+    { pk: "T#frost#BAL#acc-1", sk: "b", accountId: "acc-1", asOf: "2026-01-03T05:00:00.000Z", fetchedAt: "2026-01-03T05:00:00.000Z", balance: 90_00 },
     { pk: "T#frost#TX", sk: "x#TX#1", accountId: "acc-1", timestamp: "2026-01-02T00:00:00Z", amount: -10_00 },
     { pk: "T#frost#TX", sk: "y#TX#2", accountId: "acc-2", timestamp: "2026-01-02T00:00:00Z", amount: -99_00 },
   ];
@@ -222,15 +223,17 @@ describe("wiring a scan to the phase", () => {
   it("passes the tenant through to the marking, not the account id", async () => {
     const broken = rows.map((r) => (r["sk"] === "b" ? { ...r, balance: 50_00 } : r));
     await runReconciliation({ ...phaseDepsFrom(broken, ledger, "frost"), log: () => {} });
-    expect(ledger.markBalanceReadingDirty).toHaveBeenCalledWith("frost", "acc-1", "2026-01-03T05:00:00.000Z", -40_00);
+    expect(ledger.markBalanceReadingDirty).toHaveBeenCalledWith(
+      "frost", "acc-1", "2026-01-03T05:00:00.000Z", "2026-01-03T05:00:00.000Z", -40_00,
+    );
   });
 });
 
 describe("the scheduled run, end to end against fakes", () => {
   const rows = [
     { pk: "T#frost", sk: "ACCOUNT#acc-1", accountId: "acc-1", isCard: false },
-    { pk: "T#frost#BAL#acc-1", sk: "a", accountId: "acc-1", fetchedAt: "2026-01-01T05:00:00.000Z", balance: 100_00 },
-    { pk: "T#frost#BAL#acc-1", sk: "b", accountId: "acc-1", fetchedAt: "2026-01-03T05:00:00.000Z", balance: 60_00 },
+    { pk: "T#frost#BAL#acc-1", sk: "a", accountId: "acc-1", asOf: "2026-01-01T05:00:00.000Z", fetchedAt: "2026-01-01T05:00:00.000Z", balance: 100_00 },
+    { pk: "T#frost#BAL#acc-1", sk: "b", accountId: "acc-1", asOf: "2026-01-03T05:00:00.000Z", fetchedAt: "2026-01-03T05:00:00.000Z", balance: 60_00 },
   ];
   const doc = { send: async () => ({ Items: rows }) } as never;
   const ledger = { markBalanceReadingDirty: vi.fn(async () => {}), clearBalanceReadingDirty: vi.fn(async () => {}) };
@@ -240,7 +243,9 @@ describe("the scheduled run, end to end against fakes", () => {
     const lines: string[] = [];
     const result = await reconcileFrom(doc, ledger, config, (l) => lines.push(l));
     expect(result.breaks).toBe(1);
-    expect(ledger.markBalanceReadingDirty).toHaveBeenCalledWith("frost", "acc-1", "2026-01-03T05:00:00.000Z", -40_00);
+    expect(ledger.markBalanceReadingDirty).toHaveBeenCalledWith(
+      "frost", "acc-1", "2026-01-03T05:00:00.000Z", "2026-01-03T05:00:00.000Z", -40_00,
+    );
   });
 
   it("emits under the deployment, not the TrueLayer environment", async () => {
@@ -267,8 +272,8 @@ describe("reporting with no writer supplied", () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
     const rows = [
       { pk: "T#frost", sk: "ACCOUNT#acc-1", accountId: "acc-1", isCard: false },
-      { pk: "T#frost#BAL#acc-1", sk: "a", accountId: "acc-1", fetchedAt: "2026-01-01T05:00:00.000Z", balance: 100 },
-      { pk: "T#frost#BAL#acc-1", sk: "b", accountId: "acc-1", fetchedAt: "2026-01-03T05:00:00.000Z", balance: 100 },
+      { pk: "T#frost#BAL#acc-1", sk: "a", accountId: "acc-1", asOf: "2026-01-01T05:00:00.000Z", fetchedAt: "2026-01-01T05:00:00.000Z", balance: 100 },
+      { pk: "T#frost#BAL#acc-1", sk: "b", accountId: "acc-1", asOf: "2026-01-03T05:00:00.000Z", fetchedAt: "2026-01-03T05:00:00.000Z", balance: 100 },
     ];
     const ledger = { markBalanceReadingDirty: async () => {}, clearBalanceReadingDirty: async () => {} };
     const result = await reconcileFrom({ send: async () => ({ Items: rows }) } as never, ledger, {

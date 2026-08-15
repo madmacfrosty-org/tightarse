@@ -435,7 +435,7 @@ export class Ledger {
    * transform relies on, and what lets a replay rebuild the whole series.
    */
   async putBalanceReading(reading: BalanceReading): Promise<void> {
-    const { pk, sk } = keys.balanceReading(reading.tenantId, reading.accountId, reading.fetchedAt);
+    const { pk, sk } = keys.balanceReading(reading.tenantId, reading.accountId, reading.asOf, reading.fetchedAt);
     await this.doc.send(
       new PutCommand({ TableName: this.table, Item: { pk, sk, kind: "BALANCE", ...reading } }),
     );
@@ -451,10 +451,11 @@ export class Ledger {
   async markBalanceReadingDirty(
     tenantId: string,
     accountId: string,
+    asOf: string,
     fetchedAt: string,
     discrepancy: number,
   ): Promise<void> {
-    const { pk, sk } = keys.balanceReading(tenantId, accountId, fetchedAt);
+    const { pk, sk } = keys.balanceReading(tenantId, accountId, asOf, fetchedAt);
     await this.doc.send(
       new UpdateCommand({
         TableName: this.table,
@@ -476,8 +477,13 @@ export class Ledger {
    * by a late transaction has to be able to stop being one. Without this, marks
    * would only ever accumulate.
    */
-  async clearBalanceReadingDirty(tenantId: string, accountId: string, fetchedAt: string): Promise<void> {
-    const { pk, sk } = keys.balanceReading(tenantId, accountId, fetchedAt);
+  async clearBalanceReadingDirty(
+    tenantId: string,
+    accountId: string,
+    asOf: string,
+    fetchedAt: string,
+  ): Promise<void> {
+    const { pk, sk } = keys.balanceReading(tenantId, accountId, asOf, fetchedAt);
     await this.doc.send(
       new UpdateCommand({
         TableName: this.table,
@@ -489,12 +495,12 @@ export class Ledger {
     );
   }
 
-  /** Every balance reading for an account, oldest first. */
+  /** Every balance reading for an account, ordered by when the balance was true. */
   async listBalanceReadings(tenantId: string, accountId: string): Promise<Record<string, unknown>[]> {
     return this.queryAll({
       TableName: this.table,
       KeyConditionExpression: "pk = :pk",
-      ExpressionAttributeValues: { ":pk": keys.balanceReading(tenantId, accountId, "").pk },
+      ExpressionAttributeValues: { ":pk": keys.balanceReading(tenantId, accountId, "", "").pk },
     });
   }
 

@@ -22,9 +22,14 @@ export interface ReconcilePhaseDeps {
   readonly readings: (accountId: string) => Promise<readonly Reading[]>;
   readonly movements: (accountId: string) => Promise<readonly Movement[]>;
   /** Flag a reading that did not add up, and how far off it was. */
-  readonly markDirty: (accountId: string, fetchedAt: string, discrepancy: number) => Promise<void>;
+  readonly markDirty: (
+    accountId: string,
+    asOf: string,
+    fetchedAt: string,
+    discrepancy: number,
+  ) => Promise<void>;
   /** Clear a mark on a reading that now reconciles. */
-  readonly clearDirty: (accountId: string, fetchedAt: string) => Promise<void>;
+  readonly clearDirty: (accountId: string, asOf: string, fetchedAt: string) => Promise<void>;
   readonly log?: ((line: string) => void) | undefined;
 }
 
@@ -48,14 +53,15 @@ export async function runReconciliation(deps: ReconcilePhaseDeps): Promise<Recon
     const result = reconcileAccount(account.accountId, readings, movements);
     results.push({ result, isCard: account.isCard });
 
-    const broken = new Map(result.breaks.map((b) => [b.fetchedAt, b.discrepancy]));
+    // Keyed on both halves, because that is what identifies the row.
+    const broken = new Map(result.breaks.map((b) => [`${b.asOf}#${b.fetchedAt}`, b.discrepancy]));
     for (const r of readings) {
-      const discrepancy = broken.get(r.fetchedAt);
-      if (discrepancy !== undefined) await deps.markDirty(account.accountId, r.fetchedAt, discrepancy);
+      const discrepancy = broken.get(`${r.asOf}#${r.fetchedAt}`);
+      if (discrepancy !== undefined) await deps.markDirty(account.accountId, r.asOf, r.fetchedAt, discrepancy);
       // Cleared unconditionally rather than only where a mark exists: this
       // phase must be able to undo itself when a late transaction explains an
       // earlier break, and it does not track what it marked last time.
-      else await deps.clearDirty(account.accountId, r.fetchedAt);
+      else await deps.clearDirty(account.accountId, r.asOf, r.fetchedAt);
     }
 
     // Counts only. An amount here would be a balance, and a balance is as

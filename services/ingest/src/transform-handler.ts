@@ -101,6 +101,27 @@ export async function processObject(
   // Only for settled transactions: `unanchored` is absent for every other kind
   // of object, and emitting a zero for those would drown the signal in objects
   // that could never have carried a running balance.
+  // How far behind our request the provider's data was. Zero for accounts in
+  // all 22 real readings measured; up to 32 minutes for cards in 8 of 23.
+  //
+  // Watched rather than assumed, because the card balance endpoint documents
+  // `update_timestamp` not at all — the OpenAPI definition gives it a datatype
+  // and no meaning. If some provider uses it for something else, such as a
+  // statement date, this is what says so before a reading lands on the wrong
+  // day and takes a whole day's transactions with it.
+  if (result.staleness !== undefined) {
+    emit(
+      {
+        namespace: "Tightarse",
+        environment: deps.environment,
+        metrics: { BalanceStalenessSeconds: result.staleness },
+        units: { BalanceStalenessSeconds: "Seconds" },
+        properties: { dataset: result.dataset },
+      },
+      write,
+    );
+  }
+
   if (result.unanchored) {
     emit(
       {

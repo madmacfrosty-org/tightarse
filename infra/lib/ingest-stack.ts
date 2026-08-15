@@ -449,6 +449,32 @@ export class IngestStack extends cdk.Stack {
     });
     unanchored.addAlarmAction(alarmAction);
 
+    // The provider's data being far older than the request that fetched it.
+    //
+    // Measured before this threshold was chosen: accounts fresh in all 22 real
+    // readings, cards stale in 8 of 23 with a worst case of 32 minutes. So
+    // caching of tens of minutes is normal and must not alarm.
+    //
+    // A day is well beyond anything observed, and it is the point at which the
+    // reading would land on the wrong day and take a whole day's transactions
+    // to the wrong side of a reconciliation window. It also catches the real
+    // risk: the card balance endpoint documents `update_timestamp` not at all,
+    // so if some provider uses it for a statement date instead, this fires
+    // rather than the ledger quietly reconciling against the wrong day.
+    const stale = new cloudwatch.Alarm(this, "BalanceStale", {
+      alarmName: `tightarse-${settings.name}-balance-stale`,
+      alarmDescription:
+        "A balance arrived describing a moment more than a day before we asked. Normal " +
+        "caching is tens of minutes; a day suggests update_timestamp does not mean what " +
+        "we take it to mean. See #33.",
+      metric: metric("BalanceStalenessSeconds", "Maximum"),
+      threshold: 86_400,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    stale.addAlarmAction(alarmAction);
+
     // The bank's arithmetic against ours:
     //
     //   balance(newest reading) - balance(oldest) == sum of amounts between

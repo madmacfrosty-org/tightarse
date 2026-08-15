@@ -139,14 +139,36 @@ export function balanceReadingOf(
 ): BalanceReading {
   const mapped = mapBalance(raw);
   const sign = (v: number) => (ctx.isCard ? -v : v);
+  // Kept exactly as sent, including absent. Inventing one would make a stale
+  // card balance indistinguishable from a fresh account one.
+  const providerUpdatedAt = raw.update_timestamp;
   return {
     tenantId: ctx.tenantId,
     accountId: ctx.accountId,
     fetchedAt: ctx.fetchedAt,
+    ...(providerUpdatedAt ? { providerUpdatedAt } : {}),
+    // The provider's own timestamp where it gave one, ours otherwise. Always
+    // present, because a reconciliation cannot be written against a field that
+    // might not be there.
+    asOf: providerUpdatedAt ?? ctx.fetchedAt,
     balance: sign(mapped.current ?? 0),
     ...(mapped.available !== undefined ? { available: sign(mapped.available) } : {}),
     currency: raw.currency,
   };
+}
+
+/**
+ * How far behind our request the provider's data was, in seconds.
+ *
+ * Zero when it gave no timestamp, so a provider that omits it reads as "no
+ * evidence of staleness" rather than as stale. Never negative in 45 real
+ * responses — data is not newer than the request that fetched it — but clamped
+ * anyway, because a clock that disagrees should not produce a negative age.
+ */
+export function stalenessSeconds(reading: Pick<BalanceReading, "fetchedAt" | "providerUpdatedAt">): number {
+  if (!reading.providerUpdatedAt) return 0;
+  const behind = Date.parse(reading.fetchedAt) - Date.parse(reading.providerUpdatedAt);
+  return Math.max(0, Math.round(behind / 1000));
 }
 
 /**
