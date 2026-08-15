@@ -273,6 +273,9 @@ export class IngestStack extends cdk.Stack {
       environment: {
         RAW_BUCKET: rawBucket.bucketName,
         TABLE_NAME: table.tableName,
+        // Dimensions the metrics this function emits. Without it every metric
+        // lands under "dev" and prod's alarms watch the wrong data.
+        ENVIRONMENT: settings.name,
       },
       logGroup: new logs.LogGroup(this, "TransformLogs", {
         retention: settings.name === "prod" ? logs.RetentionDays.ONE_YEAR : logs.RetentionDays.ONE_WEEK,
@@ -371,6 +374,45 @@ export class IngestStack extends cdk.Stack {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
     itemsFailed.addAlarmAction(alarmAction);
+
+    // A settled transaction with no running balance is a gap in the balance
+    // series, and the series is the point — a balance endpoint returns a
+    // snapshot and cannot say how the position moved.
+    //
+    // A threshold of zero, like ItemsFailed and unlike TransactionsFetched:
+    // this is unambiguous rather than a pattern to be learned. We believe it
+    // will never fire. That belief is exactly what is being tested, and finding
+    // out from an alarm beats finding out from a wrong number on a dashboard.
+    //
+    // Two alarms rather than one on the sum, because the open question is
+    // whether cards behave differently from accounts — TrueLayer marks
+    // running_balance optional on both endpoints and documents no rule for when
+    // it is present, so which of ours omit it is a matter of observation. A
+    // single total would say something is wrong without saying where.
+    //
+    // Reconstruction is deliberately not the response: see #30. Recovering a
+    // missing balance means anchoring somewhere and recomputing across every
+    // transaction in order, and only the bank can do that correctly because
+    // only the bank knows the true order.
+    for (const [id, metricName, what] of [
+      ["UnanchoredCardTransactions", "UnanchoredCardTransactions", "card"],
+      ["UnanchoredAccountTransactions", "UnanchoredAccountTransactions", "account"],
+    ] as const) {
+      const alarm = new cloudwatch.Alarm(this, id, {
+        alarmName: `tightarse-${settings.name}-unanchored-${what}-transactions`,
+        alarmDescription:
+          `A settled ${what} transaction arrived with no running balance, so the balance ` +
+          `series has a gap. See #30 — do not reconstruct.`,
+        metric: metric(metricName),
+        threshold: 0,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+        evaluationPeriods: 1,
+        // Nothing emitted means no settled transactions were transformed, which
+        // is normal on a quiet day and must not read as a breach.
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      });
+      alarm.addAlarmAction(alarmAction);
+    }
 
     // Reconfirmation needs a person at a browser, so the warning has to arrive
     // with time to act rather than on the day access stops.

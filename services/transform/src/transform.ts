@@ -28,6 +28,22 @@ export interface TransformResult {
   dataset: string;
   handler: string;
   rows: number;
+  /**
+   * Settled transactions in this object that arrived with no running balance.
+   *
+   * The running balance on each transaction is the primary balance data — a
+   * balance endpoint is a point-in-time snapshot and cannot say how the
+   * position moved. So a settled row without one is a gap in the series, and
+   * this is what makes that observable. See #30.
+   *
+   * Counted for settled rows only. Pending transactions carry no running
+   * balance by nature: there is no settled position to report yet, and TrueLayer
+   * returns them on a separate endpoint.
+   *
+   * Absent rather than zero for objects that are not settled transactions, so
+   * "nothing to count" and "counted nothing" stay distinguishable.
+   */
+  unanchored?: { card: number; account: number };
 }
 
 export interface TransformDeps {
@@ -66,11 +82,24 @@ export async function transformObject(deps: TransformDeps, key: string): Promise
   switch (handler) {
     case "settled": {
       if (!accountId) throw new Error(`Transactions with no account in the key: ${key}`);
-      const txns = (results as RawTransaction[]).map((r) =>
-        mapTransaction(r, { tenantId, accountId, status: "settled" }),
-      );
+      const raw = results as RawTransaction[];
+      const txns = raw.map((r) => mapTransaction(r, { tenantId, accountId, status: "settled" }));
       await deps.ledger.putTransactions(txns, { sourceObject: key });
-      return { key, dataset, handler, rows: txns.length };
+
+      // Split by card, because that is the question we could not answer from
+      // the provider's documentation: it marks running_balance optional on both
+      // endpoints and documents no rule for when it is present. Which of our
+      // accounts actually omit it is a matter of observation, and a total would
+      // not say whether Amex is the one behaving differently.
+      const missing = raw.filter((r) => r.running_balance === undefined).length;
+      const isCard = isCardDataset(dataset);
+      return {
+        key,
+        dataset,
+        handler,
+        rows: txns.length,
+        unanchored: { card: isCard ? missing : 0, account: isCard ? 0 : missing },
+      };
     }
 
     case "pending": {

@@ -118,6 +118,48 @@ describe("monitoring", () => {
     });
   });
 
+  it.each([
+    ["UnanchoredCardTransactions", "card"],
+    ["UnanchoredAccountTransactions", "account"],
+  ])("alarms on %s, so a gap in the balance series is noticed", (metricName) => {
+    // The running balance on each transaction is the primary balance data — a
+    // balance endpoint is a snapshot and cannot say how the position moved. A
+    // settled row without one is a gap in that series.
+    //
+    // Threshold of zero because this is unambiguous rather than a pattern, and
+    // because we believe it will never fire. That belief is what the alarm is
+    // testing. See #30 — the response is to observe, never to reconstruct.
+    ingest.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      MetricName: metricName,
+      Namespace: "Tightarse",
+      Threshold: 0,
+      ComparisonOperator: "GreaterThanThreshold",
+      TreatMissingData: "notBreaching",
+    });
+  });
+
+  it("sends the unanchored alarms somewhere a person will see", () => {
+    // An alarm with no action is a light nobody is looking at. This project's
+    // recurring failure is infrastructure that deploys perfectly and does
+    // nothing, so the wiring is asserted rather than assumed.
+    const alarms = ingest.findResources("AWS::CloudWatch::Alarm");
+    const unanchored = Object.values(alarms).filter((a: any) =>
+      String(a.Properties?.MetricName ?? "").startsWith("Unanchored"),
+    );
+    expect(unanchored).toHaveLength(2);
+    for (const alarm of unanchored) {
+      expect((alarm as any).Properties.AlarmActions?.length ?? 0).toBeGreaterThan(0);
+    }
+  });
+
+  it("dimensions the transform function's metrics with the environment", () => {
+    // emit() defaults to "dev" when ENVIRONMENT is unset, so without this every
+    // metric prod produces lands under dev and prod's alarms watch dev's data.
+    const fns = ingest.findResources("AWS::Lambda::Function");
+    const [, transform] = Object.entries(fns).find(([id]) => id.startsWith("Transform")) as [string, any];
+    expect(transform.Properties.Environment.Variables.ENVIRONMENT).toBe("dev");
+  });
+
   it("alarms before a consent lapses, not on the day", () => {
     ingest.hasResourceProperties("AWS::CloudWatch::Alarm", {
       MetricName: "ConsentDaysRemaining",

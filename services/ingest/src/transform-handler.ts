@@ -1,6 +1,7 @@
 import { S3Client } from "@aws-sdk/client-s3";
 import { Ledger } from "@tightarse/ledger";
-import { transformObject } from "@tightarse/transform";
+import { emit } from "@tightarse/metrics";
+import { transformObject, type TransformResult } from "@tightarse/transform";
 
 /**
  * EventBridge handler: one raw object in, ledger rows out.
@@ -14,22 +15,119 @@ import { transformObject } from "@tightarse/transform";
  * can target one dataset. Every write is idempotent, so a retry is harmless.
  */
 
-const s3 = new S3Client({});
-const bucket = process.env["RAW_BUCKET"] ?? "";
-const ledger = new Ledger({
-  tableName: process.env["TABLE_NAME"] ?? "",
-  region: process.env["AWS_REGION"] ?? "eu-west-1",
-});
-
-interface ObjectCreated {
+export interface ObjectCreated {
   detail: { object: { key: string } };
 }
 
+/**
+ * Everything this handler reaches outside itself.
+ *
+ * `transform` is a function rather than the clients behind it, because what
+ * matters at this seam is what gets reported about the result rather than how
+ * the object was read.
+ */
+export interface TransformHandlerDeps {
+  readonly transform: (key: string) => Promise<TransformResult>;
+  /** Dimensions the metrics: the deployment, "dev" or "prod". */
+  readonly environment: string;
+  readonly log?: ((line: string) => void) | undefined;
+}
+
+/**
+ * Built by the entry point below, and by nothing a test runs.
+ *
+ * ENVIRONMENT is the deployment, which is what the alarms in
+ * `infra/lib/ingest-stack.ts` dimension on. Deliberately not the TrueLayer
+ * environment — a metric emitted under "live" is invisible to an alarm watching
+ * "dev".
+ */
+export interface HandlerConfig {
+  readonly bucket: string;
+  readonly tableName: string;
+  readonly region: string;
+  readonly environment: string;
+}
+
+/**
+ * Everything read from the environment, in one place that takes `env` as an
+ * argument.
+ *
+ * Separate so both sides of each fallback are testable. Inline, they were only
+ * ever exercised on whichever side the running machine happened to be on —
+ * AWS_REGION is set in CI and unset on a laptop — so branch coverage differed
+ * between the two and a threshold raised locally failed the build in CI.
+ */
+export function handlerConfig(env: NodeJS.ProcessEnv): HandlerConfig {
+  return {
+    bucket: env["RAW_BUCKET"] ?? "",
+    tableName: env["TABLE_NAME"] ?? "",
+    region: env["AWS_REGION"] ?? "eu-west-1",
+    environment: env["ENVIRONMENT"] ?? "dev",
+  };
+}
+
+export function realDeps(): TransformHandlerDeps {
+  const config = handlerConfig(process.env);
+  const s3 = new S3Client({});
+  const ledger = new Ledger({ tableName: config.tableName, region: config.region });
+  return {
+    transform: (key: string) => transformObject({ s3, ledger, bucket: config.bucket }, key),
+    environment: config.environment,
+  };
+}
+
+/**
+ * EventBridge delivers the key URL-encoded, and ours contain '=' and can
+ * contain characters that only survive a round trip once decoded.
+ */
+export function keyFromEvent(event: ObjectCreated): string {
+  return decodeURIComponent(event.detail.object.key.replace(/\+/g, " "));
+}
+
+export async function processObject(
+  deps: TransformHandlerDeps,
+  event: ObjectCreated,
+): Promise<TransformResult> {
+  const result = await deps.transform(keyFromEvent(event));
+  const write = deps.log ?? console.log;
+
+  // Counts only — a transaction body must never reach CloudWatch. A description
+  // is a merchant, a person's name, or an employer.
+  write(JSON.stringify({ dataset: result.dataset, handler: result.handler, rows: result.rows }));
+
+  // Reported here rather than inside transformObject, so the transform stays a
+  // function that returns what happened and the entry point does the telling.
+  //
+  // Only for settled transactions: `unanchored` is absent for every other kind
+  // of object, and emitting a zero for those would drown the signal in objects
+  // that could never have carried a running balance.
+  if (result.unanchored) {
+    emit(
+      {
+        namespace: "Tightarse",
+        environment: deps.environment,
+        metrics: {
+          UnanchoredCardTransactions: result.unanchored.card,
+          UnanchoredAccountTransactions: result.unanchored.account,
+        },
+        properties: { dataset: result.dataset },
+      },
+      write,
+    );
+  }
+
+  return result;
+}
+
+/**
+ * Lambda entry point, and the only place a client is constructed.
+ *
+ * Memoised, because these were built at module scope and a warm container
+ * reused them.
+ */
+let cached: TransformHandlerDeps | undefined;
+
 export async function handler(event: ObjectCreated): Promise<void> {
-  // EventBridge delivers the key URL-encoded, and ours contain '=' and can
-  // contain characters that only survive a round trip once decoded.
-  const key = decodeURIComponent(event.detail.object.key.replace(/\+/g, " "));
-  const result = await transformObject({ s3, ledger, bucket }, key);
-  // Counts only — a transaction body must never reach CloudWatch.
-  console.log(JSON.stringify({ dataset: result.dataset, handler: result.handler, rows: result.rows }));
+  cached ??= realDeps();
+  await processObject(cached, event);
 }
