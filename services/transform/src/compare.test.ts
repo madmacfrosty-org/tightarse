@@ -230,3 +230,14 @@ describe("differences that only say when a row was written", () => {
     expect(compareRows(rows, changed).differingByAttribute).toEqual({ amount: 5, currency: 5 });
   });
 });
+
+describe("balance readings in a comparison", () => {
+  it("recognises one and compares it, because a replay produces them", () => {
+    // They are transform output, rebuilt from the raw zone like everything
+    // else. Leaving them out would mean a replay silently stopped being a
+    // complete rebuild.
+    const reading = { pk: "T#frost#BAL#acc-1", sk: "2026-03-15T05:00:00.000Z", balance: 1234 };
+    expect(rowKind(reading)).toBe("balanceReading");
+    expect(isTransformProduced(reading)).toBe(true);
+  });
+});

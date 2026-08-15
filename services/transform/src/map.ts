@@ -3,6 +3,7 @@ import {
   type Account,
   type Transaction,
   type TransactionStatus,
+  type BalanceReading,
 } from "@tightarse/schema";
 
 /**
@@ -121,6 +122,30 @@ export function mapTransaction(
     ...(raw.running_balance ? { runningBalance: runningBalanceOf(raw, ctx.isCard ?? false) } : {}),
     ...(raw.transaction_category ? { providerCategory: raw.transaction_category } : {}),
     ...(classification ? { providerClassification: classification } : {}),
+  };
+}
+
+/**
+ * One balance reading, in the household's convention.
+ *
+ * Negated for a card, for the same reason `runningBalance` is: the provider
+ * reports a card from the issuer's point of view, so a positive figure there is
+ * money owed. Normalising here means a reconciliation can subtract two readings
+ * without asking what kind of account they came from.
+ */
+export function balanceReadingOf(
+  raw: RawBalance,
+  ctx: { tenantId: string; accountId: string; fetchedAt: string; isCard: boolean },
+): BalanceReading {
+  const mapped = mapBalance(raw);
+  const sign = (v: number) => (ctx.isCard ? -v : v);
+  return {
+    tenantId: ctx.tenantId,
+    accountId: ctx.accountId,
+    fetchedAt: ctx.fetchedAt,
+    balance: sign(mapped.current ?? 0),
+    ...(mapped.available !== undefined ? { available: sign(mapped.available) } : {}),
+    currency: raw.currency,
   };
 }
 

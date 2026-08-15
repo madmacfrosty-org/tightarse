@@ -54,6 +54,7 @@ export function rowKind(row: Row): string {
   if (sk === "RULES") return "rules";
   if (sk === "MEMBER") return "member";
   if (pk.includes("#PEND#")) return "pending";
+  if (pk.includes("#BAL#")) return "balanceReading";
   // Transactions and enrichments share a partition and differ by a marker in
   // the sort key: <timestamp>#TX#<dedup> against <timestamp>#EN#<dedup>.
   if (pk.endsWith("#TX") && sk.includes("#TX#")) return "transaction";
@@ -62,7 +63,7 @@ export function rowKind(row: Row): string {
 }
 
 /** The kinds a replay can produce, and therefore the only ones worth comparing. */
-export const TRANSFORM_PRODUCED = ["transaction", "account", "pending"] as const;
+export const TRANSFORM_PRODUCED = ["transaction", "account", "pending", "balanceReading"] as const;
 
 export function isTransformProduced(row: Row): boolean {
   return (TRANSFORM_PRODUCED as readonly string[]).includes(rowKind(row));

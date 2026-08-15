@@ -43,8 +43,9 @@ function fakeLedger() {
   const transactions = new Map<string, unknown>();
   const accounts = new Map<string, Record<string, unknown>>();
   const pending = new Map<string, unknown[]>();
+  const readings = new Map<string, unknown>();
   return {
-    state: { transactions, accounts, pending },
+    state: { transactions, accounts, pending, readings },
     ledger: {
       putTransactions: async (rows: Array<Record<string, unknown>>) => {
         for (const r of rows) transactions.set(String(r["dedupKey"] ?? r["transactionId"]), r);
@@ -68,6 +69,9 @@ function fakeLedger() {
       },
       replacePending: async (_t: string, accountId: string, rows: unknown[]) => {
         pending.set(accountId, rows);
+      },
+      putBalanceReading: async (r: Record<string, unknown>) => {
+        readings.set(`${String(r["accountId"])}|${String(r["fetchedAt"])}`, r);
       },
     },
   };

@@ -7,6 +7,7 @@ import {
   mapAccount,
   mapBalance,
   isCardDataset,
+  balanceReadingOf,
   mapTransaction,
   type RawAccount,
   type RawBalance,
@@ -139,6 +140,19 @@ export async function transformObject(deps: TransformDeps, key: string): Promise
         ...mapBalance(raw),
         currency: raw.currency,
       });
+
+      // And keep the reading, rather than only the latest figure.
+      //
+      // putBalances overwrites, so the ledger held exactly one balance per
+      // account and there was nothing to reconcile against. Reconciliation
+      // needs two readings and the transactions between them, which is the only
+      // check that covers cards — they carry no running balance at all.
+      //
+      // The raw zone already holds every fetch, so a replay rebuilds the whole
+      // series from objects we have had all along.
+      await deps.ledger.putBalanceReading(
+        balanceReadingOf(raw, { tenantId, accountId, fetchedAt: env.fetchedAt, isCard: isCardDataset(dataset) }),
+      );
       return { key, dataset, handler, rows: 1 };
     }
 

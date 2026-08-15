@@ -21,6 +21,7 @@ import {
   type TenantSettings,
   type CustomRule,
   type Member,
+  type BalanceReading,
 } from "@tightarse/schema";
 import { accountItem, consentItem, enrichmentItem, pendingItem, transactionItem } from "./items";
 
@@ -424,6 +425,29 @@ export class Ledger {
     const enriched = new Set(enrichments.map((e) => String(e["dedupKey"])));
     const outstanding = transactions.filter((t) => !enriched.has(String(t["dedupKey"])));
     return limit === undefined ? outstanding : outstanding.slice(0, limit);
+  }
+
+  /**
+   * Record one balance reading, keeping every previous one.
+   *
+   * A plain put keyed by fetch time, so re-transforming the same raw object
+   * converges rather than duplicating — the same property the rest of the
+   * transform relies on, and what lets a replay rebuild the whole series.
+   */
+  async putBalanceReading(reading: BalanceReading): Promise<void> {
+    const { pk, sk } = keys.balanceReading(reading.tenantId, reading.accountId, reading.fetchedAt);
+    await this.doc.send(
+      new PutCommand({ TableName: this.table, Item: { pk, sk, kind: "BALANCE", ...reading } }),
+    );
+  }
+
+  /** Every balance reading for an account, oldest first. */
+  async listBalanceReadings(tenantId: string, accountId: string): Promise<Record<string, unknown>[]> {
+    return this.queryAll({
+      TableName: this.table,
+      KeyConditionExpression: "pk = :pk",
+      ExpressionAttributeValues: { ":pk": keys.balanceReading(tenantId, accountId, "").pk },
+    });
   }
 
   async listPending(tenantId: string, accountId: string): Promise<Record<string, unknown>[]> {

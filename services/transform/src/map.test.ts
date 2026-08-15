@@ -6,6 +6,7 @@ import {
   handlerFor,
   isCardDataset,
   type RawTransaction,
+  balanceReadingOf,
 } from "./map.js";
 
 type Overrides<T> = { [K in keyof T]?: undefined extends T[K] ? T[K] | undefined : T[K] };
@@ -358,5 +359,43 @@ describe("card-ness must never reach the amount", () => {
     });
     expect(asCard.amount).toBe(expected);
     expect(asAccount.amount).toBe(expected);
+  });
+});
+
+describe("a balance reading, kept as a series", () => {
+  const raw = (current: number, available?: number) => ({
+    currency: "GBP",
+    current,
+    ...(available !== undefined ? { available } : {}),
+  });
+  const ctx = { tenantId: "frost", accountId: "acc-1", fetchedAt: "2026-03-15T05:00:00.000Z" };
+
+  it("records an account balance as the provider reports it", () => {
+    const r = balanceReadingOf(raw(1234.56) as never, { ...ctx, isCard: false });
+    expect(r).toMatchObject({ balance: 123_456, currency: "GBP", fetchedAt: ctx.fetchedAt });
+  });
+
+  it("negates a card balance, because positive there means owed", () => {
+    // Same inversion as amount and runningBalance. Normalising here means a
+    // reconciliation can subtract two readings without asking what kind of
+    // account they came from.
+    const r = balanceReadingOf(raw(567.9) as never, { ...ctx, isCard: true });
+    expect(r.balance).toBe(-56_790);
+  });
+
+  it("negates the available figure too, so the pair stay consistent", () => {
+    const r = balanceReadingOf(raw(100, 250) as never, { ...ctx, isCard: true });
+    expect(r).toMatchObject({ balance: -10_000, available: -25_000 });
+  });
+
+  it("omits available when the provider does not report one, as Amex does not", () => {
+    const r = balanceReadingOf(raw(100) as never, { ...ctx, isCard: true });
+    expect(r).not.toHaveProperty("available");
+  });
+
+  it("keeps the fetch time, which is what makes it a series", () => {
+    // Without it there is one balance per account and nothing to reconcile
+    // against — which is the state this replaces.
+    expect(balanceReadingOf(raw(1) as never, { ...ctx, isCard: false }).fetchedAt).toBe(ctx.fetchedAt);
   });
 });

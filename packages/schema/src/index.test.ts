@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { toMinorUnits, minorUnitExponent, assertSingleCurrency, dedupKey, keys, RowKind } from "./index";
+import { toMinorUnits, minorUnitExponent, assertSingleCurrency, dedupKey, keys, RowKind,
+  BalanceReading,
+} from "./index";
 
 describe("toMinorUnits", () => {
   it("handles the float representations that lose a penny under truncation", () => {
@@ -132,5 +134,68 @@ describe("assertSingleCurrency", () => {
   it("passes a uniform set through and reports the currency", () => {
     expect(assertSingleCurrency([{ currency: "GBP" }, { currency: "GBP" }])).toBe("GBP");
     expect(assertSingleCurrency([])).toBeNull();
+  });
+});
+
+describe("balance readings", () => {
+  it("keys one row per fetch, in its own partition per account", () => {
+    // Its own partition so reading a series is one query, and so it cannot
+    // collide with the account row it describes.
+    expect(keys.balanceReading("frost", "acc-1", "2026-03-15T05:00:00.000Z")).toEqual({
+      pk: "T#frost#BAL#acc-1",
+      sk: "2026-03-15T05:00:00.000Z",
+    });
+  });
+
+  it("sorts readings oldest first, because the sort key is the fetch time", () => {
+    // Reconciliation walks consecutive readings, so their order has to come
+    // from the key rather than from sorting after the fact.
+    const at = (t: string) => keys.balanceReading("frost", "acc-1", t).sk;
+    const stamps = [at("2026-03-15T05:00:00.000Z"), at("2026-01-02T05:00:00.000Z"), at("2026-02-01T05:00:00.000Z")];
+    expect([...stamps].sort()).toEqual([stamps[1], stamps[2], stamps[0]]);
+  });
+
+  it("accepts a negative balance, which is how money owed is written", () => {
+    // A card's reading is negated on the way in, and a current account can be
+    // overdrawn. Both are negative and both are valid.
+    const parsed = BalanceReading.parse({
+      tenantId: "frost",
+      accountId: "card-1",
+      fetchedAt: "2026-03-15T05:00:00.000Z",
+      balance: -56_790,
+      currency: "GBP",
+    });
+    expect(parsed.balance).toBe(-56_790);
+  });
+
+  it("allows a reading with no available figure, as Amex reports none", () => {
+    const parsed = BalanceReading.parse({
+      tenantId: "frost",
+      accountId: "card-1",
+      fetchedAt: "2026-03-15T05:00:00.000Z",
+      balance: -100,
+      currency: "GBP",
+    });
+    expect(parsed).not.toHaveProperty("available");
+  });
+
+  it("carries a dirty flag and how far off it was", () => {
+    // The number is kept and marked rather than hidden or corrected. Anything
+    // derived from a dirty reading is dirty too.
+    const parsed = BalanceReading.parse({
+      tenantId: "frost",
+      accountId: "acc-1",
+      fetchedAt: "2026-03-15T05:00:00.000Z",
+      balance: 100,
+      currency: "GBP",
+      dirty: true,
+      discrepancy: -250,
+    });
+    expect(parsed).toMatchObject({ dirty: true, discrepancy: -250 });
+  });
+
+  it("refuses a reading with no fetch time, which would not be a series", () => {
+    const without = { tenantId: "frost", accountId: "acc-1", balance: 1, currency: "GBP" };
+    expect(BalanceReading.safeParse(without).success).toBe(false);
   });
 });

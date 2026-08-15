@@ -51,7 +51,13 @@ function deps(results: unknown[]): { deps: TransformDeps; putTransactions: Retur
           Body: { transformToByteArray: async () => new TextEncoder().encode(JSON.stringify(envelope)) },
         }),
       },
-      ledger: { putTransactions, replacePending: vi.fn(async () => {}), putAccount: vi.fn(async () => {}), putBalances: vi.fn(async () => {}) },
+      ledger: {
+        putTransactions,
+        replacePending: vi.fn(async () => {}),
+        putAccount: vi.fn(async () => {}),
+        putBalances: vi.fn(async () => {}),
+        putBalanceReading: vi.fn(async () => {}),
+      },
     } as unknown as TransformDeps,
   };
 }
@@ -171,6 +177,23 @@ describe("routing a raw object to the right handler", () => {
     expect(r.handler).toBe("accounts");
     expect(putAccount).toHaveBeenCalledTimes(1);
     expect(putAccount.mock.calls[0]![0]).toMatchObject({ isCard: true });
+  });
+
+  it("keeps the balance reading as well as the latest figure", async () => {
+    // putBalances overwrites, so the ledger held one balance per account and
+    // there was nothing to reconcile against. The reading is what makes a
+    // series, and it is the only check that covers cards.
+    const putBalanceReading = vi.fn(async (_r: unknown) => {});
+    const d = deps([{ current: 181.44, available: 556.15, currency: "GBP" }]);
+    (d.deps as any).ledger.putBalanceReading = putBalanceReading;
+    await transformObject(d.deps, keyFor("truelayer.card_balance"));
+    expect(putBalanceReading).toHaveBeenCalledTimes(1);
+    // Negated, because a positive card balance is money owed.
+    expect(putBalanceReading.mock.calls[0]![0]).toMatchObject({
+      accountId: "acc-1",
+      balance: -18_144,
+      fetchedAt: "2026-03-15T00:00:00Z",
+    });
   });
 
   it("writes a balance without touching the account's identity", async () => {

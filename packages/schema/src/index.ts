@@ -358,6 +358,45 @@ export const Member = z.object({
 export type Member = z.infer<typeof Member>;
 
 /** Row kind, encoded in the sort key after the timestamp. */
+/**
+ * One balance, as the provider reported it at a moment in time.
+ *
+ * Kept as a series rather than overwritten. The account row carries the latest
+ * figure for display; these carry every figure with the time it was fetched,
+ * because reconciliation needs two of them:
+ *
+ *   balance(later) - balance(earlier) == sum of amounts between
+ *
+ * That check works for cards, which carry no running balance on their
+ * transactions at all — 0 of 278 in this ledger — so it is the only
+ * reconciliation that covers every account.
+ *
+ * `balance` is in the household's convention, negative for money owed, matching
+ * `amount` and `runningBalance`. The provider reports a card from the issuer's
+ * point of view, so a card's is negated on the way in.
+ */
+export const BalanceReading = z.object({
+  tenantId: TenantId,
+  accountId: z.string().min(1),
+  /** When the provider was asked, from the raw envelope. */
+  fetchedAt: z.string().datetime(),
+  balance: Amount,
+  /** Funds available to spend. Absent for a card that does not report one. */
+  available: Amount.optional(),
+  currency: Currency,
+  /**
+   * Set when this reading could not be reconciled against the one before it.
+   *
+   * The number is kept and marked rather than hidden or corrected: a synthetic
+   * transaction that makes the arithmetic work is a healthy-looking number over
+   * missing data. Anything derived from a dirty reading is dirty too.
+   */
+  dirty: z.boolean().optional(),
+  /** How far off the reconciliation was, in minor units. Present when dirty. */
+  discrepancy: Amount.optional(),
+});
+export type BalanceReading = z.infer<typeof BalanceReading>;
+
 export const RowKind = { transaction: "TX", enrichment: "EN" } as const;
 export type RowKind = (typeof RowKind)[keyof typeof RowKind];
 
@@ -438,6 +477,17 @@ export const keys = {
    * amount and can vanish. Ingest deletes and replaces the whole partition per
    * account each sync, with a TTL as backstop.
    */
+  /**
+   * One row per balance fetch, newest last.
+   *
+   * Its own partition per account, so reading a series is one query and cannot
+   * collide with the account row it describes.
+   */
+  balanceReading: (tenantId: string, accountId: string, fetchedAt: string) => ({
+    pk: `T#${tenantId}#BAL#${accountId}`,
+    sk: fetchedAt,
+  }),
+
   pending: (tenantId: string, accountId: string, timestamp: string, providerId: string) => ({
     pk: `T#${tenantId}#PEND#${accountId}`,
     sk: `${timestamp}#${providerId}`,

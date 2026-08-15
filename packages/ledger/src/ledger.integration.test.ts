@@ -343,3 +343,60 @@ suite("household access", () => {
     expect(await ledger.getMemberTenant("stranger@example.com")).toBeNull();
   });
 });
+
+suite("balance readings (integration)", () => {
+  let ledger: Ledger;
+
+  beforeAll(() => {
+    ({ ledger } = testLedger());
+  });
+
+  const reading = (accountId: string, fetchedAt: string, balance: number) => ({
+    tenantId: TENANT,
+    accountId,
+    fetchedAt,
+    balance,
+    currency: "GBP",
+  });
+
+  it("keeps every reading rather than replacing the last one", async () => {
+    // The whole point: putBalances overwrites, so the ledger held one balance
+    // per account and there was nothing to reconcile against.
+    await ledger.putBalanceReading(reading("bal-1", "2026-01-01T05:00:00.000Z", 100_00));
+    await ledger.putBalanceReading(reading("bal-1", "2026-01-02T05:00:00.000Z", 90_00));
+    await ledger.putBalanceReading(reading("bal-1", "2026-01-03T05:00:00.000Z", 80_00));
+
+    const rows = await ledger.listBalanceReadings(TENANT, "bal-1");
+    expect(rows).toHaveLength(3);
+  });
+
+  it("returns them oldest first, which is the order reconciliation walks", async () => {
+    await ledger.putBalanceReading(reading("bal-2", "2026-03-01T05:00:00.000Z", 300));
+    await ledger.putBalanceReading(reading("bal-2", "2026-01-01T05:00:00.000Z", 100));
+    await ledger.putBalanceReading(reading("bal-2", "2026-02-01T05:00:00.000Z", 200));
+
+    const rows = await ledger.listBalanceReadings(TENANT, "bal-2");
+    expect(rows.map((r) => r["balance"])).toEqual([100, 200, 300]);
+  });
+
+  it("converges when the same fetch is transformed twice", async () => {
+    // Replaying a raw object must not duplicate a reading, or a rebuilt series
+    // would disagree with the one it rebuilt.
+    const r = reading("bal-3", "2026-01-01T05:00:00.000Z", 500);
+    await ledger.putBalanceReading(r);
+    await ledger.putBalanceReading(r);
+    expect(await ledger.listBalanceReadings(TENANT, "bal-3")).toHaveLength(1);
+  });
+
+  it("keeps one account's readings out of another's", async () => {
+    await ledger.putBalanceReading(reading("bal-4", "2026-01-01T05:00:00.000Z", 1));
+    await ledger.putBalanceReading(reading("bal-5", "2026-01-01T05:00:00.000Z", 2));
+    expect(await ledger.listBalanceReadings(TENANT, "bal-4")).toHaveLength(1);
+  });
+
+  it("stores a negative balance, which is a card or an overdraft", async () => {
+    await ledger.putBalanceReading(reading("bal-6", "2026-01-01T05:00:00.000Z", -56_790));
+    const [row] = await ledger.listBalanceReadings(TENANT, "bal-6");
+    expect(row!["balance"]).toBe(-56_790);
+  });
+});
