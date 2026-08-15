@@ -52,7 +52,24 @@ export interface RawBalance {
 
 export function mapTransaction(
   raw: RawTransaction,
-  ctx: { tenantId: string; accountId: string; status: TransactionStatus },
+  ctx: {
+    tenantId: string;
+    accountId: string;
+    status: TransactionStatus;
+    /**
+     * Whether this came from a card endpoint.
+     *
+     * Used for `runningBalance` and NOTHING ELSE. In particular it must never
+     * touch `amount`: the sign there comes from `transaction_type`, because the
+     * two datasets disagree on sign and agree perfectly on type, and that is
+     * what makes card and account transactions uniform. Deriving direction from
+     * card-ness instead would reintroduce the inversion that made every card
+     * purchase read as income for five years.
+     *
+     * `mapTransactionSignsAmountFromType` in the tests fails if that changes.
+     */
+    isCard?: boolean;
+  },
 ): Transaction {
   // Amounts arrive in major units as JSON floats. toMinorUnits rounds and uses
   // the currency's own exponent — a hardcoded 100 is wrong for JPY and KWD.
@@ -101,12 +118,34 @@ export function mapTransaction(
     ...(raw.merchant_name ? { merchantName: raw.merchant_name } : {}),
     status: ctx.status,
     transactionType,
-    ...(raw.running_balance
-      ? { runningBalance: toMinorUnits(raw.running_balance.amount, raw.running_balance.currency) }
-      : {}),
+    ...(raw.running_balance ? { runningBalance: runningBalanceOf(raw, ctx.isCard ?? false) } : {}),
     ...(raw.transaction_category ? { providerCategory: raw.transaction_category } : {}),
     ...(classification ? { providerClassification: classification } : {}),
   };
+}
+
+/**
+ * The running balance, in the household's convention.
+ *
+ * The provider reports each resource from that resource's own point of view,
+ * and the documentation is explicit that balances invert for cards:
+ *
+ *   account   negative = funds owed to the provider, i.e. an overdraft
+ *   card      POSITIVE = money owed to the provider by the cardholder
+ *
+ * One convention here, the same as `amount`: negative is money the household
+ * does not have. So an account's running balance passes through and a card's is
+ * negated. Storing them verbatim would make a £2,000 card debt and £2,000 in
+ * savings the same number, and any sum across accounts would be wrong by twice
+ * the debt.
+ *
+ * Normalised at the boundary rather than at the point of use, so nothing
+ * downstream has to know which kind of account a transaction came from — which
+ * is what takes `isCard` off the critical path entirely.
+ */
+export function runningBalanceOf(raw: RawTransaction, isCard: boolean): number {
+  const balance = toMinorUnits(raw.running_balance!.amount, raw.running_balance!.currency);
+  return isCard ? -balance : balance;
 }
 
 /**

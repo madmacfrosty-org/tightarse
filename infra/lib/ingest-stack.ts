@@ -379,44 +379,41 @@ export class IngestStack extends cdk.Stack {
     });
     itemsFailed.addAlarmAction(alarmAction);
 
-    // A settled transaction with no running balance is a gap in the balance
-    // series, and the series is the point — a balance endpoint returns a
-    // snapshot and cannot say how the position moved.
+    // A settled ACCOUNT transaction with no running balance is a gap in the
+    // balance series, and the series is the point — a balance endpoint returns
+    // a snapshot and cannot say how the position moved.
     //
-    // A threshold of zero, like ItemsFailed and unlike TransactionsFetched:
-    // this is unambiguous rather than a pattern to be learned. We believe it
-    // will never fire. That belief is exactly what is being tested, and finding
-    // out from an alarm beats finding out from a wrong number on a dashboard.
+    // Accounts only, deliberately. Measured against the live ledger: 9,498 of
+    // 9,498 settled account transactions carry a running balance, and 0 of 278
+    // card transactions do. TrueLayer marks the field optional on both
+    // endpoints and documents no rule, so this was a matter of observation
+    // rather than reading — and the answer is that cards never supply one.
     //
-    // Two alarms rather than one on the sum, because the open question is
-    // whether cards behave differently from accounts — TrueLayer marks
-    // running_balance optional on both endpoints and documents no rule for when
-    // it is present, so which of ours omit it is a matter of observation. A
-    // single total would say something is wrong without saying where.
+    // So a card alarm at a threshold of zero would fire on every sync for ever.
+    // An alarm that always fires is worse than no alarm: it trains everyone to
+    // ignore the one that matters, which is the mistake the anomaly detector
+    // below exists to avoid. The card metric is still emitted, so if Amex ever
+    // starts supplying running balances it will show up in the graph — but it
+    // is not something to be woken by.
     //
-    // Reconstruction is deliberately not the response: see #30. Recovering a
-    // missing balance means anchoring somewhere and recomputing across every
-    // transaction in order, and only the bank can do that correctly because
-    // only the bank knows the true order.
-    for (const [id, metricName, what] of [
-      ["UnanchoredCardTransactions", "UnanchoredCardTransactions", "card"],
-      ["UnanchoredAccountTransactions", "UnanchoredAccountTransactions", "account"],
-    ] as const) {
-      const alarm = new cloudwatch.Alarm(this, id, {
-        alarmName: `tightarse-${settings.name}-unanchored-${what}-transactions`,
-        alarmDescription:
-          `A settled ${what} transaction arrived with no running balance, so the balance ` +
-          `series has a gap. See #30 — do not reconstruct.`,
-        metric: metric(metricName),
-        threshold: 0,
-        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
-        evaluationPeriods: 1,
-        // Nothing emitted means no settled transactions were transformed, which
-        // is normal on a quiet day and must not read as a breach.
-        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      });
-      alarm.addAlarmAction(alarmAction);
-    }
+    // Threshold of zero for accounts, following SyncItemsFailed: unambiguous
+    // rather than a pattern to be learned. We believe it will never fire, and
+    // that belief is what is being tested. See #30 — the response is to
+    // observe, never to reconstruct.
+    const unanchored = new cloudwatch.Alarm(this, "UnanchoredAccountTransactions", {
+      alarmName: `tightarse-${settings.name}-unanchored-account-transactions`,
+      alarmDescription:
+        "A settled account transaction arrived with no running balance, so the balance " +
+        "series has a gap. See #30 — do not reconstruct.",
+      metric: metric("UnanchoredAccountTransactions"),
+      threshold: 0,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      evaluationPeriods: 1,
+      // Nothing emitted means no settled transactions were transformed, which
+      // is normal on a quiet day and must not read as a breach.
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    unanchored.addAlarmAction(alarmAction);
 
     // Reconfirmation needs a person at a browser, so the warning has to arrive
     // with time to act rather than on the day access stops.

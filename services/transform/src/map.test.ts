@@ -241,3 +241,122 @@ describe("fields the provider may omit", () => {
     expect(mapBalance({ currency: "GBP" })).toEqual({});
   });
 });
+
+describe("running balance, in the household's convention", () => {
+  const withBalance = (amount: number) => ({
+    timestamp: "2026-03-15T00:00:00Z",
+    description: "SHOP",
+    transaction_type: "DEBIT",
+    amount: 12.99,
+    currency: "GBP",
+    transaction_id: "tx-1",
+    running_balance: { currency: "GBP", amount },
+  });
+
+  it("passes an account's running balance through unchanged", () => {
+    // For an account the provider's convention already matches ours: negative
+    // means funds owed to the provider, i.e. an overdraft.
+    const t = mapTransaction(withBalance(1000) as never, {
+      tenantId: "frost",
+      accountId: "acc-1",
+      status: "settled",
+      isCard: false,
+    });
+    expect(t.runningBalance).toBe(100_000);
+  });
+
+  it("keeps an account's overdraft negative", () => {
+    const t = mapTransaction(withBalance(-250.5) as never, {
+      tenantId: "frost",
+      accountId: "acc-1",
+      status: "settled",
+      isCard: false,
+    });
+    expect(t.runningBalance).toBe(-25_050);
+  });
+
+  it("negates a card's running balance, because positive there means owed", () => {
+    // TrueLayer: "A positive running balance amount represents money owed to
+    // the provider by the cardholder." Storing that verbatim would make a
+    // £2,000 card debt and £2,000 of savings the same number, and any sum
+    // across accounts wrong by twice the debt.
+    const t = mapTransaction(withBalance(2000) as never, {
+      tenantId: "frost",
+      accountId: "card-1",
+      status: "settled",
+      isCard: true,
+    });
+    expect(t.runningBalance).toBe(-200_000);
+  });
+
+  it("makes a card in credit positive, which is money the household has", () => {
+    // The other direction of the same inversion: a negative card balance is
+    // money owed to the cardholder.
+    const t = mapTransaction(withBalance(-50) as never, {
+      tenantId: "frost",
+      accountId: "card-1",
+      status: "settled",
+      isCard: true,
+    });
+    expect(t.runningBalance).toBe(5_000);
+  });
+
+  it("treats an unspecified account as not a card, which is the safe default", () => {
+    // Every caller passes it. If one ever stops, an account balance is left
+    // alone rather than silently inverted.
+    const t = mapTransaction(withBalance(1000) as never, {
+      tenantId: "frost",
+      accountId: "acc-1",
+      status: "settled",
+    });
+    expect(t.runningBalance).toBe(100_000);
+  });
+
+  it("stores no running balance when the provider sent none", () => {
+    const { running_balance, ...without } = withBalance(1000);
+    expect(running_balance).toBeDefined();
+    const t = mapTransaction(without as never, {
+      tenantId: "frost",
+      accountId: "acc-1",
+      status: "settled",
+      isCard: true,
+    });
+    expect(t.runningBalance).toBeUndefined();
+  });
+});
+
+describe("card-ness must never reach the amount", () => {
+  // The guard. Direction comes from transaction_type because the two datasets
+  // disagree on sign and agree perfectly on type — measured at 8760/408 against
+  // 171/20. Deriving it from card-ness instead is the obvious-looking shortcut
+  // that would reintroduce a five-year inversion, so it is asserted rather than
+  // left to a comment.
+  const raw = (transaction_type: string) => ({
+    timestamp: "2026-03-15T00:00:00Z",
+    description: "SHOP",
+    transaction_type,
+    amount: 12.99,
+    currency: "GBP",
+    transaction_id: "tx-1",
+  });
+
+  it.each([
+    ["DEBIT", -1299],
+    ["CREDIT", 1299],
+  ])("signs a %s the same whether or not it is a card", (type, expected) => {
+    const asCard = mapTransaction(raw(type) as never, {
+      tenantId: "frost",
+      accountId: "a",
+      status: "settled",
+      isCard: true,
+    });
+    const asAccount = mapTransaction(raw(type) as never, {
+      tenantId: "frost",
+      accountId: "a",
+      status: "settled",
+      isCard: false,
+    });
+    expect(asCard.amount).toBe(expected);
+    expect(asAccount.amount).toBe(expected);
+  });
+});

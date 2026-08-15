@@ -129,6 +129,37 @@ describe("settled transactions with no running balance", () => {
  * covering only the new counting would have lowered the package's branch
  * coverage while appearing to improve things.
  */
+describe("normalising the running balance at the boundary", () => {
+  // The seam between the dataset and the mapper. mapTransaction gets card-ness
+  // right on its own; this is about transform.ts actually telling it, which a
+  // test of the mapper alone cannot see.
+  const captured = async (dataset: string) => {
+    const put = vi.fn(async (_rows: Array<Record<string, unknown>>) => {});
+    const d = deps([txn({ running_balance: { currency: "GBP", amount: 2000 } })]);
+    (d.deps as any).ledger.putTransactions = put;
+    await transformObject(d.deps, keyFor(dataset));
+    return put.mock.calls[0]![0][0]!;
+  };
+
+  it("negates it for a card, because the card endpoint is what says so", async () => {
+    // A positive running balance on a card is money OWED. Left as the provider
+    // sends it, a £2,000 card debt and £2,000 of savings are the same number.
+    expect((await captured("truelayer.card_transactions"))["runningBalance"]).toBe(-200_000);
+  });
+
+  it("leaves it alone for an account", async () => {
+    expect((await captured("truelayer.transactions"))["runningBalance"]).toBe(200_000);
+  });
+
+  it("signs the amount identically either way", async () => {
+    // The guard, at this level too: only runningBalance may depend on the
+    // endpoint. amount comes from transaction_type and must not move.
+    const card = await captured("truelayer.card_transactions");
+    const account = await captured("truelayer.transactions");
+    expect(card["amount"]).toBe(account["amount"]);
+  });
+});
+
 describe("routing a raw object to the right handler", () => {
   it("writes accounts through putAccount, marking cards from the dataset", async () => {
     // Card-ness comes from which endpoint answered, because no field in the

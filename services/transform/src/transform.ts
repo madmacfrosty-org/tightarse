@@ -83,7 +83,10 @@ export async function transformObject(deps: TransformDeps, key: string): Promise
     case "settled": {
       if (!accountId) throw new Error(`Transactions with no account in the key: ${key}`);
       const raw = results as RawTransaction[];
-      const txns = raw.map((r) => mapTransaction(r, { tenantId, accountId, status: "settled" }));
+      const isCard = isCardDataset(dataset);
+      // Card-ness is a fact about which endpoint answered, not something to
+      // look up on an account. It is needed only to normalise runningBalance.
+      const txns = raw.map((r) => mapTransaction(r, { tenantId, accountId, status: "settled", isCard }));
       await deps.ledger.putTransactions(txns, { sourceObject: key });
 
       // Split by card, because that is the question we could not answer from
@@ -92,7 +95,6 @@ export async function transformObject(deps: TransformDeps, key: string): Promise
       // accounts actually omit it is a matter of observation, and a total would
       // not say whether Amex is the one behaving differently.
       const missing = raw.filter((r) => r.running_balance === undefined).length;
-      const isCard = isCardDataset(dataset);
       return {
         key,
         dataset,
@@ -105,7 +107,9 @@ export async function transformObject(deps: TransformDeps, key: string): Promise
     case "pending": {
       if (!accountId) throw new Error(`Pending transactions with no account in the key: ${key}`);
       const txns = (results as RawTransaction[]).map((r) =>
-        mapTransaction(r, { tenantId, accountId, status: "pending" }),
+        // Pending rows carry no running balance, so isCard changes nothing
+        // here. Passed anyway, so the two branches cannot drift.
+        mapTransaction(r, { tenantId, accountId, status: "pending", isCard: isCardDataset(dataset) }),
       );
       // Replace, never merge — an empty result means everything cleared, which
       // is a normal outcome and must delete the previous set.

@@ -118,24 +118,31 @@ describe("monitoring", () => {
     });
   });
 
-  it.each([
-    ["UnanchoredCardTransactions", "card"],
-    ["UnanchoredAccountTransactions", "account"],
-  ])("alarms on %s, so a gap in the balance series is noticed", (metricName) => {
+  it("alarms on an account transaction with no running balance", () => {
     // The running balance on each transaction is the primary balance data — a
     // balance endpoint is a snapshot and cannot say how the position moved. A
-    // settled row without one is a gap in that series.
-    //
-    // Threshold of zero because this is unambiguous rather than a pattern, and
-    // because we believe it will never fire. That belief is what the alarm is
-    // testing. See #30 — the response is to observe, never to reconstruct.
+    // settled row without one is a gap in that series. See #30.
     ingest.hasResourceProperties("AWS::CloudWatch::Alarm", {
-      MetricName: metricName,
+      MetricName: "UnanchoredAccountTransactions",
       Namespace: "Tightarse",
       Threshold: 0,
       ComparisonOperator: "GreaterThanThreshold",
       TreatMissingData: "notBreaching",
     });
+  });
+
+  it("does NOT alarm on card transactions, which never carry one", () => {
+    // Measured against the live ledger: 0 of 278 card transactions have a
+    // running balance, against 9,498 of 9,498 account transactions. A card
+    // alarm at a threshold of zero would fire on every sync for ever, and an
+    // alarm that always fires trains everyone to ignore the one that matters.
+    // The metric is still emitted, so a change in provider behaviour shows up
+    // in the graph.
+    const alarms = ingest.findResources("AWS::CloudWatch::Alarm");
+    const onCards = Object.values(alarms).filter(
+      (a: any) => a.Properties?.MetricName === "UnanchoredCardTransactions",
+    );
+    expect(onCards).toHaveLength(0);
   });
 
   it("sends the unanchored alarms somewhere a person will see", () => {
@@ -146,7 +153,7 @@ describe("monitoring", () => {
     const unanchored = Object.values(alarms).filter((a: any) =>
       String(a.Properties?.MetricName ?? "").startsWith("Unanchored"),
     );
-    expect(unanchored).toHaveLength(2);
+    expect(unanchored).toHaveLength(1);
     for (const alarm of unanchored) {
       expect((alarm as any).Properties.AlarmActions?.length ?? 0).toBeGreaterThan(0);
     }
