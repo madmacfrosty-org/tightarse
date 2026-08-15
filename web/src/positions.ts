@@ -1,3 +1,5 @@
+import type { AccountView } from "@tightarse/api-contract";
+
 /**
  * The dashboard's arithmetic, separated from the markup that shows it.
  *
@@ -7,27 +9,11 @@
  * sign is a £567.90 debt displayed as cash, which has happened.
  */
 
-export interface AccountRow {
-  accountId: string;
-  displayName: string;
-  institutionName: string;
-  currentBalance?: number;
-  availableBalance?: number;
-  /**
-   * Recorded by the ledger because the row came from the cards endpoint.
-   *
-   * Never inferred from the balances. It used to be "available exceeds
-   * current", which is true of a credit card with headroom and false of Amex,
-   * which reports no available balance at all.
-   */
-  isCard?: boolean;
-}
-
 export interface NetPosition {
   /** Accounts whose balance is money the household has. */
-  readonly inCredit: readonly AccountRow[];
+  readonly inCredit: readonly AccountView[];
   /** Accounts whose balance is money the household owes. */
-  readonly cards: readonly AccountRow[];
+  readonly cards: readonly AccountView[];
   readonly cardIds: ReadonlySet<string>;
   /** Cash across current accounts. */
   readonly netCash: number;
@@ -37,7 +23,7 @@ export interface NetPosition {
   readonly net: number;
 }
 
-export function netPosition(accounts: readonly AccountRow[]): NetPosition {
+export function netPosition(accounts: readonly AccountView[]): NetPosition {
   const cards = accounts.filter((a) => a.isCard);
   const cardIds = new Set(cards.map((c) => c.accountId));
   const inCredit = accounts.filter((a) => !cardIds.has(a.accountId));
@@ -58,7 +44,7 @@ export function netPosition(accounts: readonly AccountRow[]): NetPosition {
  * balance" and "this balance is nothing" are different, and the tile renders
  * them differently.
  */
-export function tileBalance(account: AccountRow, isCard: boolean): number | undefined {
+export function tileBalance(account: AccountView, isCard: boolean): number | undefined {
   if (account.currentBalance === undefined) return undefined;
   return isCard ? -account.currentBalance : account.currentBalance;
 }

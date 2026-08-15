@@ -31,12 +31,21 @@ const transactions = [
   { dedupKey: "k1", timestamp: "2026-08-01T00:00:00Z", description: "SHOP", amount: -1299, category: "Groceries", provisional: false },
 ];
 
-const apiGet = vi.fn(async (path: string) => {
+/**
+ * The default responses, restored before every test.
+ *
+ * Named and reinstated in `beforeEach` rather than left to `mockClear`, which
+ * clears recorded calls and leaves the implementation in place — so one test
+ * overriding a response silently changed every test after it.
+ */
+const defaultApiGet = async (path: string): Promise<unknown> => {
   if (path.startsWith("/summary")) return summary;
   if (path.startsWith("/accounts")) return { accounts };
   if (path.startsWith("/transactions")) return { transactions };
   throw new Error(`unexpected path ${path}`);
-});
+};
+
+const apiGet = vi.fn(defaultApiGet);
 
 vi.mock("./auth", () => ({
   apiGet: (p: string) => apiGet(p),
@@ -47,8 +56,28 @@ vi.mock("./auth", () => ({
 }));
 
 beforeEach(() => {
-  apiGet.mockClear();
+  apiGet.mockReset();
+  apiGet.mockImplementation(defaultApiGet);
   window.history.replaceState({}, "", "/");
+});
+
+describe("an account the sync has not finished describing", () => {
+  it("shows a placeholder rather than a blank where the institution goes", async () => {
+    // putBalances creates the account row when balances arrive before details,
+    // so an account can legitimately appear mid-sync with a balance and no
+    // name. React renders undefined as nothing, which would leave the tile
+    // reading "Account · " and looking broken rather than incomplete. See #29.
+    apiGet.mockImplementation(async (path: string) => {
+      if (path.startsWith("/accounts")) {
+        return { accounts: [{ accountId: "half-written", currentBalance: 1000 }] };
+      }
+      if (path.startsWith("/summary")) return summary;
+      return { transactions: [] };
+    });
+    const { App } = await import("./App");
+    render(<App />);
+    expect(await screen.findByText(/Account · —/)).toBeDefined();
+  });
 });
 
 describe("net position", () => {

@@ -1,12 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { netPosition, tileBalance, rangeFor, type AccountRow } from "./positions";
+import { netPosition, tileBalance, rangeFor } from "./positions";
+import type { AccountView } from "@tightarse/api-contract";
 
 /**
  * The number the dashboard leads with. It was computed inside the component and
  * only checkable by rendering, which is why `web` sat at 58% of functions.
  */
 
-const account = (over: Partial<AccountRow> = {}): AccountRow => ({
+const account = (over: Partial<AccountView> = {}): AccountView => ({
   accountId: "acc-1",
   displayName: "Current",
   institutionName: "First Direct",

@@ -1,33 +1,9 @@
 import { useEffect, useState } from "react";
 import { apiGet, completeSignIn, currentIdentity, signIn, signOut, type Identity } from "./auth";
 import { ConnectBank, Connected } from "./Connect";
-import { CategoryBars, MonthlyFlow, money, type CategoryDatum, type MonthDatum } from "./charts";
-import { netPosition, rangeFor, tileBalance, type AccountRow } from "./positions";
-
-interface Summary {
-  currency: string | null;
-  from: string;
-  to: string;
-  transactionCount: number;
-  income: number;
-  spend: number;
-  net: number;
-  byCategory: CategoryDatum[];
-  byMonth: MonthDatum[];
-  internalTransfersNetted: boolean;
-  transferCount: number;
-  transferTotal: number;
-  enrichedCount: number;
-}
-
-interface TxnRow {
-  dedupKey: string;
-  timestamp: string;
-  description: string;
-  amount: number;
-  category: string;
-  provisional: boolean;
-}
+import { CategoryBars, MonthlyFlow, money } from "./charts";
+import { netPosition, rangeFor, tileBalance } from "./positions";
+import type { AccountView, Summary, TransactionView } from "@tightarse/api-contract";
 
 const RANGES = [
   { label: "3 months", days: 90 },
@@ -56,8 +32,8 @@ export function App() {
   const [checking, setChecking] = useState(true);
   const [days, setDays] = useState<number>(365);
   const [summary, setSummary] = useState<Summary | null>(null);
-  const [accounts, setAccounts] = useState<AccountRow[]>([]);
-  const [txns, setTxns] = useState<TxnRow[]>([]);
+  const [accounts, setAccounts] = useState<AccountView[]>([]);
+  const [txns, setTxns] = useState<TransactionView[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -76,8 +52,8 @@ export function App() {
     setError(null);
     Promise.all([
       apiGet<Summary>(`/summary${q}`),
-      apiGet<{ accounts: AccountRow[] }>(`/accounts`),
-      apiGet<{ transactions: TxnRow[] }>(`/transactions${q}&limit=60`),
+      apiGet<{ accounts: AccountView[] }>(`/accounts`),
+      apiGet<{ transactions: TransactionView[] }>(`/transactions${q}&limit=60`),
     ])
       .then(([s, a, t]) => {
         setSummary(s);
@@ -155,7 +131,7 @@ export function App() {
           {accounts.map((a) => (
             <div className="tile" key={a.accountId}>
               <div className="label">
-                {cardIds.has(a.accountId) ? "Card" : "Account"} · {a.institutionName}
+                {cardIds.has(a.accountId) ? "Card" : "Account"} · {a.institutionName ?? "—"}
               </div>
               <div className="value">
                 {tileBalance(a, cardIds.has(a.accountId)) === undefined
