@@ -53,8 +53,23 @@ export interface StepDeps {
   readonly s3: S3Client;
   readonly rawBucket: string;
   readonly tenantId: string;
-  /** "live" or "sandbox", recorded in the raw envelope. */
-  readonly environment: string;
+  /**
+   * "live" or "sandbox" — which TrueLayer environment the data came from,
+   * recorded in the raw envelope so a replay knows what it is replaying.
+   *
+   * NOT the metric dimension. One field called `environment` used to serve both
+   * meanings, and the metrics went out under "live" while every alarm in
+   * `infra/lib/ingest-stack.ts` watched "dev". Three alarms could not fire, and
+   * because they treat missing data as not breaching they looked healthy.
+   */
+  readonly providerEnvironment: string;
+  /**
+   * "dev" or "prod" — the deployment, and what the alarms dimension on.
+   *
+   * From ENVIRONMENT. Defaults to "dev" rather than being left unset, because
+   * an undefined dimension matches no alarm at all.
+   */
+  readonly deploymentEnvironment: string;
   readonly alertTopicArn?: string | undefined;
   readonly sns?: SNSClient | undefined;
 }
@@ -63,6 +78,27 @@ export function required(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`Missing ${name}`);
   return v;
+}
+
+/**
+ * The two environments, which are not the same thing and were once one field.
+ *
+ * Takes `env` as an argument so both sides of each fallback are testable.
+ * Inline, they were only ever exercised on whichever side the running machine
+ * happened to be on, and a coverage threshold raised locally then failed in CI.
+ */
+export function stepEnvironments(env: NodeJS.ProcessEnv): {
+  providerEnvironment: string;
+  deploymentEnvironment: string;
+} {
+  return {
+    // Which TrueLayer environment the data came from, recorded in the raw
+    // envelope so a replay knows what it is replaying.
+    providerEnvironment: env["TL_ENV"] === "sandbox" ? "sandbox" : "live",
+    // The deployment, and what every alarm dimensions on. Defaults rather than
+    // being left unset: an undefined dimension matches no alarm at all.
+    deploymentEnvironment: env["ENVIRONMENT"] ?? "dev",
+  };
 }
 
 /**
@@ -83,7 +119,7 @@ export async function realDeps(): Promise<StepDeps> {
     s3: new S3Client({}),
     rawBucket: required("RAW_BUCKET"),
     tenantId: required("TENANT_ID"),
-    environment: sandbox ? "sandbox" : "live",
+    ...stepEnvironments(process.env),
     alertTopicArn: process.env["ALERT_TOPIC_ARN"],
     sns: process.env["ALERT_TOPIC_ARN"] ? new SNSClient({}) : undefined,
   };
@@ -378,7 +414,7 @@ export async function recordOutcome(
   const transactions = results.reduce((n, r) => n + (r.transactions ?? 0), 0);
   emit({
     namespace: METRIC_NAMESPACE,
-    environment: deps.environment,
+    environment: deps.deploymentEnvironment,
     metrics: {
       TransactionsFetched: transactions,
       ObjectsLanded: results.reduce((n, r) => n + (r.objects ?? 0), 0),
@@ -427,7 +463,7 @@ async function land(
   const fetchedAt = new Date().toISOString();
   const payload = JSON.stringify({
     captureVersion: 1,
-    environment: deps.environment,
+    environment: deps.providerEnvironment,
     endpoint: dataset,
     params,
     accountId,

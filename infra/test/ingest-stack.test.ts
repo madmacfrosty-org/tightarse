@@ -152,6 +152,20 @@ describe("monitoring", () => {
     }
   });
 
+  it.each(["Transform", "SyncSteps", "Categorise"])(
+    "gives %s the deployment name its metrics are dimensioned on",
+    (construct) => {
+      // Every function that calls emit() needs this. The sync did not have it,
+      // so it published Environment=live while the alarms watched dev — three
+      // alarms that could not fire, sitting in INSUFFICIENT_DATA and looking
+      // healthy because they treat missing data as not breaching. See #31.
+      const fns = ingest.findResources("AWS::Lambda::Function");
+      const found = Object.entries(fns).find(([id]) => id.startsWith(construct));
+      expect(found, `no ${construct} function`).toBeDefined();
+      expect((found![1] as any).Properties.Environment.Variables.ENVIRONMENT).toBe("dev");
+    },
+  );
+
   it("dimensions the transform function's metrics with the environment", () => {
     // emit() defaults to "dev" when ENVIRONMENT is unset, so without this every
     // metric prod produces lands under dev and prod's alarms watch dev's data.

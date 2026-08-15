@@ -6,6 +6,7 @@ import {
   fetchItem,
   recordOutcome,
   type StepDeps,
+  stepEnvironments,
 } from "./steps.js";
 import type { Connection } from "./connections.js";
 
@@ -42,10 +43,27 @@ function fakes(
   const updated: Connection[] = [];
   const published: string[] = [];
 
-  const deps = {
+  /**
+   * The plain configuration, typed rather than swept up in the cast below.
+   *
+   * The cast is needed for the fake clients, but it also hid a renamed field:
+   * `environment` used to mean two things at once and the compiler could not
+   * say so. These four are checked.
+   */
+  const config: Pick<
+    StepDeps,
+    "tenantId" | "rawBucket" | "providerEnvironment" | "deploymentEnvironment"
+  > = {
     tenantId: "frost",
     rawBucket: "raw-bucket",
-    environment: "live",
+    // Deliberately different values, so a test asserting one cannot pass by
+    // accidentally reading the other.
+    providerEnvironment: "live",
+    deploymentEnvironment: "dev",
+  };
+
+  const deps = {
+    ...config,
     alertTopicArn: "arn:aws:sns:eu-west-1:1:alerts",
     truelayer: {
       // The real client counts data calls; the fake reports what it recorded.
@@ -332,6 +350,24 @@ describe("provider call accounting", () => {
     expect(out.providerCalls).toBeGreaterThan(0);
   });
 
+  it("dimensions metrics on the deployment, not the TrueLayer environment", async () => {
+    // The bug this exists for: one field called `environment` served both
+    // meanings, so the sync published Environment=live while every alarm in
+    // infra/lib/ingest-stack.ts watched Environment=dev. ItemsFailed,
+    // ConsentExpiring and the TransactionsFetched anomaly detector could not
+    // fire, and because they treat missing data as not breaching they sat there
+    // looking healthy. Confirmed against CloudWatch, which had seen both
+    // dimensions in the namespace. See #31.
+    const { deps } = fakes();
+    const emitted: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((l: string) => emitted.push(l));
+    await recordOutcome(deps, { connection: connection(), results: [{ objects: 1 }] });
+    spy.mockRestore();
+    const doc = emitted.map((l) => JSON.parse(l)).find((d) => "ProviderCalls" in d);
+    expect(doc.Environment).toBe("dev");
+    expect(doc.Environment).not.toBe("live");
+  });
+
   it("totals the listing step's calls with the items'", async () => {
     // refreshAndList spends calls the per-item results cannot know about.
     const { deps } = fakes();
@@ -359,5 +395,42 @@ describe("provider call accounting", () => {
     spy.mockRestore();
     const doc = emitted.map((l) => JSON.parse(l)).find((d) => "SyncDurationMs" in d);
     expect(doc.SyncDurationMs).toBeGreaterThanOrEqual(4_900);
+  });
+});
+
+describe("the two environments", () => {
+  // They were one field called `environment` serving both meanings, which is
+  // how the sync came to publish metrics under "live" while every alarm watched
+  // "dev". Both sides of both fallbacks are asserted, so branch coverage does
+  // not depend on which machine ran the suite. See #31.
+
+  it("reads the deployment from ENVIRONMENT", () => {
+    expect(stepEnvironments({ ENVIRONMENT: "prod" }).deploymentEnvironment).toBe("prod");
+  });
+
+  it("defaults the deployment to dev rather than leaving it undefined", () => {
+    // An undefined dimension matches no alarm at all, which is a worse failure
+    // than the wrong one: nothing to notice.
+    expect(stepEnvironments({}).deploymentEnvironment).toBe("dev");
+  });
+
+  it("reports sandbox only when TL_ENV says so", () => {
+    expect(stepEnvironments({ TL_ENV: "sandbox" }).providerEnvironment).toBe("sandbox");
+  });
+
+  it("treats anything else as live, including unset", () => {
+    // The raw envelope records this, and a replay reads it to know what it is
+    // replaying. Guessing sandbox for an unset value would mislabel real data.
+    expect(stepEnvironments({}).providerEnvironment).toBe("live");
+    expect(stepEnvironments({ TL_ENV: "" }).providerEnvironment).toBe("live");
+  });
+
+  it("keeps the two apart when both are set", () => {
+    // The whole bug in one assertion: live data deployed to prod must dimension
+    // metrics on prod, not on live.
+    expect(stepEnvironments({ TL_ENV: "live", ENVIRONMENT: "prod" })).toEqual({
+      providerEnvironment: "live",
+      deploymentEnvironment: "prod",
+    });
   });
 });

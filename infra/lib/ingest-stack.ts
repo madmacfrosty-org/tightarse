@@ -143,6 +143,10 @@ export class IngestStack extends cdk.Stack {
         CONNECTION_SECRET_PREFIX: connectionPrefix,
         CLIENT_SECRET_ID: clientSecret.secretName,
         ALERT_TOPIC_ARN: alerts.topicArn,
+        // Dimensions this function's metrics. Without it the sync emitted under
+        // the TrueLayer environment — "live" — while every alarm below watches
+        // the deployment, so none of them could fire.
+        ENVIRONMENT: settings.name,
       },
       logGroup: new logs.LogGroup(this, "SyncLogs", {
         retention: settings.name === "prod" ? logs.RetentionDays.ONE_YEAR : logs.RetentionDays.ONE_WEEK,
