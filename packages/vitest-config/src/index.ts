@@ -30,6 +30,12 @@ export const coverageBase = {
     // A local development server whose logic is the deployed handler's. Agreed
     // excluded under the rule that only code containing no decision is exempt:
     // this one wires a port to a function that has its own tests.
+    //
+    // That justification was false when it was written. serve.ts had its own
+    // copy of the routing — its own range defaults, its own path matching — so
+    // it was excluded code containing decisions, and the two had drifted: it
+    // honoured a `limit` parameter the deployed handler ignores. It calls
+    // `route` now, so the exemption is earned rather than asserted.
     "src/serve.ts",
   ],
   reporter: ["text-summary", "json-summary"] as string[],

@@ -10,11 +10,16 @@
  * the hole the real handler exists to avoid. It binds to loopback only.
  *
  *   TENANT=frost TABLE=<name> node dist/serve.js
+ *
+ * It calls `route` rather than reimplementing it. It used to have its own copy —
+ * its own range defaults, its own path matching, its own response shapes — which
+ * is the thing testing.md warns about: a copy passes forever while the real code
+ * rots, and the two had already drifted. Everything below is transport.
  */
 
 import { createServer } from "node:http";
 import { Ledger } from "@tightarse/ledger";
-import { mergeEnrichments, summarise, type EnrichmentRow, type LedgerRow } from "./aggregate.js";
+import { route, type ApiDeps } from "./handler.js";
 
 const PORT = Number(process.env["PORT"] ?? 8787);
 const HOST = "127.0.0.1";
@@ -28,50 +33,51 @@ if (!tableName) {
 
 const ledger = new Ledger({ tableName, region: process.env["AWS_REGION"] ?? "eu-west-1" });
 
-function defaultRange() {
-  const to = new Date().toISOString().slice(0, 10);
-  const from = new Date(Date.now() - 365 * 864e5).toISOString().slice(0, 10);
-  return { from, to };
+/**
+ * Log what a failure actually was, before `route` hides it.
+ *
+ * The handler answers a 500 with "Internal error" on purpose — the underlying
+ * message can carry key material and table structure, and it is going to a
+ * browser. That is right in production and useless on a laptop, so the cause is
+ * logged here, at the seam, rather than by giving this file its own error
+ * handling to drift out of step.
+ */
+async function logged<T>(what: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    console.error(`${what} failed:`, err);
+    throw err;
+  }
 }
+
+const deps: ApiDeps = {
+  ledger: {
+    listRange: (tenant, range) => logged("listRange", () => ledger.listRange(tenant, range)),
+    listAccounts: (tenant) => logged("listAccounts", () => ledger.listAccounts(tenant)),
+  },
+};
 
 const server = createServer((req, res) => {
   void (async () => {
     const url = new URL(req.url ?? "/", `http://${HOST}:${PORT}`);
-    const range = {
-      from: url.searchParams.get("from") ?? defaultRange().from,
-      to: url.searchParams.get("to") ?? defaultRange().to,
-    };
 
+    const result = await route(deps, {
+      rawPath: url.pathname,
+      queryStringParameters: Object.fromEntries(url.searchParams),
+      // The claim a verified token would have carried, fabricated from an
+      // environment variable. This is the whole reason the file says never
+      // deploy it: the real handler's first act is to refuse a request that
+      // does not carry one of these.
+      requestContext: { authorizer: { jwt: { claims: { "custom:tenant": tenantId } } } },
+    });
+
+    res.statusCode = result.statusCode;
+    // The browser is on a different origin in development; API Gateway handles
+    // this in the deployed stack, so it is transport rather than logic.
     res.setHeader("access-control-allow-origin", "*");
-    res.setHeader("content-type", "application/json");
-
-    try {
-      if (url.pathname === "/accounts") {
-        res.end(JSON.stringify({ accounts: await ledger.listAccounts(tenantId) }));
-        return;
-      }
-
-      const { transactions, enrichments } = await ledger.listRange(tenantId, range);
-      const txns = transactions as unknown as LedgerRow[];
-      const enr = enrichments as unknown as EnrichmentRow[];
-
-      if (url.pathname === "/summary") {
-        res.end(JSON.stringify(summarise(txns, enr, range)));
-        return;
-      }
-      if (url.pathname === "/transactions") {
-        const limit = Number(url.searchParams.get("limit") ?? "200");
-        res.end(
-          JSON.stringify({ range, transactions: mergeEnrichments(txns, enr).slice(0, limit) }),
-        );
-        return;
-      }
-      res.statusCode = 404;
-      res.end(JSON.stringify({ error: `No route for ${url.pathname}` }));
-    } catch (err) {
-      res.statusCode = 500;
-      res.end(JSON.stringify({ error: err instanceof Error ? err.message : "Unknown error" }));
-    }
+    for (const [name, value] of Object.entries(result.headers)) res.setHeader(name, value);
+    res.end(result.body);
   })();
 });
 
