@@ -6,9 +6,10 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
+    "backfill": "tsx src/backfill-cli.ts",
     "build": "tsc --build",
+    "compare": "tsx src/compare-cli.ts",
     "test": "vitest run",
-    "backfill": "node src/backfill.ts",
     "test:coverage": "vitest run --coverage",
     "test:mutation": "stryker run"
   },
@@ -18,7 +19,8 @@
     "@tightarse/schema": "*"
   },
   "devDependencies": {
-    "vitest": "^2.1.0",
-    "@tightarse/vitest-config": "*"
+    "@tightarse/vitest-config": "*",
+    "tsx": "^4.19.0",
+    "vitest": "^2.1.0"
   }
 }

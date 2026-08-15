@@ -37,6 +37,11 @@ export const coverageBase = {
     // honoured a `limit` parameter the deployed handler ignores. It calls
     // `route` now, so the exemption is earned rather than asserted.
     "src/serve.ts",
+    // Command line entry points. Wiring only, by construction: the decisions
+    // live in a sibling module that is imported and tested, and what remains is
+    // reading environment variables and calling it. Same rule as serve.ts, and
+    // the same pattern stryker already excludes from mutation.
+    "src/**/*-cli.ts",
   ],
   reporter: ["text-summary", "json-summary"] as string[],
 };

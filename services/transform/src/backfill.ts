@@ -1,44 +1,81 @@
 /**
  * Replay every raw object for a tenant through the transform.
  *
- * This is the backfill component: the same code path an S3 event drives, run
- * over a prefix instead. It exists because every write is idempotent, so
- * re-running the whole landing zone converges rather than duplicating — which
- * is the entire reason raw is kept.
+ * The same code path an S3 event drives, run over a prefix instead. It exists
+ * because every write is idempotent, so re-running the whole landing zone
+ * converges rather than duplicating — which is the entire reason raw is kept.
  *
  * Usage:
  *   TENANT=frost BUCKET=<name> TABLE=<name> node src/backfill.ts [--dry-run]
+ *
+ * Point TABLE at a NEW table rather than the live one. The live table has a
+ * DynamoDB stream that triggers the categoriser, so replaying into it re-runs
+ * categorisation across everything, which costs money in model mode. A fresh
+ * table has no stream, and gives you something to compare against — see
+ * `compare.ts`.
+ *
+ * ## Order does not matter
+ *
+ * This used to claim otherwise: "ordering matters for accounts before
+ * balances". It never provided that guarantee — replay follows S3 lexicographic
+ * order, and `dataset=truelayer.card_balance` sorts before
+ * `dataset=truelayer.cards` because `_` precedes `s`, so card balances have
+ * always been written first.
+ *
+ * A completed replay converges to the same state in any order:
+ *
+ *   - transactions are idempotent puts keyed by `dedupKey`
+ *   - `putAccount` and `putBalances` are partial updates to one item touching
+ *     mostly disjoint attributes; they overlap only on `currency`, where both
+ *     write the same value
+ *   - enrichments are produced by the categoriser, not here, so they are never
+ *     replayed
+ *
+ * The one exception is `replacePending`, which replaces a whole set, so the
+ * last pending object replayed for an account wins. That outcome is
+ * order-dependent and does not matter only because nothing reads pending rows.
+ * If pending is ever surfaced this comes back, quietly, because the replay
+ * still succeeds and merely leaves a stale set.
  */
 
 import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { Ledger } from "@tightarse/ledger";
 import { transformObject } from "./transform.js";
 
-function requireEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) {
-    console.error(`Missing ${name}`);
-    process.exit(1);
-  }
-  return v;
+export interface ReplayDeps {
+  readonly s3: S3Client;
+  readonly ledger: Ledger;
+  readonly bucket: string;
 }
 
-async function main() {
-  const tenantId = requireEnv("TENANT");
-  const bucket = requireEnv("BUCKET");
-  const tableName = requireEnv("TABLE");
-  const region = process.env["AWS_REGION"] ?? "eu-west-1";
-  const dryRun = process.argv.includes("--dry-run");
+export interface ReplayFailure {
+  readonly key: string;
+  readonly error: string;
+}
 
-  const s3 = new S3Client({ region });
-  const ledger = new Ledger({ tableName, region });
+export interface ReplayResult {
+  /** Raw objects found under the tenant prefix. */
+  readonly objects: number;
+  /** Ledger rows written. Zero on a dry run. */
+  readonly rows: number;
+  readonly byHandler: Readonly<Record<string, number>>;
+  readonly failures: readonly ReplayFailure[];
+}
 
+export interface ReplayOptions {
+  readonly tenantId: string;
+  readonly dryRun?: boolean;
+  readonly log?: ((line: string) => void) | undefined;
+}
+
+/** Every raw object key under a tenant, following pagination to the end. */
+export async function listRawKeys(deps: ReplayDeps, tenantId: string): Promise<string[]> {
   const keys: string[] = [];
   let token: string | undefined;
   do {
-    const res = await s3.send(
+    const res = await deps.s3.send(
       new ListObjectsV2Command({
-        Bucket: bucket,
+        Bucket: deps.bucket,
         Prefix: `tenant=${tenantId}/`,
         ...(token ? { ContinuationToken: token } : {}),
       }),
@@ -46,45 +83,41 @@ async function main() {
     for (const o of res.Contents ?? []) if (o.Key) keys.push(o.Key);
     token = res.NextContinuationToken;
   } while (token);
+  return keys;
+}
 
-  console.log(`${keys.length} objects under tenant=${tenantId}${dryRun ? " (dry run)" : ""}\n`);
+export async function replay(deps: ReplayDeps, opts: ReplayOptions): Promise<ReplayResult> {
+  const write = opts.log ?? console.log;
+  const keys = await listRawKeys(deps, opts.tenantId);
+
+  write(`${keys.length} objects under tenant=${opts.tenantId}${opts.dryRun ? " (dry run)" : ""}\n`);
 
   let rows = 0;
   const byHandler: Record<string, number> = {};
-  const failures: Array<{ key: string; error: string }> = [];
+  const failures: ReplayFailure[] = [];
 
-  // Sequential on purpose. Ordering matters for accounts before balances, the
-  // volume is small, and a stampede of parallel writes would only make a
-  // partial failure harder to reason about.
+  // Sequential. Not for correctness — see the note above — but because the
+  // volume is small and a stampede of parallel writes would make a partial
+  // failure harder to reason about.
   for (const key of keys) {
+    if (opts.dryRun) {
+      write(`  would transform  ${key}`);
+      continue;
+    }
     try {
-      if (dryRun) {
-        console.log(`  would transform  ${key}`);
-        continue;
-      }
-      const r = await transformObject({ s3, ledger, bucket }, key);
+      const r = await transformObject(deps, key);
       rows += r.rows;
       byHandler[r.handler] = (byHandler[r.handler] ?? 0) + r.rows;
-      console.log(`  ${String(r.rows).padStart(5)} rows  ${r.handler.padEnd(9)}  ${r.dataset}`);
+      write(`  ${String(r.rows).padStart(5)} rows  ${r.handler.padEnd(9)}  ${r.dataset}`);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      failures.push({ key, error: message });
-      console.error(`  FAILED  ${key}\n          ${message}`);
+      // Collected rather than thrown: one unreadable object should not hide
+      // what the other two hundred did, and a partial replay you know the shape
+      // of is more useful than a stack trace.
+      const error = err instanceof Error ? err.message : String(err);
+      failures.push({ key, error });
+      write(`  FAILED  ${key}\n          ${error}`);
     }
   }
 
-  if (!dryRun) {
-    console.log(`\n${rows} rows written`);
-    for (const [h, n] of Object.entries(byHandler)) console.log(`  ${h.padEnd(9)} ${n}`);
-  }
-
-  if (failures.length > 0) {
-    console.error(`\n${failures.length} object(s) failed`);
-    process.exit(1);
-  }
+  return { objects: keys.length, rows, byHandler, failures };
 }
-
-main().catch((err: unknown) => {
-  console.error("backfill failed:", err instanceof Error ? err.message : err);
-  process.exit(1);
-});
