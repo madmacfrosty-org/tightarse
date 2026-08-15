@@ -30,13 +30,26 @@ export interface ApiDeps {
   readonly ledger: Pick<Ledger, "listRange" | "listAccounts">;
 }
 
+/**
+ * Where the ledger client points, read from the environment.
+ *
+ * Separate and taking `env` as an argument so both sides of each fallback are
+ * testable. Inline, they were only ever exercised on whichever side the running
+ * machine happened to be on — `AWS_REGION` is set in CI and unset on a laptop,
+ * so branch coverage differed between the two and a threshold pinned locally
+ * failed the build in CI.
+ */
+export function ledgerConfig(env: NodeJS.ProcessEnv): { tableName: string; region: string } {
+  return {
+    tableName: env["TABLE_NAME"] ?? "",
+    region: env["AWS_REGION"] ?? "eu-west-1",
+  };
+}
+
 /** Built by the entry point below, and by nothing a test runs. */
 export function realDeps(): ApiDeps {
   return {
-    ledger: new Ledger({
-      tableName: process.env["TABLE_NAME"] ?? "",
-      region: process.env["AWS_REGION"] ?? "eu-west-1",
-    }),
+    ledger: new Ledger(ledgerConfig(process.env)),
   };
 }
 

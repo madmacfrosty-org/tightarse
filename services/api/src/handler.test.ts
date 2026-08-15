@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { handler, route, realDeps, type ApiDeps } from "./handler.js";
+import { handler, ledgerConfig, route, realDeps, type ApiDeps } from "./handler.js";
 
 /**
  * The routing was unreachable until the ledger client became an argument: it
@@ -155,5 +155,26 @@ describe("the Lambda entry point", () => {
     // this constructs a client and touches no network.
     const res = await handler(event({ requestContext: undefined }) as never);
     expect(res.statusCode).toBe(403);
+  });
+});
+
+describe("where the ledger client points", () => {
+  it("uses the table and region the environment gives it", () => {
+    expect(ledgerConfig({ TABLE_NAME: "tightarse-dev-Ledger", AWS_REGION: "eu-west-2" })).toEqual({
+      tableName: "tightarse-dev-Ledger",
+      region: "eu-west-2",
+    });
+  });
+
+  it("falls back to the deployed region when AWS_REGION is unset", () => {
+    // Set in CI and in Lambda, unset on a laptop. Both sides are asserted here
+    // so branch coverage does not depend on which machine ran the suite.
+    expect(ledgerConfig({ TABLE_NAME: "t" }).region).toBe("eu-west-1");
+  });
+
+  it("yields an empty table name rather than throwing when TABLE_NAME is unset", () => {
+    // Deliberate: the Lambda would fail on first use with a DynamoDB error
+    // naming the empty table, which is clearer than a module that will not load.
+    expect(ledgerConfig({}).tableName).toBe("");
   });
 });
