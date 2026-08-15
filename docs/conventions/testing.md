@@ -177,6 +177,17 @@ In order of preference:
    neither the debit nor the credit filter and is skipped two lines later. The
    comment there says so, so nobody chases them twice.
 
+   `api-contract` has twenty-one, all prose inside `.describe()`. Killing them
+   would mean asserting each string back to itself, and deleting them would
+   throw away the text that becomes the published OpenAPI documentation. The
+   part that is behaviour *is* asserted: every monetary field is checked to say
+   it is in minor units, because a client that loses that is wrong by a factor
+   of a hundred rather than merely undocumented. The date and month formats are
+   asserted too — a generated Swift decoder given `2026-3` fails the whole
+   response, not one field. When the OpenAPI document is generated and
+   snapshotted, that snapshot covers the remaining descriptions in one place and
+   this floor should rise.
+
 Never chase the score with tests that assert the code back to itself. A test
 written by reading the implementation kills the mutant and verifies nothing; two
 bugs in this repository were enshrined exactly that way.

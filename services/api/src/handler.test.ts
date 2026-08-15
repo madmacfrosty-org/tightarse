@@ -120,6 +120,57 @@ describe("routing", () => {
     expect(body(res)["range"]).toEqual({ from: "2026-01-01", to: "2026-02-01" });
   });
 
+  it("does not serve table keys, the tenant or the provider's account id", async () => {
+    // /accounts used to return whatever DynamoDB held, so the partition key,
+    // the household id and TrueLayer's own account id all went to the browser.
+    // None is any use to a client and all three become a promise once served.
+    listAccounts.mockResolvedValue([
+      {
+        pk: "T#frost",
+        sk: "ACCOUNT#acc-1",
+        gsi1pk: "T#frost#ACCOUNT#acc-1",
+        kind: "ACCOUNT",
+        tenantId: "frost",
+        provider: "truelayer",
+        providerAccountId: "provider-internal-id",
+        accountId: "acc-1",
+        displayName: "Current",
+        institutionName: "First Direct",
+        currency: "GBP",
+        isCard: false,
+        currentBalance: 123_45,
+      },
+    ]);
+    const res = await route(deps, event({ rawPath: "/v1/accounts" }) as never);
+    const [account] = body(res)["accounts"] as Array<Record<string, unknown>>;
+
+    for (const leaked of ["pk", "sk", "gsi1pk", "kind", "tenantId", "provider", "providerAccountId"]) {
+      expect(account).not.toHaveProperty(leaked);
+    }
+    expect(account).toEqual({
+      accountId: "acc-1",
+      displayName: "Current",
+      institutionName: "First Direct",
+      currency: "GBP",
+      isCard: false,
+      currentBalance: 123_45,
+    });
+  });
+
+  it("passes on a half-written account rather than dropping it", async () => {
+    // putBalances creates the row when balances arrive before details. Omitting
+    // such an account understates the household's position, which is a quieter
+    // wrong answer than showing it incomplete. isCard stays absent — "not yet
+    // known" is not "not a card". See #29.
+    listAccounts.mockResolvedValue([
+      { pk: "T#frost", sk: "ACCOUNT#acc-2", tenantId: "frost", accountId: "acc-2", currentBalance: 500_00 },
+    ]);
+    const res = await route(deps, event({ rawPath: "/v1/accounts" }) as never);
+    const [account] = body(res)["accounts"] as Array<Record<string, unknown>>;
+    expect(account).toEqual({ accountId: "acc-2", currentBalance: 500_00 });
+    expect(account).not.toHaveProperty("isCard");
+  });
+
   it("404s an unknown path rather than falling through to a summary", async () => {
     const res = await route(deps, event({ rawPath: "/v1/nonsense" }) as never);
     expect(res.statusCode).toBe(404);

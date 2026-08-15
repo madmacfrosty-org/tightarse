@@ -1,5 +1,25 @@
+import {
+  type CategoryTotal,
+  type MonthTotal,
+  type Summary,
+  type TransactionView,
+  type AccountView,
+} from "@tightarse/api-contract";
 import { assertSingleCurrency } from "@tightarse/schema";
 import { detectTransfers, type TransferOptions } from "./transfers.js";
+
+/**
+ * The response shapes are defined in `@tightarse/api-contract`, not here.
+ *
+ * They used to be interfaces in this file, and the dashboard kept its own copy
+ * of each — already drifted, and a rename would have compiled clean on both
+ * sides and rendered `undefined`. See #22.
+ *
+ * `LedgerRow` and `EnrichmentRow` stay below: they describe what comes back
+ * from the ledger, which is an input to this file rather than anything promised
+ * to a client.
+ */
+export type { CategoryTotal, MonthTotal, Summary, TransactionView, AccountView };
 
 /**
  * Aggregation over ledger rows. Pure — no DynamoDB, no HTTP.
@@ -26,49 +46,6 @@ export interface EnrichmentRow {
   confidence?: number;
 }
 
-export interface CategoryTotal {
-  category: string;
-  /** Negative for spending, positive for income. */
-  total: number;
-  count: number;
-  /** True when this came from the provider rather than our categoriser. */
-  provisional: boolean;
-}
-
-export interface MonthTotal {
-  month: string;
-  income: number;
-  spend: number;
-  net: number;
-  count: number;
-}
-
-export interface Summary {
-  currency: string | null;
-  from: string;
-  to: string;
-  transactionCount: number;
-  income: number;
-  spend: number;
-  net: number;
-  byCategory: CategoryTotal[];
-  byMonth: MonthTotal[];
-  /**
-   * Whether movement between the household's own accounts has been removed from
-   * income and spend. Reported rather than assumed, so a caller can never
-   * mistake an inflated total for a real one.
-   */
-  internalTransfersNetted: boolean;
-  /** How many transactions were identified as legs of an internal transfer. */
-  transferCount: number;
-  /** Absolute value moved between own accounts, in minor units. Excluded from
-   *  income and spend, but reported so the movement is visible rather than
-   *  simply missing. */
-  transferTotal: number;
-  /** How many rows carry a category from our own categoriser rather than the
-   *  provider. Zero until the categoriser runs. */
-  enrichedCount: number;
-}
 
 /**
  * Category for a row: ours if the categoriser has produced one, otherwise the
@@ -160,9 +137,45 @@ export function summarise(
 export function mergeEnrichments(
   transactions: readonly LedgerRow[],
   enrichments: readonly EnrichmentRow[],
-): Array<LedgerRow & { category: string; provisional: boolean }> {
+): TransactionView[] {
   const enriched = new Map(enrichments.map((e) => [e.dedupKey, e]));
   return [...transactions]
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
     .map((row) => ({ ...row, ...categoryOf(row, enriched) }));
+}
+
+/**
+ * A stored account row, as the client is allowed to see it.
+ *
+ * `/accounts` used to return whatever DynamoDB held, so the partition key, the
+ * tenant id and the provider's own account id all went to the browser. None is
+ * any use to a client and all three became a promise the moment they were
+ * served.
+ *
+ * A projection rather than `AccountView.parse`, deliberately. A strict parse
+ * would throw on one malformed row and fail the whole endpoint, and an account
+ * missing from the list understates the household's position — a quieter wrong
+ * answer than an error. The return type is what keeps this honest: adding a
+ * required field to the contract fails this function's build.
+ */
+export function toAccountView(row: Record<string, unknown>): AccountView {
+  const str = (key: string): string | undefined =>
+    typeof row[key] === "string" ? (row[key] as string) : undefined;
+  const num = (key: string): number | undefined =>
+    typeof row[key] === "number" ? (row[key] as number) : undefined;
+
+  return {
+    accountId: str("accountId") ?? "",
+    // Absent rather than defaulted. See the contract: for isCard in particular,
+    // "not yet known" and "not a card" are different answers and #29 is about
+    // what a client should do with the difference.
+    ...(str("displayName") !== undefined ? { displayName: str("displayName")! } : {}),
+    ...(str("institutionName") !== undefined ? { institutionName: str("institutionName")! } : {}),
+    ...(str("currency") !== undefined ? { currency: str("currency")! } : {}),
+    ...(typeof row["isCard"] === "boolean" ? { isCard: row["isCard"] } : {}),
+    ...(str("accountType") !== undefined ? { accountType: str("accountType")! } : {}),
+    ...(num("currentBalance") !== undefined ? { currentBalance: num("currentBalance")! } : {}),
+    ...(num("availableBalance") !== undefined ? { availableBalance: num("availableBalance")! } : {}),
+    ...(str("lastSyncedAt") !== undefined ? { lastSyncedAt: str("lastSyncedAt")! } : {}),
+  };
 }

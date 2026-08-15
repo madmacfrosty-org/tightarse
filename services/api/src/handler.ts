@@ -1,5 +1,5 @@
 import { Ledger } from "@tightarse/ledger";
-import { mergeEnrichments, summarise, type EnrichmentRow, type LedgerRow } from "./aggregate.js";
+import { mergeEnrichments, summarise, toAccountView, type EnrichmentRow, type LedgerRow } from "./aggregate.js";
 
 /**
  * HTTP API handler.
@@ -102,7 +102,7 @@ export async function route(deps: ApiDeps, event: HttpEvent) {
       return json(200, { range, transactions: mergeEnrichments(txns, enr) });
     }
     if (path.endsWith("/accounts")) {
-      return json(200, { accounts: await deps.ledger.listAccounts(tenantId) });
+      return json(200, { accounts: (await deps.ledger.listAccounts(tenantId)).map(toAccountView) });
     }
     return json(404, { error: `No route for ${path}` });
   } catch (err) {

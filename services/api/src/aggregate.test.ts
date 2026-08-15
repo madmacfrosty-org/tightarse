@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { summarise, mergeEnrichments, type LedgerRow, type EnrichmentRow } from "./aggregate.js";
+import { summarise, mergeEnrichments, toAccountView, type LedgerRow, type EnrichmentRow } from "./aggregate.js";
 
 /**
  * Overrides for a test-data builder.
@@ -116,5 +116,60 @@ describe("mergeEnrichments", () => {
     expect(merged[0]!.timestamp).toBe("2026-06-01T00:00:00Z");
     expect(merged[0]!.category).toBe("Transport");
     expect(merged[1]!.provisional).toBe(true);
+  });
+});
+
+describe("projecting a stored account for a client", () => {
+  const full = {
+    pk: "T#frost",
+    sk: "ACCOUNT#acc-1",
+    kind: "ACCOUNT",
+    tenantId: "frost",
+    provider: "truelayer",
+    providerAccountId: "provider-internal-id",
+    accountId: "acc-1",
+    displayName: "Current",
+    institutionName: "First Direct",
+    currency: "GBP",
+    isCard: true,
+    accountType: "TRANSACTION",
+    currentBalance: 123_45,
+    availableBalance: 100_00,
+    lastSyncedAt: "2026-08-15T06:00:00Z",
+  };
+
+  it("keeps every field the contract publishes and nothing else", () => {
+    expect(toAccountView(full)).toEqual({
+      accountId: "acc-1",
+      displayName: "Current",
+      institutionName: "First Direct",
+      currency: "GBP",
+      isCard: true,
+      accountType: "TRANSACTION",
+      currentBalance: 123_45,
+      availableBalance: 100_00,
+      lastSyncedAt: "2026-08-15T06:00:00Z",
+    });
+  });
+
+  it("omits what the row does not have, rather than inventing it", () => {
+    // putBalances creates a row with balances and no identity, so every one of
+    // these is genuinely absent in production. A default here would be a client
+    // reading a made-up institution name, or worse a made-up isCard.
+    expect(toAccountView({ accountId: "acc-2" })).toEqual({ accountId: "acc-2" });
+  });
+
+  it("ignores a field of the wrong type instead of passing it through", () => {
+    // The row is Record<string, unknown> straight from DynamoDB. A number where
+    // a name belongs should not reach a generated client that expects a string.
+    expect(toAccountView({ accountId: "acc-3", displayName: 42, currentBalance: "lots" })).toEqual({
+      accountId: "acc-3",
+    });
+  });
+
+  it("survives a row with no accountId rather than throwing", () => {
+    // Would mean a corrupt row. Failing the whole endpoint hides every other
+    // account, and a missing account understates the household's position.
+    expect(toAccountView({}).accountId).toBe("");
   });
 });
