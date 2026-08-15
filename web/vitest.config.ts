@@ -28,10 +28,21 @@ export default defineConfig({
       // Measured with no .env.local, which is CI. loadConfig takes a different
       // branch when build-time values are present, so a threshold pinned on a
       // developer machine fails the build on a machine difference.
+      //
+      // `autoUpdate` does not know that and will raise `branches` from a local
+      // run, which is how this broke main: 87.19 pinned here against the 87.03
+      // CI can reach. Vite inlines import.meta.env at transform time, so with
+      // .env.local present the fetch fallback is unreachable and the branch
+      // stops counting. Reproduce CI's number before committing a raise:
+      //
+      //   mv .env.local .env.local.bak && CI=true npx vitest run --coverage \
+      //     --coverage.reporter=text ; mv .env.local.bak .env.local
+      //
+      // Only `branches` moves; the other three are the same either way.
       thresholds: {
         lines: 86.06,
         functions: 62.5,
-        branches: 87.19,
+        branches: 87.0,
         statements: 86.06,
         autoUpdate,
       },
