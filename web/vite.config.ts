@@ -3,6 +3,20 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    // The dev-server half of the same problem as `commonjsOptions` below.
+    //
+    // The workspace packages build to CommonJS. Vite excludes *linked* packages
+    // from dependency pre-bundling by default, so in dev it served
+    // `packages/api-contract/dist/index.js` verbatim — `"use strict"; exports.pathFor = …`
+    // straight to a browser that has no `exports`. That throws on the first
+    // line and renders a blank page with the error only in the console.
+    //
+    // Listing it here makes Vite pre-bundle it to ESM, the same conversion
+    // rollup does for the production build. Both are needed: `build` and `dev`
+    // are separate pipelines and fixing one leaves the other broken.
+    include: ["@tightarse/api-contract"],
+  },
   build: {
     commonjsOptions: {
       // The workspace packages build to CommonJS, and rollup only converts

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  niceStep,
   balanceScale,
   categoryScale,
   flowScale,
@@ -175,6 +176,24 @@ describe("axis labels", () => {
   });
 });
 
+describe("round axis steps", () => {
+  it("rounds up to 1, 2 or 5 times a power of ten", () => {
+    // The steps people read money in. 3s and 7s make an axis you have to do
+    // arithmetic on.
+    expect(niceStep(1)).toBe(1);
+    expect(niceStep(1.5)).toBe(2);
+    expect(niceStep(2.2)).toBe(2.5);
+    expect(niceStep(3)).toBe(5);
+    expect(niceStep(6)).toBe(10);
+    expect(niceStep(1234)).toBe(2000);
+  });
+
+  it("never returns zero, which would loop forever building ticks", () => {
+    expect(niceStep(0)).toBeGreaterThan(0);
+    expect(niceStep(-5)).toBeGreaterThan(0);
+  });
+});
+
 describe("the balance line's scale", () => {
   const d = (date: string, net: number) => ({ date, net });
 
@@ -211,6 +230,39 @@ describe("the balance line's scale", () => {
     const none = balanceScale([]);
     expect(none.points).toHaveLength(0);
     expect(none.area).toBe("");
+  });
+
+  it("labels the value axis at round numbers", () => {
+    // Ticks at the exact min and max would label the axis with whatever the
+    // padding happened to produce — £1,847 rather than £2k.
+    const s = balanceScale([d("2026-01-01", 0), d("2026-02-01", 1_000_00)]);
+    expect(s.yTicks.length).toBeGreaterThanOrEqual(3);
+    for (const t of s.yTicks) expect(t.label).toMatch(/^−?£[\d.]+k?$/);
+    // Every tick sits inside the plot rather than off the top or bottom.
+    for (const t of s.yTicks) {
+      expect(t.y).toBeGreaterThanOrEqual(0);
+      expect(t.y).toBeLessThanOrEqual(s.plotHeight);
+    }
+  });
+
+  it("keeps enough labels to read the top of the chart", () => {
+    // The real household spans about −£10k to £90k, and a step that rounded up
+    // too far left exactly two labels — £0 and £50k — with nothing near the
+    // peak the chart was drawn to show.
+    const s = balanceScale([d("2026-01-01", -10_584_53), d("2026-06-01", 90_491_35)]);
+    expect(s.yTicks.length).toBeGreaterThanOrEqual(4);
+    expect(Math.max(...s.yTicks.map((t) => t.value))).toBeGreaterThanOrEqual(75_000_00);
+  });
+
+  it("signs a negative value label, because a debt is not a holding", () => {
+    const s = balanceScale([d("2026-01-01", -500_00), d("2026-02-01", 500_00)]);
+    expect(s.yTicks.some((t) => t.label.startsWith("−"))).toBe(true);
+  });
+
+  it("reserves a gutter so the labels are not drawn over the line", () => {
+    const s = balanceScale([d("2026-01-01", 100), d("2026-02-01", 200)]);
+    expect(s.axisWidth).toBeGreaterThan(0);
+    for (const p of s.points) expect(p.x).toBeGreaterThanOrEqual(s.axisWidth);
   });
 
   it("thins the axis labels rather than printing one per month for five years", () => {

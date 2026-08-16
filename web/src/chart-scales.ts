@@ -157,6 +157,9 @@ export interface BalanceDatum {
 
 export interface BalanceScale {
   readonly width: number;
+  /** Left gutter reserved for the value labels. The plot starts here. */
+  readonly axisWidth: number;
+  readonly yTicks: ReadonlyArray<{ value: number; y: number; label: string }>;
   readonly height: number;
   readonly plotHeight: number;
   /** The y of zero, whether or not zero is inside the visible range. */
@@ -173,6 +176,25 @@ export interface BalanceScale {
 }
 
 /**
+ * A round step at or above `rough`, so labels read £2k rather than £1,847.
+ *
+ * 1, 2, 2.5, 5 or 10 times a power of ten — the steps people read money in.
+ * 2.5 earns its place: without it a span of £100k rounded from £25k up to £50k
+ * and the axis had two labels on it, neither of them near the top of the chart.
+ */
+export function niceStep(rough: number): number {
+  if (rough <= 0) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(rough));
+  const normalised = rough / magnitude;
+  const step = normalised <= 1 ? 1 : normalised <= 2 ? 2 : normalised <= 2.5 ? 2.5 : normalised <= 5 ? 5 : 10;
+  return step * magnitude;
+}
+
+/** Axis label for a signed amount, so a negative position reads as one. */
+export const compactSigned = (minor: number): string =>
+  `${minor < 0 ? "−" : ""}${compact(minor)}`;
+
+/**
  * A balance line over time.
  *
  * The vertical scale spans the data rather than starting at zero. A household
@@ -184,7 +206,7 @@ export interface BalanceScale {
  */
 export function balanceScale(
   data: readonly BalanceDatum[],
-  opts: { plotHeight?: number; targetWidth?: number } = {},
+  opts: { plotHeight?: number; targetWidth?: number; axisWidth?: number } = {},
 ): BalanceScale {
   const plotHeight = opts.plotHeight ?? 220;
   const width = opts.targetWidth ?? 720;
@@ -199,7 +221,23 @@ export function balanceScale(
   const max = rawMax + pad;
 
   const y = (net: number) => plotHeight - ((net - min) / (max - min)) * plotHeight;
-  const x = (i: number) => (data.length <= 1 ? width / 2 : (i / (data.length - 1)) * width);
+  // The plot starts after the gutter, so the value labels have somewhere to sit
+  // that is not on top of the line.
+  const axisWidth = opts.axisWidth ?? 52;
+  const plotWidth = width - axisWidth;
+  const x = (i: number) =>
+    data.length <= 1 ? axisWidth + plotWidth / 2 : axisWidth + (i / (data.length - 1)) * plotWidth;
+
+  // Ticks at round values inside the visible span, rather than at the exact
+  // min and max — which would label the axis with whatever the padding
+  // happened to produce.
+  // Five intervals rather than four: the step only ever rounds up, so aiming
+  // low leaves a sparser axis than intended.
+  const step = niceStep((max - min) / 5);
+  const yTicks: Array<{ value: number; y: number; label: string }> = [];
+  for (let v = Math.ceil(min / step) * step; v <= max; v += step) {
+    yTicks.push({ value: v, y: y(v), label: compactSigned(v) });
+  }
 
   const points = data.map((d, i) => ({ ...d, x: x(i), y: y(d.net) }));
   const path = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
@@ -218,6 +256,8 @@ export function balanceScale(
 
   return {
     width,
+    axisWidth,
+    yTicks,
     height: plotHeight + 28,
     plotHeight,
     zeroY: y(0),

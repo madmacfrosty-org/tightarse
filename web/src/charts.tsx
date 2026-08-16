@@ -205,7 +205,8 @@ export function BalanceLine({ data }: { data: BalanceDatum[] }) {
   const { setTip, node } = useTooltip();
   if (data.length === 0) return <p className="subtle">No balance history for this period.</p>;
 
-  const { width, height, plotHeight, path, area, points, ticks, zeroY, zeroVisible } = balanceScale(data);
+  const { width, axisWidth, height, plotHeight, path, area, points, ticks, yTicks, zeroY, zeroVisible } =
+    balanceScale(data);
   // One hit target per point is thousands of nodes over a long range, so the
   // pointer is mapped to the nearest point instead.
   const nearest = (clientX: number, rect: DOMRect) => {
@@ -218,9 +219,11 @@ export function BalanceLine({ data }: { data: BalanceDatum[] }) {
   return (
     <div className="chart-scroll">
       <svg
-        width="100%"
         viewBox={`0 0 ${width} ${height}`}
-        preserveAspectRatio="none"
+        // Scales to the container while keeping its proportions. Stretching it
+        // with preserveAspectRatio="none" also stretches the axis labels, which
+        // is what it looked like before there were any worth reading.
+        style={{ width: "100%", height: "auto" }}
         role="img"
         aria-label="Net position over time"
         onMouseMove={(e) => {
@@ -245,6 +248,24 @@ export function BalanceLine({ data }: { data: BalanceDatum[] }) {
           </linearGradient>
         </defs>
 
+        {/* Gridlines first, so the line and its fill sit on top of them. */}
+        {yTicks.map((t) => (
+          <g key={t.value}>
+            <line
+              x1={axisWidth}
+              x2={width}
+              y1={t.y}
+              y2={t.y}
+              stroke="var(--grid)"
+              strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
+            />
+            <text x={axisWidth - 8} y={t.y + 4} textAnchor="end" fontSize={11} fill="var(--text-muted)">
+              {t.label}
+            </text>
+          </g>
+        ))}
+
         <path d={area} fill="url(#balance-fill)" />
         <path d={path} fill="none" stroke="var(--in)" strokeWidth={2} vectorEffect="non-scaling-stroke" />
 
@@ -252,7 +273,7 @@ export function BalanceLine({ data }: { data: BalanceDatum[] }) {
             the plot, or squash the line to make room for a line meaning nothing. */}
         {zeroVisible && (
           <line
-            x1={0}
+            x1={axisWidth}
             x2={width}
             y1={zeroY}
             y2={zeroY}
