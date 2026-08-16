@@ -1,6 +1,6 @@
 import { pathFor } from "@tightarse/api-contract";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const identity = { email: "someone@example.com", tenant: "frost" };
 
@@ -53,7 +53,7 @@ const balances = {
 
 const defaultApiGet = async (path: string): Promise<unknown> => {
   if (path.startsWith(pathFor("/summary"))) return summary;
-  if (path.startsWith(pathFor("/accounts"))) return { accounts };
+  if (path.startsWith(pathFor("/accounts"))) return { accounts, completeFrom: "2024-01-01" };
   if (path.startsWith(pathFor("/transactions"))) return { transactions };
   if (path.startsWith(pathFor("/balances"))) return balances;
   throw new Error(`unexpected path ${path}`);
@@ -302,6 +302,44 @@ describe("chrome", () => {
     const { App } = await import("./App");
     render(<App />);
     await waitFor(() => expect(screen.getByText(/225/)).toBeDefined());
+  });
+
+  it("asks for the known window on All time, not for everything", async () => {
+    // The bug this replaces: "All time" sent a fifty-year range to every
+    // endpoint. The chart clamps and was fine; the transaction list does not,
+    // and the full history is over Lambda's 6MB response limit — so it failed
+    // with a 500 after several seconds of loading.
+    const { App } = await import("./App");
+    render(<App />);
+    await screen.findByText("−£6,376.02");
+
+    const allTime = screen.getByRole("button", { name: "All time" });
+    expect((allTime as HTMLButtonElement).disabled).toBe(false);
+    apiGet.mockClear();
+    apiGet.mockImplementation(defaultApiGet);
+    fireEvent.click(allTime);
+
+    await waitFor(() => {
+      const txn = apiGet.mock.calls.map(String).find((p) => p.includes("/transactions"));
+      expect(txn).toBeDefined();
+      // completeFrom from the accounts response, not fifty years ago.
+      expect(txn).toContain("from=2024-01-01");
+    });
+  });
+
+  it("does not offer All time before it knows what that means", async () => {
+    // Offering it early would silently show twelve months under a label
+    // promising everything.
+    apiGet.mockImplementation(async (path: string) => {
+      if (path.startsWith(pathFor("/summary"))) return summary;
+      if (path.startsWith(pathFor("/accounts"))) return { accounts };
+      if (path.startsWith(pathFor("/transactions"))) return { transactions };
+      return balances;
+    });
+    const { App } = await import("./App");
+    render(<App />);
+    await screen.findByText("−£6,376.02");
+    expect((screen.getByRole("button", { name: "All time" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("offers the three ranges", async () => {

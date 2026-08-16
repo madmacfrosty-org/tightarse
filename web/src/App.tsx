@@ -67,6 +67,10 @@ export function App() {
   const [accounts, setAccounts] = useState<AccountView[]>([]);
   const [txns, setTxns] = useState<TransactionView[]>([]);
   const [balances, setBalances] = useState<BalancesResponse | null>(null);
+  // Range-independent, so it survives a range change and is known before "All
+  // time" can be chosen. That is what lets that option ask for the window
+  // itself rather than for everything and hoping the server trims it.
+  const [completeFrom, setCompleteFrom] = useState<string | null>(null);
   const [shown, setShown] = useState(PAGE);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,16 +85,23 @@ export function App() {
 
   useEffect(() => {
     if (!identity) return;
-    // "All time" asks for everything and lets the API clamp. It answers with
-    // the range it actually served, which is the only honest source for how far
-    // back this household's total reaches.
-    const { from, to } = rangeFor(Number.isFinite(days) ? days : 365 * 50, new Date());
+    // "All time" means `completeFrom`, not "everything".
+    //
+    // Asking for fifty years and letting the server trim worked for the chart,
+    // which clamps, and broke the transaction list, which does not: the full
+    // history is over Lambda's 6MB response limit, so the request failed with a
+    // 500 after several seconds. Asking for the window we already know about
+    // keeps every panel on the same range and the response inside the limit.
+    const window = rangeFor(365, new Date());
+    const { from, to } = Number.isFinite(days)
+      ? rangeFor(days, new Date())
+      : { from: completeFrom ?? window.from, to: window.to };
     const q = `?from=${from}&to=${to}`;
     setError(null);
     setShown(PAGE);
     Promise.all([
       apiGet<Summary>(`${pathFor("/summary")}${q}`),
-      apiGet<{ accounts: AccountView[] }>(pathFor("/accounts")),
+      apiGet<{ accounts: AccountView[]; completeFrom?: string }>(pathFor("/accounts")),
       // No `limit`: the API has never honoured one (#28), so asking for 60 and
       // rendering everything in range is what has always happened. A limit
       // without a cursor truncates rather than paginates — it hides rows with
@@ -106,8 +117,15 @@ export function App() {
         setAccounts(a.accounts ?? []);
         setTxns(t.transactions ?? []);
         setBalances(b);
+        setCompleteFrom(a.completeFrom ?? null);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load"));
+    // `completeFrom` is deliberately not a dependency. It is set by this very
+    // effect, so listing it would re-run the whole load the moment it arrives —
+    // two fetches of everything on every page load. The effect is recreated
+    // when `days` changes, which is the only time its value is read, so it is
+    // current when it matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days, identity]);
 
   if (checking) return <div className="page loading">Checking session…</div>;
@@ -147,6 +165,10 @@ export function App() {
           {RANGES.map((r) => (
             <button
               key={r.days}
+              // "All time" means the window every account covers, so it cannot
+              // be offered before that is known. It arrives with the first
+              // load; until then the button would silently show twelve months.
+              disabled={!Number.isFinite(r.days) && completeFrom === null}
               onClick={() => setDays(r.days)}
               aria-pressed={days === r.days}
               style={{
