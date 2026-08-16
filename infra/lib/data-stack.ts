@@ -38,6 +38,9 @@ export class DataStack extends cdk.Stack {
   public readonly rawBucket: s3.Bucket;
   public readonly userPool: cognito.UserPool;
   public readonly userPoolClient: cognito.UserPoolClient;
+  /** The replacement pool from #36, where `email` is mutable. */
+  public readonly userPoolV2: cognito.UserPool;
+  public readonly userPoolClientV2: cognito.UserPoolClient;
 
   constructor(scope: Construct, id: string, props: DataStackProps) {
     super(scope, id, props);
@@ -138,64 +141,26 @@ export class DataStack extends cdk.Stack {
     });
 
     // -------------------------------------------------------------- identity
-
-    this.userPool = new cognito.UserPool(this, "Users", {
-      selfSignUpEnabled: false, // family only — accounts are created by hand
-      signInAliases: { email: true },
-      /**
-       * Email SHOULD be mutable, and cannot be made so on this pool.
-       *
-       * Cognito re-applies an identity provider's attribute mapping on every
-       * federated sign-in, not only at creation. With `mutable: false` the
-       * first Google sign-in succeeds, creating the user, and every one after
-       * it fails with `user.email: Attribute cannot be updated`. That is the
-       * live symptom today.
-       *
-       * The obvious fix does not work. Setting `mutable: true` here produces a
-       * plain property update, which Cognito rejects outright:
-       *
-       *   Invalid AttributeDataType input, consider using the provided
-       *   AttributeDataType enum
-       *
-       * — its unhelpful way of saying a pool's schema cannot be modified after
-       * creation. Tried on 16 August: the update failed, the stack went to
-       * UPDATE_ROLLBACK_FAILED, and recovering it needed
-       * `continue-update-rollback --resources-to-skip`. The pool itself was
-       * untouched, so nothing was lost, but the stack was unable to deploy
-       * until rescued.
-       *
-       * Fixing it properly means creating a NEW pool and retiring this one,
-       * which is deliberate work rather than a property change — see #36.
-       * Household access survives that, because it lives in a MEMBER row in the
-       * ledger rather than in the pool.
-       */
-      standardAttributes: { email: { required: true, mutable: false } },
-      /**
-       * Which household this identity may read.
-       *
-       * The API takes the tenant from this claim and never from the request. A
-       * query parameter would let any authenticated user read any household's
-       * ledger, so this attribute is the entire access-control model.
-       *
-       * Immutable: a user changing their own household would be a privilege
-       * escalation, and Cognito lets an attribute be self-mutable by default.
-       */
-      customAttributes: {
-        tenant: new cognito.StringAttribute({ minLen: 1, maxLen: 64, mutable: false }),
-      },
-      passwordPolicy: {
-        minLength: 12,
-        requireLowercase: true,
-        requireUppercase: true,
-        requireDigits: true,
-        requireSymbols: false,
-      },
-      mfa: cognito.Mfa.OPTIONAL,
-      mfaSecondFactor: { sms: false, otp: true },
-      accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
-      removalPolicy: settings.removalPolicy,
-      deletionProtection: settings.deletionProtection,
-    });
+    //
+    // Two pools during the changeover in #36, because the first one cannot be
+    // fixed in place.
+    //
+    // `email` must be MUTABLE. Cognito re-applies an identity provider's
+    // attribute mapping on every federated sign-in, not only at creation, so an
+    // immutable email makes the first Google sign-in succeed and every one
+    // after it fail with `user.email: Attribute cannot be updated`.
+    //
+    // It cannot be changed on an existing pool. `UpdateUserPool` has no Schema
+    // parameter at all, and CloudFormation declares Schema as "no
+    // interruption", so it will never replace the pool either — it attempts an
+    // in-place update it has no API to perform and fails with "Invalid
+    // AttributeDataType input". Tried on 16 August: the stack ended in
+    // UPDATE_ROLLBACK_FAILED and needed rescuing.
+    //
+    // So the replacement is a second pool under a different construct id, stood
+    // up alongside, switched to, and then the first removed. Both are built by
+    // one function rather than copied, because a copy of a security-critical
+    // configuration drifts, and the copy would be the one that matters.
 
     /**
      * Injects the household claim at token-issue time.
@@ -207,6 +172,9 @@ export class DataStack extends cdk.Stack {
      *
      * Fails closed: no membership, no claim, and the API refuses a token
      * without one.
+     *
+     * One function serving both pools. It reads a membership row and knows
+     * nothing about which pool asked.
      */
     const preToken = new NodejsFunction(this, "PreTokenGeneration", {
       entry: path.join(__dirname, "../../services/auth/src/pre-token.ts"),
@@ -219,43 +187,6 @@ export class DataStack extends cdk.Stack {
       bundling: { minify: true, sourceMap: true, target: "node22" },
     });
     this.table.grantReadData(preToken);
-    this.userPool.addTrigger(cognito.UserPoolOperation.PRE_TOKEN_GENERATION, preToken);
-
-    // Hosted UI domain. Federation requires the OAuth redirect flow; SRP cannot
-    // do it, so this is what a "Sign in with Google" button actually talks to.
-    this.userPool.addDomain("Domain", {
-      cognitoDomain: { domainPrefix: settings.hostedUiPrefix },
-    });
-
-    // Only created once a Google client exists. Deploying an identity provider
-    // with an empty secret fails, and gating it keeps the stack deployable
-    // before the Google Cloud project is set up.
-    const googleClientId = settings.googleClientId;
-    let googleProvider: cognito.UserPoolIdentityProviderGoogle | undefined;
-    if (googleClientId) {
-      googleProvider = new cognito.UserPoolIdentityProviderGoogle(this, "Google", {
-        userPool: this.userPool,
-        clientId: googleClientId,
-        clientSecretValue: props.googleOAuthSecret.secretValueFromJson("clientSecret"),
-        scopes: ["openid", "email", "profile"],
-        // Google's verified email becomes the pool user's email, which is what
-        // the membership lookup keys on.
-        //
-        // email_verified must be mapped explicitly. Cognito defaults it to
-        // FALSE for a federated user when it is not mapped, and the pre-token
-        // trigger refuses to issue a household claim for an unverified address
-        // — so omitting it silently locked out every Google sign-in while
-        // looking like a membership problem.
-        attributeMapping: {
-          email: cognito.ProviderAttribute.GOOGLE_EMAIL,
-          fullname: cognito.ProviderAttribute.GOOGLE_NAME,
-          custom: {
-            email_verified: cognito.ProviderAttribute.other("email_verified"),
-          },
-        },
-      });
-      this.userPool.registerIdentityProvider(googleProvider);
-    }
 
     const callbackUrls = [
       "http://localhost:5173",
@@ -263,46 +194,158 @@ export class DataStack extends cdk.Stack {
       ...(this.node.tryGetContext("siteUrl") ? [String(this.node.tryGetContext("siteUrl"))] : []),
     ];
 
-    this.userPoolClient = this.userPool.addClient("WebClient", {
-      oAuth: {
-        flows: { authorizationCodeGrant: true },
-        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
-        callbackUrls,
-        logoutUrls: callbackUrls,
-      },
-      supportedIdentityProviders: [
-        cognito.UserPoolClientIdentityProvider.COGNITO,
-        ...(googleClientId ? [cognito.UserPoolClientIdentityProvider.GOOGLE] : []),
-      ],
-      // No client secret: this is a browser app and cannot keep one, and the
-      // authorisation-code flow with PKCE does not need one.
-      generateSecret: false,
-      // Password sign-in stays enabled alongside Google. Losing access to a
-      // Google account should not lock anyone out of their own ledger.
-      authFlows: { userSrp: true },
-      // Short access tokens, long refresh — a leaked access token expires
-      // quickly, and the refresh token is what the browser has to guard.
-      accessTokenValidity: cdk.Duration.hours(1),
-      idTokenValidity: cdk.Duration.hours(1),
-      refreshTokenValidity: cdk.Duration.days(30),
-      // Do not leak whether an email is registered.
-      preventUserExistenceErrors: true,
+    /**
+     * Build a pool, its hosted UI, its Google provider and its web client.
+     *
+     * `emailMutable` is the whole reason this is a function: the two pools are
+     * identical apart from that one flag and their domain prefix, and the first
+     * cannot be changed.
+     */
+    const buildPool = (
+      id: string,
+      googleId: string,
+      opts: { emailMutable: boolean; hostedUiPrefix: string },
+    ): { pool: cognito.UserPool; client: cognito.UserPoolClient } => {
+      const pool = new cognito.UserPool(this, id, {
+        selfSignUpEnabled: false, // family only — accounts are created by hand
+        signInAliases: { email: true },
+        standardAttributes: { email: { required: true, mutable: opts.emailMutable } },
+        /**
+         * Which household this identity may read.
+         *
+         * The API takes the tenant from this claim and never from the request.
+         * A query parameter would let any authenticated user read any
+         * household's ledger, so this attribute is the entire access-control
+         * model.
+         *
+         * Immutable, and unlike email that is correct: a user changing their
+         * own household would be a privilege escalation, and Cognito lets an
+         * attribute be self-mutable by default. Nothing maps it from an
+         * identity provider, so nothing tries to rewrite it on sign-in.
+         */
+        customAttributes: {
+          tenant: new cognito.StringAttribute({ minLen: 1, maxLen: 64, mutable: false }),
+        },
+        passwordPolicy: {
+          minLength: 12,
+          requireLowercase: true,
+          requireUppercase: true,
+          requireDigits: true,
+          requireSymbols: false,
+        },
+        mfa: cognito.Mfa.OPTIONAL,
+        mfaSecondFactor: { sms: false, otp: true },
+        accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+        removalPolicy: settings.removalPolicy,
+        deletionProtection: settings.deletionProtection,
+      });
+
+      pool.addTrigger(cognito.UserPoolOperation.PRE_TOKEN_GENERATION, preToken);
+
+      // Hosted UI domain. Federation requires the OAuth redirect flow; SRP
+      // cannot do it, so this is what a "Sign in with Google" button talks to.
+      pool.addDomain("Domain", { cognitoDomain: { domainPrefix: opts.hostedUiPrefix } });
+
+      // Only created once a Google client exists. Deploying an identity
+      // provider with an empty secret fails, and gating it keeps the stack
+      // deployable before the Google Cloud project is set up.
+      const googleClientId = settings.googleClientId;
+      let googleProvider: cognito.UserPoolIdentityProviderGoogle | undefined;
+      if (googleClientId) {
+        googleProvider = new cognito.UserPoolIdentityProviderGoogle(this, googleId, {
+          userPool: pool,
+          clientId: googleClientId,
+          clientSecretValue: props.googleOAuthSecret.secretValueFromJson("clientSecret"),
+          scopes: ["openid", "email", "profile"],
+          // Google's verified email becomes the pool user's email, which is
+          // what the membership lookup keys on.
+          //
+          // email_verified must be mapped explicitly. Cognito defaults it to
+          // FALSE for a federated user when it is not mapped, and the pre-token
+          // trigger refuses to issue a household claim for an unverified
+          // address — so omitting it silently locked out every Google sign-in
+          // while looking like a membership problem.
+          attributeMapping: {
+            email: cognito.ProviderAttribute.GOOGLE_EMAIL,
+            fullname: cognito.ProviderAttribute.GOOGLE_NAME,
+            custom: {
+              email_verified: cognito.ProviderAttribute.other("email_verified"),
+            },
+          },
+        });
+        pool.registerIdentityProvider(googleProvider);
+      }
+
+      const client = pool.addClient("WebClient", {
+        oAuth: {
+          flows: { authorizationCodeGrant: true },
+          scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
+          callbackUrls,
+          logoutUrls: callbackUrls,
+        },
+        supportedIdentityProviders: [
+          cognito.UserPoolClientIdentityProvider.COGNITO,
+          ...(googleClientId ? [cognito.UserPoolClientIdentityProvider.GOOGLE] : []),
+        ],
+        // No client secret: this is a browser app and cannot keep one, and the
+        // authorisation-code flow with PKCE does not need one.
+        generateSecret: false,
+        // Password sign-in stays enabled alongside Google. Losing access to a
+        // Google account should not lock anyone out of their own ledger.
+        authFlows: { userSrp: true },
+        // Short access tokens, long refresh — a leaked access token expires
+        // quickly, and the refresh token is what the browser has to guard.
+        accessTokenValidity: cdk.Duration.hours(1),
+        idTokenValidity: cdk.Duration.hours(1),
+        refreshTokenValidity: cdk.Duration.days(30),
+        // Do not leak whether an email is registered.
+        preventUserExistenceErrors: true,
+      });
+
+      // Explicit, because registerIdentityProvider did not produce a DependsOn.
+      // Without it CloudFormation updates the client — which lists Google among
+      // its supported providers — before the provider exists, and fails with
+      // "The provider Google does not exist for User Pool".
+      if (googleProvider) client.node.addDependency(googleProvider);
+
+      return { pool, client };
+    };
+
+    // The original. Being retired in #36 and cannot be altered — its email
+    // attribute is immutable and no API can change that.
+    const original = buildPool("Users", "Google", {
+      emailMutable: false,
+      hostedUiPrefix: settings.hostedUiPrefix,
     });
+    this.userPool = original.pool;
+    this.userPoolClient = original.client;
+
+    // The replacement. Nothing consumes it yet — pointing the API at it is the
+    // next step, and keeping that separate means this deploy cannot break a
+    // sign-in that already works.
+    const replacement = buildPool("UsersV2", "GoogleV2", {
+      emailMutable: true,
+      hostedUiPrefix: settings.hostedUiPrefixV2,
+    });
+    this.userPoolV2 = replacement.pool;
+    this.userPoolClientV2 = replacement.client;
 
     // ---------------------------------------------------------------- outputs
 
     new cdk.CfnOutput(this, "LedgerTableName", { value: this.table.tableName });
     new cdk.CfnOutput(this, "RawBucketName", { value: this.rawBucket.bucketName });
     new cdk.CfnOutput(this, "UserPoolId", { value: this.userPool.userPoolId });
-    // Explicit, because registerIdentityProvider did not produce a DependsOn.
-    // Without it CloudFormation updates the client — which lists Google among
-    // its supported providers — before the provider exists, and fails with
-    // "The provider Google does not exist for User Pool".
-    if (googleProvider) this.userPoolClient.node.addDependency(googleProvider);
-
     new cdk.CfnOutput(this, "UserPoolClientId", { value: this.userPoolClient.userPoolClientId });
     new cdk.CfnOutput(this, "HostedUiDomain", {
       value: `${settings.hostedUiPrefix}.auth.${this.region}.amazoncognito.com`,
+    });
+
+    // The replacement from #36, output so the changeover can be followed
+    // without digging through the console.
+    new cdk.CfnOutput(this, "UserPoolIdV2", { value: this.userPoolV2.userPoolId });
+    new cdk.CfnOutput(this, "UserPoolClientIdV2", { value: this.userPoolClientV2.userPoolClientId });
+    new cdk.CfnOutput(this, "HostedUiDomainV2", {
+      value: `${settings.hostedUiPrefixV2}.auth.${this.region}.amazoncognito.com`,
     });
 
     cdk.Tags.of(this).add("app", config.appName);

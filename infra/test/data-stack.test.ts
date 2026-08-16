@@ -77,8 +77,44 @@ describe("identity", () => {
   it("configures federation only where a client id is supplied", () => {
     // prod has none yet. Worth an explicit test so its absence is a recorded
     // state rather than something noticed at sign-in.
-    expect(Object.keys(dev.data.findResources("AWS::Cognito::UserPoolIdentityProvider"))).toHaveLength(1);
+    //
+    // Two in dev, one per pool, while #36's changeover is in progress. Both
+    // pools need their own provider — an identity provider belongs to a pool
+    // and cannot be shared.
+    expect(Object.keys(dev.data.findResources("AWS::Cognito::UserPoolIdentityProvider"))).toHaveLength(2);
     expect(Object.keys(prod.data.findResources("AWS::Cognito::UserPoolIdentityProvider"))).toHaveLength(0);
+  });
+
+  it("gives the replacement pool a mutable email, which is its entire purpose", () => {
+    // The one difference between the two pools, and the reason the second
+    // exists. See #36: an immutable email makes every federated sign-in after
+    // the first fail, and it cannot be changed on a pool that already exists.
+    const pools = Object.values(dev.data.findResources("AWS::Cognito::UserPool"));
+    const emailMutability = pools.map(
+      (p: any) => p.Properties.Schema.find((a: any) => a.Name === "email")?.Mutable,
+    );
+    // One of each during the changeover: the original cannot be fixed, the
+    // replacement is correct.
+    expect(emailMutability.filter((m) => m === true)).toHaveLength(1);
+    expect(emailMutability.filter((m) => m === false)).toHaveLength(1);
+  });
+
+  it("gives the two pools different hosted UI prefixes", () => {
+    // Cognito domain prefixes are globally unique across every AWS account, and
+    // both pools exist at once. Reusing the prefix fails the deploy.
+    const domains = Object.values(dev.data.findResources("AWS::Cognito::UserPoolDomain"));
+    const prefixes = domains.map((d: any) => d.Properties.Domain);
+    expect(prefixes).toHaveLength(2);
+    expect(new Set(prefixes).size).toBe(2);
+  });
+
+  it("attaches the household trigger to both pools, not just the original", () => {
+    // A replacement pool without it issues tokens with no household claim, and
+    // the API refuses every one of them — which reads as a broken app.
+    const pools = Object.values(dev.data.findResources("AWS::Cognito::UserPool"));
+    for (const p of pools) {
+      expect((p as any).Properties.LambdaConfig?.PreTokenGeneration).toBeDefined();
+    }
   });
 
   it("maps email_verified from Google", () => {

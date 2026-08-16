@@ -109,6 +109,14 @@ export interface EnvSettings {
    * are globally unique across all AWS accounts.
    */
   readonly hostedUiPrefix: string;
+  /**
+   * Prefix for the replacement pool being stood up alongside the first.
+   *
+   * A second prefix is needed rather than reusing the first, because Cognito
+   * domain prefixes are globally unique across every AWS account and both pools
+   * exist at once during the changeover. See #36.
+   */
+  readonly hostedUiPrefixV2: string;
   /** How long raw landing-zone objects are kept. See the retention notes on #15. */
   readonly rawRetentionDays: number;
   /**
@@ -131,6 +139,7 @@ const SETTINGS: Record<EnvName, EnvSettings> = {
     autoDeleteObjects: true,
     googleClientId: "242040418333-3re7ehr425qst2ghgf8eh1qk263noe19.apps.googleusercontent.com",
     hostedUiPrefix: "tightarse-dev-068475",
+    hostedUiPrefixV2: "tightarse-dev-068475-b",
     rawRetentionDays: 30,
     // No IA transition: 30 days is inside IA's minimum billing duration.
   },
@@ -141,6 +150,7 @@ const SETTINGS: Record<EnvName, EnvSettings> = {
     pointInTimeRecovery: true,
     autoDeleteObjects: false,
     hostedUiPrefix: "tightarse-prod-068475",
+    hostedUiPrefixV2: "tightarse-prod-068475-b",
     // Long enough to survive a transform rewrite, not indefinite.
     rawRetentionDays: 365,
     rawTransitionToIaDays: 30,
