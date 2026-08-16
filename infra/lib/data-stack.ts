@@ -142,7 +142,26 @@ export class DataStack extends cdk.Stack {
     this.userPool = new cognito.UserPool(this, "Users", {
       selfSignUpEnabled: false, // family only — accounts are created by hand
       signInAliases: { email: true },
-      standardAttributes: { email: { required: true, mutable: false } },
+      /**
+       * Email must be MUTABLE, however wrong that reads.
+       *
+       * Not because anyone should change it — because Cognito re-applies an
+       * identity provider's attribute mapping on every federated sign-in, not
+       * only at creation. With `mutable: false` the first Google sign-in
+       * succeeds, creating the user, and every one after it fails with
+       * `user.email: Attribute cannot be updated`. The account is locked out by
+       * a setting that looks like tightening it.
+       *
+       * This is the third Cognito attribute failure here, after an unmapped
+       * attribute and an unmapped `email_verified`. All three deployed cleanly
+       * and broke only when a person tried to sign in, which is what the
+       * sign-in canary in #23 exists to catch.
+       *
+       * Changing this replaces the user pool: a pool's schema is fixed at
+       * creation and cannot be altered in place. Household access survives,
+       * because it lives in a MEMBER row in the ledger rather than in the pool.
+       */
+      standardAttributes: { email: { required: true, mutable: true } },
       /**
        * Which household this identity may read.
        *

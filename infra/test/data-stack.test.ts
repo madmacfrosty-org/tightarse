@@ -102,10 +102,30 @@ describe("identity", () => {
     });
   });
 
-  it("requires an email and does not let it be changed", () => {
+  it("requires an email and keeps it MUTABLE, or federated sign-in breaks", () => {
+    // This test asserted the opposite, and the opposite is what locked the
+    // account out. Cognito re-applies an identity provider's attribute mapping
+    // on every federated sign-in, not only at creation: with email immutable
+    // the first Google sign-in creates the user and every one after it fails
+    // with "user.email: Attribute cannot be updated".
+    //
+    // `mutable: false` is the intuitive value and reads like tightening
+    // something, which is why it needs saying here as well as in the stack.
+    // Changing it replaces the user pool, so being wrong costs twice.
     dev.data.hasResourceProperties("AWS::Cognito::UserPool", {
       Schema: Match.arrayWith([
-        Match.objectLike({ Name: "email", Required: true, Mutable: false }),
+        Match.objectLike({ Name: "email", Required: true, Mutable: true }),
+      ]),
+    });
+  });
+
+  it("keeps the household claim immutable, which IS the access-control model", () => {
+    // The opposite requirement, and the reason the one above needs explaining.
+    // A user changing their own household would be a privilege escalation, and
+    // Cognito makes custom attributes self-mutable by default.
+    dev.data.hasResourceProperties("AWS::Cognito::UserPool", {
+      Schema: Match.arrayWith([
+        Match.objectLike({ Name: "tenant", Mutable: false }),
       ]),
     });
   });
