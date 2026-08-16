@@ -1,3 +1,4 @@
+import { pathFor } from "@tightarse/api-contract";
 import { useEffect, useState } from "react";
 import { apiGet } from "./auth";
 
@@ -25,7 +26,7 @@ export function ConnectBank() {
   const start = (provider: string) => {
     setBusy(provider);
     setError(null);
-    apiGet<{ url: string }>(`/connect/start?provider=${encodeURIComponent(provider)}`)
+    apiGet<{ url: string }>(`${pathFor("/connect/start")}?provider=${encodeURIComponent(provider)}`)
       .then(({ url }) => window.location.assign(url))
       .catch((e: unknown) => {
         setError(e instanceof Error ? e.message : "Could not start");
@@ -87,7 +88,7 @@ export function Connected({ onFinished }: { onFinished: () => void }) {
     window.history.replaceState({}, "", window.location.pathname);
 
     apiGet<{ connectionId: string; consentExpiresAt: string }>(
-      `/connect/callback?code=${encodeURIComponent(code)}`,
+      `${pathFor("/connect/callback")}?code=${encodeURIComponent(code)}`,
     )
       .then((r) => setState({ phase: "done", expires: r.consentExpiresAt.slice(0, 10) }))
       .catch((e: unknown) =>

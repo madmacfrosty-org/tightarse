@@ -37,7 +37,7 @@ const minorUnits = (what: string) =>
  * Ranges are inclusive at both ends: `from=2026-05-01&to=2026-05-01` is one day
  * and returns that day's transactions.
  */
-const IsoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Date as YYYY-MM-DD");
+export const IsoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Date as YYYY-MM-DD");
 
 export const DateRange = z.object({
   from: IsoDate,
@@ -52,7 +52,7 @@ export type DateRange = z.infer<typeof DateRange>;
  * spending category and presenting one as the other overstates how much of the
  * ledger is actually categorised.
  */
-const provisional = z
+export const Provisional = z
   .boolean()
   .describe("True when this is the provider's own payment type, not a category we produced");
 
@@ -60,7 +60,7 @@ export const CategoryTotal = z.object({
   category: z.string(),
   total: minorUnits("Total for this category, negative for spending and positive for income"),
   count: z.number().int().describe("How many transactions contributed"),
-  provisional,
+  provisional: Provisional,
 });
 export type CategoryTotal = z.infer<typeof CategoryTotal>;
 
@@ -118,7 +118,7 @@ export const TransactionView = z.object({
   transactionType: z.string().describe("The provider's own type. Not the direction — see amount"),
   providerCategory: z.string().optional(),
   category: z.string(),
-  provisional,
+  provisional: Provisional,
 });
 export type TransactionView = z.infer<typeof TransactionView>;
 
@@ -193,3 +193,6 @@ export const AccountsResponse = z.object({
   accounts: z.array(AccountView),
 });
 export type AccountsResponse = z.infer<typeof AccountsResponse>;
+
+// The paths, the version and the compatibility promise (#26, #27).
+export * from "./routes.js";

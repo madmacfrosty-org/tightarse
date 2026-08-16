@@ -1,3 +1,4 @@
+import { pathFor } from "@tightarse/api-contract";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 
@@ -39,9 +40,9 @@ const transactions = [
  * overriding a response silently changed every test after it.
  */
 const defaultApiGet = async (path: string): Promise<unknown> => {
-  if (path.startsWith("/summary")) return summary;
-  if (path.startsWith("/accounts")) return { accounts };
-  if (path.startsWith("/transactions")) return { transactions };
+  if (path.startsWith(pathFor("/summary"))) return summary;
+  if (path.startsWith(pathFor("/accounts"))) return { accounts };
+  if (path.startsWith(pathFor("/transactions"))) return { transactions };
   throw new Error(`unexpected path ${path}`);
 };
 
@@ -66,10 +67,10 @@ describe("an account the sync has not finished describing", () => {
   // an account can legitimately appear mid-sync carrying a balance and nothing
   // else — no name, no institution, and no `isCard`. See #29.
   const halfWritten = async (path: string) => {
-    if (path.startsWith("/accounts")) {
+    if (path.startsWith(pathFor("/accounts"))) {
       return { accounts: [{ accountId: "half-written", currentBalance: 1000 }] };
     }
-    if (path.startsWith("/summary")) return summary;
+    if (path.startsWith(pathFor("/summary"))) return summary;
     return { transactions: [] };
   };
 
@@ -158,6 +159,25 @@ describe("net position", () => {
 });
 
 describe("requests", () => {
+  it("calls versioned paths, spelled out rather than derived", async () => {
+    // Deliberately a literal "/v1/", not pathFor(). Every other test in this
+    // file builds its expectation with the same helper the source uses, so if
+    // the prefix were dropped both sides would move together and agree about
+    // nothing. This one fails.
+    //
+    // #27: an installed client keeps calling whatever shape it was built
+    // against, so an unversioned path served once has to be supported for ever.
+    const { App } = await import("./App");
+    render(<App />);
+    await screen.findAllByText(/9,764 transactions/);
+
+    const paths = apiGet.mock.calls.map((c) => String(c[0]));
+    expect(paths.length).toBeGreaterThan(0);
+    for (const path of paths) {
+      expect(path, `${path} is not versioned`).toMatch(/^\/v1\//);
+    }
+  });
+
   it("asks for transactions by range alone, with no limit", async () => {
     // The API has never honoured `limit`, so sending it advertised a capability
     // nothing implements — and #26 is about to publish this contract, which
@@ -168,7 +188,7 @@ describe("requests", () => {
     render(<App />);
     await screen.findAllByText(/9,764 transactions/);
 
-    const txnCalls = apiGet.mock.calls.map((c) => String(c[0])).filter((p) => p.startsWith("/transactions"));
+    const txnCalls = apiGet.mock.calls.map((c) => String(c[0])).filter((p) => p.startsWith(pathFor("/transactions")));
     expect(txnCalls.length).toBeGreaterThan(0);
     for (const path of txnCalls) {
       expect(path, `requested ${path}`).not.toMatch(/limit/);

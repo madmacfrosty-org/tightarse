@@ -1,3 +1,4 @@
+import { pathFor } from "@tightarse/api-contract";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -35,7 +36,7 @@ describe("ConnectBank", () => {
     await userEvent.click(screen.getByRole("button", { name: "American Express" }));
 
     await waitFor(() => expect(assign).toHaveBeenCalledWith("https://auth.truelayer.com/?providers=ob-amex"));
-    expect(apiGet).toHaveBeenCalledWith("/connect/start?provider=ob-amex");
+    expect(apiGet).toHaveBeenCalledWith(`${pathFor("/connect/start")}?provider=ob-amex`);
   });
 
   it("disables every provider while one is redirecting", async () => {
@@ -76,7 +77,7 @@ describe("Connected", () => {
 
     expect(await screen.findByText("Connected")).toBeDefined();
     expect(screen.getByText("2026-11-10")).toBeDefined();
-    expect(apiGet).toHaveBeenCalledWith("/connect/callback?code=abc123");
+    expect(apiGet).toHaveBeenCalledWith(`${pathFor("/connect/callback")}?code=abc123`);
   });
 
   it("explains a reload rather than reporting a bank failure", async () => {

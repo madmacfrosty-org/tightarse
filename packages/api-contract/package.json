@@ -8,13 +8,15 @@
     "build": "tsc --build",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:mutation": "stryker run"
+    "test:mutation": "stryker run",
+    "openapi": "tsc --build && node dist/openapi-cli.js"
   },
   "dependencies": {
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@tightarse/vitest-config": "*",
     "vitest": "^2.1.0",
-    "@tightarse/vitest-config": "*"
+    "zod-to-json-schema": "^3.24.6"
   }
 }

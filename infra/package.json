@@ -16,7 +16,8 @@
   "dependencies": {
     "@tightarse/schema": "*",
     "aws-cdk-lib": "^2.170.0",
-    "constructs": "^10.4.0"
+    "constructs": "^10.4.0",
+    "@tightarse/api-contract": "*"
   },
   "devDependencies": {
     "aws-cdk": "^2.170.0",

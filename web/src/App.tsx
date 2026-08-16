@@ -3,7 +3,7 @@ import { apiGet, completeSignIn, currentIdentity, signIn, signOut, type Identity
 import { ConnectBank, Connected } from "./Connect";
 import { CategoryBars, MonthlyFlow, money } from "./charts";
 import { netPosition, rangeFor, tileBalance } from "./positions";
-import type { AccountView, Summary, TransactionView } from "@tightarse/api-contract";
+import { pathFor, type AccountView, type Summary, type TransactionView } from "@tightarse/api-contract";
 
 const RANGES = [
   { label: "3 months", days: 90 },
@@ -51,8 +51,8 @@ export function App() {
     const q = `?from=${from}&to=${to}`;
     setError(null);
     Promise.all([
-      apiGet<Summary>(`/summary${q}`),
-      apiGet<{ accounts: AccountView[] }>(`/accounts`),
+      apiGet<Summary>(`${pathFor("/summary")}${q}`),
+      apiGet<{ accounts: AccountView[] }>(pathFor("/accounts")),
       // No `limit`: the API has never honoured one (#28), so asking for 60 and
       // rendering everything in range is what has always happened. A limit
       // without a cursor truncates rather than paginates — it hides rows with
@@ -60,7 +60,7 @@ export function App() {
       // gaining a server-side implementation. If a client ever needs less than
       // the full range on the wire, that is cursor-based pagination and a
       // contract change, not a bare parameter.
-      apiGet<{ transactions: TransactionView[] }>(`/transactions${q}`),
+      apiGet<{ transactions: TransactionView[] }>(`${pathFor("/transactions")}${q}`),
     ])
       .then(([s, a, t]) => {
         setSummary(s);

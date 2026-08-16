@@ -7,6 +7,7 @@ import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
 import type * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import type { Identity } from "./data-stack.js";
+import { CONNECT_PATHS, ROUTES, pathFor } from "@tightarse/api-contract";
 import { Construct } from "constructs";
 import * as path from "node:path";
 import { config, type EnvSettings } from "./config";
@@ -101,11 +102,18 @@ export class ApiStack extends cdk.Stack {
       defaultAuthorizer: authorizer,
     });
 
-    for (const route of ["/summary", "/transactions", "/accounts"]) {
+    // Paths come from the contract package, so the gateway, the dashboard and
+    // the published OpenAPI document cannot disagree about what is served. A
+    // route added to one and forgotten in another is either a 404 or an
+    // undocumented endpoint, and both are silent. See #27.
+    for (const route of ROUTES.map((r) => pathFor(r))) {
       this.api.addRoutes({
         path: route,
         methods: [apigw.HttpMethod.GET],
-        integration: new integrations.HttpLambdaIntegration(`Int${route.replace("/", "")}`, handler),
+        integration: new integrations.HttpLambdaIntegration(
+          `Int${route.replace(/[^a-zA-Z0-9]/g, "")}`,
+          handler,
+        ),
         authorizer,
       });
     }
@@ -114,12 +122,12 @@ export class ApiStack extends cdk.Stack {
     // write to somebody's household, so it needs the same claim the reads do.
     if (props.connectFunctionName) {
       const connect = lambda.Function.fromFunctionName(this, "ConnectFn", props.connectFunctionName);
-      for (const route of ["/connect/start", "/connect/callback"]) {
+      for (const route of CONNECT_PATHS.map((p) => pathFor(p))) {
         this.api.addRoutes({
           path: route,
           methods: [apigw.HttpMethod.GET],
           integration: new integrations.HttpLambdaIntegration(
-            `Int${route.replace(/\//g, "")}`,
+            `Int${route.replace(/[^a-zA-Z0-9]/g, "")}`,
             connect,
           ),
           authorizer,

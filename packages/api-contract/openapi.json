@@ -1,0 +1,450 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Tightarse",
+    "version": "v1",
+    "description": "Read-only aggregation over one household's bank accounts.\n\nCompatibility: Within a major version the API may add fields, optional parameters and routes. It may not remove or rename a field, change its type or units, change whether it is required, or change what it means. Clients must ignore unrecognised fields.\n\nMoney is always an integer in minor units (pence). Sign convention: negative left the household, positive arrived — including on cards, which the provider reports from the issuer's point of view and which are normalised at the boundary."
+  },
+  "servers": [
+    {
+      "url": "{apiUrl}",
+      "variables": {
+        "apiUrl": {
+          "default": "https://example.invalid"
+        }
+      }
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "A Cognito access token. The household is taken from a verified claim in the token and never from the request, so there is no tenant parameter anywhere in this document."
+      }
+    },
+    "schemas": {
+      "IsoDate": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "description": "Date as YYYY-MM-DD"
+      },
+      "Provisional": {
+        "type": "boolean",
+        "description": "True when this is the provider's own payment type, not a category we produced"
+      },
+      "DateRange": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "$ref": "#/components/schemas/IsoDate"
+          },
+          "to": {
+            "$ref": "#/components/schemas/IsoDate"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": false
+      },
+      "CategoryTotal": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total for this category, negative for spending and positive for income, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "count": {
+            "type": "integer",
+            "description": "How many transactions contributed"
+          },
+          "provisional": {
+            "$ref": "#/components/schemas/Provisional"
+          }
+        },
+        "required": [
+          "category",
+          "total",
+          "count",
+          "provisional"
+        ],
+        "additionalProperties": false
+      },
+      "MonthTotal": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}$",
+            "description": "Month as YYYY-MM"
+          },
+          "income": {
+            "type": "integer",
+            "description": "Money that arrived this month, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "spend": {
+            "type": "integer",
+            "description": "Money that left this month, negative, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "net": {
+            "type": "integer",
+            "description": "income + spend for the month, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "count": {
+            "type": "integer",
+            "description": "How many transactions contributed"
+          }
+        },
+        "required": [
+          "month",
+          "income",
+          "spend",
+          "net",
+          "count"
+        ],
+        "additionalProperties": false
+      },
+      "TransactionView": {
+        "type": "object",
+        "properties": {
+          "dedupKey": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "description": "ISO 8601 instant"
+          },
+          "amount": {
+            "type": "integer",
+            "description": "Negative left the household, positive arrived, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "currency": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "transactionType": {
+            "type": "string",
+            "description": "The provider's own type. Not the direction — see amount"
+          },
+          "providerCategory": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "provisional": {
+            "$ref": "#/components/schemas/Provisional"
+          }
+        },
+        "required": [
+          "dedupKey",
+          "timestamp",
+          "amount",
+          "currency",
+          "description",
+          "accountId",
+          "transactionType",
+          "category",
+          "provisional"
+        ],
+        "additionalProperties": false
+      },
+      "AccountView": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "institutionName": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "isCard": {
+            "type": "boolean"
+          },
+          "accountType": {
+            "type": "string"
+          },
+          "currentBalance": {
+            "type": "integer",
+            "description": "Balance as the provider reports it; for a card, what is owed, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "availableBalance": {
+            "type": "integer",
+            "description": "Funds available to spend, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "lastSyncedAt": {
+            "type": "string",
+            "description": "ISO 8601 instant of the last successful fetch"
+          }
+        },
+        "required": [
+          "accountId"
+        ],
+        "additionalProperties": false
+      },
+      "Summary": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string",
+            "nullable": true
+          },
+          "from": {
+            "$ref": "#/components/schemas/IsoDate"
+          },
+          "to": {
+            "$ref": "#/components/schemas/IsoDate"
+          },
+          "transactionCount": {
+            "type": "integer"
+          },
+          "income": {
+            "type": "integer",
+            "description": "Money that arrived across the range, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "spend": {
+            "type": "integer",
+            "description": "Money that left across the range, negative, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "net": {
+            "type": "integer",
+            "description": "income + spend across the range, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "byCategory": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CategoryTotal"
+            }
+          },
+          "byMonth": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MonthTotal"
+            }
+          },
+          "internalTransfersNetted": {
+            "type": "boolean"
+          },
+          "transferCount": {
+            "type": "integer"
+          },
+          "transferTotal": {
+            "type": "integer",
+            "description": "Total moved between the household's own accounts, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "enrichedCount": {
+            "type": "integer",
+            "description": "How many transactions carry a category"
+          }
+        },
+        "required": [
+          "currency",
+          "from",
+          "to",
+          "transactionCount",
+          "income",
+          "spend",
+          "net",
+          "byCategory",
+          "byMonth",
+          "internalTransfersNetted",
+          "transferCount",
+          "transferTotal",
+          "enrichedCount"
+        ],
+        "additionalProperties": false
+      },
+      "TransactionsResponse": {
+        "type": "object",
+        "properties": {
+          "range": {
+            "$ref": "#/components/schemas/DateRange"
+          },
+          "transactions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TransactionView"
+            }
+          }
+        },
+        "required": [
+          "range",
+          "transactions"
+        ],
+        "additionalProperties": false
+      },
+      "AccountsResponse": {
+        "type": "object",
+        "properties": {
+          "accounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AccountView"
+            }
+          }
+        },
+        "required": [
+          "accounts"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "paths": {
+    "/v1/summary": {
+      "get": {
+        "operationId": "summary",
+        "summary": "Totals for a date range",
+        "description": "Spending and income over the range, split by category and by month, with internal transfers netted out.",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "description": "First day included in the range",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "description": "Date as YYYY-MM-DD"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "description": "Last day included in the range",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "description": "Date as YYYY-MM-DD"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Totals for a date range",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Summary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The range is missing, malformed, or `from` is after `to`"
+          },
+          "401": {
+            "description": "No bearer token, or one this API does not trust"
+          },
+          "403": {
+            "description": "A valid token carrying no household claim"
+          }
+        }
+      }
+    },
+    "/v1/transactions": {
+      "get": {
+        "operationId": "transactions",
+        "summary": "Transactions in a date range",
+        "description": "Every transaction in the range, newest first, with its category where one has been assigned. Returns the whole range: there is no pagination, so a wide range is a large response.",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "description": "First day included in the range",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "description": "Date as YYYY-MM-DD"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "description": "Last day included in the range",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "description": "Date as YYYY-MM-DD"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transactions in a date range",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The range is missing, malformed, or `from` is after `to`"
+          },
+          "401": {
+            "description": "No bearer token, or one this API does not trust"
+          },
+          "403": {
+            "description": "A valid token carrying no household claim"
+          }
+        }
+      }
+    },
+    "/v1/accounts": {
+      "get": {
+        "operationId": "accounts",
+        "summary": "The household's accounts and their balances",
+        "description": "One entry per connected account. An account still being described by a sync may be missing its identity fields and its isCard flag; absent isCard means NOT YET KNOWN, not false.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "The household's accounts and their balances",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The range is missing, malformed, or `from` is after `to`"
+          },
+          "401": {
+            "description": "No bearer token, or one this API does not trust"
+          },
+          "403": {
+            "description": "A valid token carrying no household claim"
+          }
+        }
+      }
+    }
+  }
+}

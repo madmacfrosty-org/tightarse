@@ -114,6 +114,7 @@ version:
 | `packages/fixtures/` | Synthetic data generator — the only source of test data |
 | `services/ingest/` | Connect flow and the Step Functions sync |
 | `services/transform/` | Raw provider payloads to ledger rows |
+| `packages/api-contract/` | What the API promises: Zod, and the OpenAPI generated from it |
 | `services/api/` | Aggregation API for the dashboard |
 | `services/auth/` | Cognito pre-token trigger: email to household claim |
 | `agents/categoriser/` | Rules-first categorisation, model path optional |
@@ -121,6 +122,37 @@ version:
 
 Stacks: `Foundation` (KMS, secrets) → `Data` (table, Cognito) → `Api` / `Ingest`
 → `Web`.
+
+## The API contract
+
+Every path is versioned: `/v1/summary`, `/v1/transactions`, `/v1/accounts`. The
+paths, the version and the response shapes all come from
+`packages/api-contract`, so the gateway, the dashboard and the published
+document cannot disagree about what is served.
+
+`packages/api-contract/openapi.json` is generated, never edited:
+
+```sh
+npm run openapi -w @tightarse/api-contract
+```
+
+A test fails if the checked-in document does not match what the generator
+produces, so a change to a response shape shows up as a diff in review rather
+than as a bug report from a client that has already shipped.
+
+**What `v1` promises.** Within a major version the API may add fields, add
+optional query parameters, and add routes. It may not remove or rename a field,
+change its type or its units, change whether a field is required, or change what
+an existing field means. A client must therefore ignore fields it does not
+recognise — that obligation is what makes "add a field" a safe change.
+
+Anything in the second list is a `v2`. This matters because a browser reloads
+and an installed app does not: once a build is on somebody's phone, the shape it
+understands has to keep working for as long as they run it.
+
+Money is always an integer in minor units, and the generated document says so on
+every monetary field. A client reading them as decimal pounds is wrong by a
+factor of 100 on every screen.
 
 ## Setup
 
