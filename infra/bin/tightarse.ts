@@ -48,8 +48,9 @@ const api = new ApiStack(app, `TightarseApi-${settings.name}`, {
   env,
   settings,
   table: data.table,
-  userPool: data.userPool,
-  userPoolClient: data.userPoolClient,
+  // #36: the replacement pool. The original has an immutable `email`, which
+  // makes every federated sign-in after the first one fail. One word to revert.
+  identity: data.identityV2,
   connectFunctionName,
 });
 
@@ -69,8 +70,9 @@ new IngestStack(app, `TightarseIngest-${settings.name}`, {
 new WebStack(app, `TightarseWeb-${settings.name}`, {
   env,
   settings,
-  userPool: data.userPool,
-  userPoolClient: data.userPoolClient,
+  // #36: the replacement pool. The original has an immutable `email`, which
+  // makes every federated sign-in after the first one fail. One word to revert.
+  identity: data.identityV2,
   apiUrl: api.api.apiEndpoint,
 });
 

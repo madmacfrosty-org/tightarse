@@ -3,15 +3,14 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
-import type * as cognito from "aws-cdk-lib/aws-cognito";
+import type { Identity } from "./data-stack.js";
 import { Construct } from "constructs";
 import * as path from "node:path";
 import { config, type EnvSettings } from "./config";
 
 export interface WebStackProps extends cdk.StackProps {
   readonly settings: EnvSettings;
-  readonly userPool: cognito.UserPool;
-  readonly userPoolClient: cognito.UserPoolClient;
+  readonly identity: Identity;
   readonly apiUrl: string;
 }
 
@@ -30,7 +29,7 @@ export class WebStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: WebStackProps) {
     super(scope, id, props);
 
-    const { settings, userPool, userPoolClient, apiUrl } = props;
+    const { settings, identity, apiUrl } = props;
 
     const bucket = new s3.Bucket(this, "Site", {
       // No public access at all: CloudFront reaches it through Origin Access
@@ -102,9 +101,10 @@ export class WebStack extends cdk.Stack {
         s3deploy.Source.asset(path.join(__dirname, "../../web/dist")),
         // Written by CDK, so it always matches the stack that deployed it.
         s3deploy.Source.jsonData("config.json", {
-          userPoolId: userPool.userPoolId,
-          userPoolClientId: userPoolClient.userPoolClientId,
-          hostedUiDomain: `${settings.hostedUiPrefix}.auth.${this.region}.amazoncognito.com`,
+          userPoolId: identity.pool.userPoolId,
+          userPoolClientId: identity.client.userPoolClientId,
+          // From the same object as the pool, so the two cannot disagree.
+          hostedUiDomain: identity.hostedUiDomain,
           apiUrl,
         }),
       ],

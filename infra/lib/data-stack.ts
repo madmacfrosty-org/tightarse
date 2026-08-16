@@ -10,6 +10,21 @@ import * as path from "node:path";
 import { Construct } from "constructs";
 import { config, type EnvSettings } from "./config";
 
+/**
+ * A pool, the client that talks to it, and the hosted UI it signs in through.
+ *
+ * One object because all three must move together. The web stack used to derive
+ * the domain from settings independently of the pool it was handed, so pointing
+ * it at a different pool left it calling the old domain with the new pool's
+ * client id — an "invalid client" at sign-in, and nothing in the type system to
+ * catch it. Grouped like this, the changeover in #36 is one word in bin.
+ */
+export interface Identity {
+  readonly pool: cognito.UserPool;
+  readonly client: cognito.UserPoolClient;
+  readonly hostedUiDomain: string;
+}
+
 export interface DataStackProps extends cdk.StackProps {
   readonly settings: EnvSettings;
   /** Customer-managed key from FoundationStack, so it survives a dev wipe. */
@@ -41,6 +56,9 @@ export class DataStack extends cdk.Stack {
   /** The replacement pool from #36, where `email` is mutable. */
   public readonly userPoolV2: cognito.UserPool;
   public readonly userPoolClientV2: cognito.UserPoolClient;
+  /** The original pool and the replacement, each as one indivisible unit. */
+  public readonly identity: Identity;
+  public readonly identityV2: Identity;
 
   constructor(scope: Construct, id: string, props: DataStackProps) {
     super(scope, id, props);
@@ -330,23 +348,39 @@ export class DataStack extends cdk.Stack {
     this.userPoolV2 = replacement.pool;
     this.userPoolClientV2 = replacement.client;
 
+    /**
+     * Keep the original pool's cross-stack exports alive even though nothing
+     * imports them any more.
+     *
+     * Removing an export and removing its last importer cannot happen in one
+     * deployment. CloudFormation refuses to delete an export that is still in
+     * use, and CDK deploys this stack first — before the API and web stacks
+     * that would stop importing it — so the changeover would fail here, with
+     * this stack rolled back and the other two never attempted.
+     *
+     * These come out in the step that deletes the pool, by which point the
+     * importers are long gone.
+     */
+    this.exportValue(original.pool.userPoolId);
+    this.exportValue(original.client.userPoolClientId);
+
+    const domainOf = (prefix: string): string => `${prefix}.auth.${this.region}.amazoncognito.com`;
+    this.identity = { ...original, hostedUiDomain: domainOf(settings.hostedUiPrefix) };
+    this.identityV2 = { ...replacement, hostedUiDomain: domainOf(settings.hostedUiPrefixV2) };
+
     // ---------------------------------------------------------------- outputs
 
     new cdk.CfnOutput(this, "LedgerTableName", { value: this.table.tableName });
     new cdk.CfnOutput(this, "RawBucketName", { value: this.rawBucket.bucketName });
     new cdk.CfnOutput(this, "UserPoolId", { value: this.userPool.userPoolId });
     new cdk.CfnOutput(this, "UserPoolClientId", { value: this.userPoolClient.userPoolClientId });
-    new cdk.CfnOutput(this, "HostedUiDomain", {
-      value: `${settings.hostedUiPrefix}.auth.${this.region}.amazoncognito.com`,
-    });
+    new cdk.CfnOutput(this, "HostedUiDomain", { value: this.identity.hostedUiDomain });
 
     // The replacement from #36, output so the changeover can be followed
     // without digging through the console.
     new cdk.CfnOutput(this, "UserPoolIdV2", { value: this.userPoolV2.userPoolId });
     new cdk.CfnOutput(this, "UserPoolClientIdV2", { value: this.userPoolClientV2.userPoolClientId });
-    new cdk.CfnOutput(this, "HostedUiDomainV2", {
-      value: `${settings.hostedUiPrefixV2}.auth.${this.region}.amazoncognito.com`,
-    });
+    new cdk.CfnOutput(this, "HostedUiDomainV2", { value: this.identityV2.hostedUiDomain });
 
     cdk.Tags.of(this).add("app", config.appName);
     cdk.Tags.of(this).add("env", settings.name);

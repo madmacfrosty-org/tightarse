@@ -77,8 +77,9 @@ export function buildApp(
     env,
     settings,
     table: data.table,
-    userPool: data.userPool,
-    userPoolClient: data.userPoolClient,
+    // Must match bin/tightarse.ts. A harness pinned to a different pool would
+    // test a stack nobody deploys.
+    identity: data.identityV2,
     connectFunctionName,
   });
   const ingest = new IngestStack(app, `TightarseIngest-${settings.name}`, {
@@ -94,8 +95,7 @@ export function buildApp(
   const web = new WebStack(app, `TightarseWeb-${settings.name}`, {
     env,
     settings,
-    userPool: data.userPool,
-    userPoolClient: data.userPoolClient,
+    identity: data.identityV2,
     apiUrl: api.api.apiEndpoint,
   });
 

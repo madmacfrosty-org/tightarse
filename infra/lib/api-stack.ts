@@ -6,7 +6,7 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
 import type * as dynamodb from "aws-cdk-lib/aws-dynamodb";
-import type * as cognito from "aws-cdk-lib/aws-cognito";
+import type { Identity } from "./data-stack.js";
 import { Construct } from "constructs";
 import * as path from "node:path";
 import { config, type EnvSettings } from "./config";
@@ -14,8 +14,7 @@ import { config, type EnvSettings } from "./config";
 export interface ApiStackProps extends cdk.StackProps {
   readonly settings: EnvSettings;
   readonly table: dynamodb.TableV2;
-  readonly userPool: cognito.UserPool;
-  readonly userPoolClient: cognito.UserPoolClient;
+  readonly identity: Identity;
   /**
    * Name of the connect function, which lives in IngestStack.
    *
@@ -45,7 +44,7 @@ export class ApiStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
 
-    const { settings, table, userPool, userPoolClient } = props;
+    const { settings, table, identity } = props;
 
     const handler = new NodejsFunction(this, "ApiHandler", {
       entry: path.join(__dirname, "../../services/api/src/handler.ts"),
@@ -71,10 +70,10 @@ export class ApiStack extends cdk.Stack {
     table.grantReadData(handler);
 
     // The issuer Cognito stamps into every token it mints.
-    const issuer = `https://cognito-idp.${cdk.Stack.of(this).region}.amazonaws.com/${userPool.userPoolId}`;
+    const issuer = `https://cognito-idp.${cdk.Stack.of(this).region}.amazonaws.com/${identity.pool.userPoolId}`;
 
     const authorizer = new authorizers.HttpJwtAuthorizer("CognitoAuthorizer", issuer, {
-      jwtAudience: [userPoolClient.userPoolClientId],
+      jwtAudience: [identity.client.userPoolClientId],
       identitySource: ["$request.header.Authorization"],
     });
 
