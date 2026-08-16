@@ -143,25 +143,33 @@ export class DataStack extends cdk.Stack {
       selfSignUpEnabled: false, // family only — accounts are created by hand
       signInAliases: { email: true },
       /**
-       * Email must be MUTABLE, however wrong that reads.
+       * Email SHOULD be mutable, and cannot be made so on this pool.
        *
-       * Not because anyone should change it — because Cognito re-applies an
-       * identity provider's attribute mapping on every federated sign-in, not
-       * only at creation. With `mutable: false` the first Google sign-in
-       * succeeds, creating the user, and every one after it fails with
-       * `user.email: Attribute cannot be updated`. The account is locked out by
-       * a setting that looks like tightening it.
+       * Cognito re-applies an identity provider's attribute mapping on every
+       * federated sign-in, not only at creation. With `mutable: false` the
+       * first Google sign-in succeeds, creating the user, and every one after
+       * it fails with `user.email: Attribute cannot be updated`. That is the
+       * live symptom today.
        *
-       * This is the third Cognito attribute failure here, after an unmapped
-       * attribute and an unmapped `email_verified`. All three deployed cleanly
-       * and broke only when a person tried to sign in, which is what the
-       * sign-in canary in #23 exists to catch.
+       * The obvious fix does not work. Setting `mutable: true` here produces a
+       * plain property update, which Cognito rejects outright:
        *
-       * Changing this replaces the user pool: a pool's schema is fixed at
-       * creation and cannot be altered in place. Household access survives,
-       * because it lives in a MEMBER row in the ledger rather than in the pool.
+       *   Invalid AttributeDataType input, consider using the provided
+       *   AttributeDataType enum
+       *
+       * — its unhelpful way of saying a pool's schema cannot be modified after
+       * creation. Tried on 16 August: the update failed, the stack went to
+       * UPDATE_ROLLBACK_FAILED, and recovering it needed
+       * `continue-update-rollback --resources-to-skip`. The pool itself was
+       * untouched, so nothing was lost, but the stack was unable to deploy
+       * until rescued.
+       *
+       * Fixing it properly means creating a NEW pool and retiring this one,
+       * which is deliberate work rather than a property change — see #36.
+       * Household access survives that, because it lives in a MEMBER row in the
+       * ledger rather than in the pool.
        */
-      standardAttributes: { email: { required: true, mutable: true } },
+      standardAttributes: { email: { required: true, mutable: false } },
       /**
        * Which household this identity may read.
        *
