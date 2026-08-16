@@ -125,6 +125,9 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 tr:last-child td { border-bottom: none; }
 .tag { font-size: 11px; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-secondary); }
 .tag.provisional { color: var(--provisional); border-style: dashed; }
+/* The net position is short an account, and should not read as authoritative
+   while it is. Same muted treatment as a provisional category tag. */
+.card .note.provisional { color: var(--provisional); margin: -8px 0 16px; }
 
 .tooltip {
   position: fixed; pointer-events: none; z-index: 10;

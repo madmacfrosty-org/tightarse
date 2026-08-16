@@ -161,6 +161,13 @@ export const AccountView = z.object({
    * overstating the household's position by twice the debt — which is the shape
    * of the £567.90 bug, arrived at from a different direction. A client should
    * say it does not know rather than guess. See #29.
+   *
+   * It stays optional even though both write paths now set it — the balance
+   * path derives it from which endpoint returned the data, so a row created
+   * balance-first carries it too. Optional describes what a client may receive,
+   * not what is written today: making it required would fail the whole endpoint
+   * for a single unclassifiable row, which is a bad trade when the alternative
+   * is one account rendering as "syncing".
    */
   isCard: z.boolean().optional(),
   accountType: z.string().optional(),

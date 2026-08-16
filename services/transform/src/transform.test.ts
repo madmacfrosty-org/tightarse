@@ -207,6 +207,29 @@ describe("routing a raw object to the right handler", () => {
     expect(putBalances).toHaveBeenCalledTimes(1);
   });
 
+  it("records card-ness on the balance path, so a row it creates is readable", async () => {
+    // A balance can arrive before the account details, and putBalances creates
+    // the row when it does. Without isCard that row carries a figure with no
+    // way to tell whether it is money held or money owed, and the dashboard
+    // read the absence as a definite "not a card" — overstating the position by
+    // twice the balance whenever it was a card (#29).
+    //
+    // This is not a placeholder. It comes from which endpoint returned the
+    // data, the same source the accounts path uses, so the two cannot disagree.
+    const putBalances = vi.fn(async () => {});
+    const card = deps([{ current: 100, available: 90, currency: "GBP" }]);
+    (card.deps as any).ledger.putBalances = putBalances;
+    await transformObject(card.deps, keyFor("truelayer.card_balance"));
+    expect(putBalances).toHaveBeenCalledWith("frost", "acc-1", expect.objectContaining({ isCard: true }));
+
+    const current = deps([{ current: 100, available: 90, currency: "GBP" }]);
+    (current.deps as any).ledger.putBalances = putBalances;
+    await transformObject(current.deps, keyFor("truelayer.balance"));
+    // Explicitly false, not absent — "not a card" is an answer and the
+    // dashboard has to be able to tell it from "not known yet".
+    expect(putBalances).toHaveBeenLastCalledWith("frost", "acc-1", expect.objectContaining({ isCard: false }));
+  });
+
   it("replaces the pending set rather than merging it", async () => {
     // An empty result means everything cleared, which is normal and must delete
     // the previous set.

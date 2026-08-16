@@ -62,21 +62,66 @@ beforeEach(() => {
 });
 
 describe("an account the sync has not finished describing", () => {
+  // putBalances creates the account row when balances arrive before details, so
+  // an account can legitimately appear mid-sync carrying a balance and nothing
+  // else — no name, no institution, and no `isCard`. See #29.
+  const halfWritten = async (path: string) => {
+    if (path.startsWith("/accounts")) {
+      return { accounts: [{ accountId: "half-written", currentBalance: 1000 }] };
+    }
+    if (path.startsWith("/summary")) return summary;
+    return { transactions: [] };
+  };
+
   it("shows a placeholder rather than a blank where the institution goes", async () => {
-    // putBalances creates the account row when balances arrive before details,
-    // so an account can legitimately appear mid-sync with a balance and no
-    // name. React renders undefined as nothing, which would leave the tile
-    // reading "Account · " and looking broken rather than incomplete. See #29.
-    apiGet.mockImplementation(async (path: string) => {
-      if (path.startsWith("/accounts")) {
-        return { accounts: [{ accountId: "half-written", currentBalance: 1000 }] };
-      }
-      if (path.startsWith("/summary")) return summary;
-      return { transactions: [] };
-    });
+    // React renders undefined as nothing, which would leave the tile reading
+    // "Syncing · " and looking broken rather than incomplete.
+    apiGet.mockImplementation(halfWritten);
     const { App } = await import("./App");
     render(<App />);
-    expect(await screen.findByText(/Account · —/)).toBeDefined();
+    expect(await screen.findByText(/Syncing · —/)).toBeDefined();
+  });
+
+  it("does not call it an account, because it might be a card", async () => {
+    // The defect this replaces: `isCard` absent was read as a definite "not a
+    // card", so the tile said "Account" and the balance was added to cash. If
+    // it turns out to be a card the position is wrong by twice the balance —
+    // once for the debt not subtracted, once for cash that was never there.
+    apiGet.mockImplementation(halfWritten);
+    const { App } = await import("./App");
+    render(<App />);
+    await screen.findByText(/Syncing · —/);
+    expect(screen.queryByText(/Account · —/)).toBeNull();
+    expect(screen.queryByText(/Card · —/)).toBeNull();
+  });
+
+  it("shows no balance for it, because which way it signs is unknown", async () => {
+    // £10.00 is either +£10.00 or −£10.00 depending on a flag we do not have.
+    // A plausible number that might be inverted is worse than no number.
+    apiGet.mockImplementation(halfWritten);
+    const { App } = await import("./App");
+    render(<App />);
+    await screen.findByText(/Syncing · —/);
+    expect(screen.queryByText("£10.00")).toBeNull();
+    expect(screen.queryByText("−£10.00")).toBeNull();
+  });
+
+  it("leaves it out of the net position and says the figure is incomplete", async () => {
+    // Excluding it understates the total, which is its own kind of wrong — so
+    // the dashboard has to admit it rather than presenting a short number as
+    // the household's position.
+    apiGet.mockImplementation(halfWritten);
+    const { App } = await import("./App");
+    render(<App />);
+    expect(await screen.findByText(/still\s+syncing and not included/)).toBeDefined();
+  });
+
+  it("says nothing about syncing once every account is described", async () => {
+    // The warning must be tied to the state, not permanent furniture.
+    const { App } = await import("./App");
+    render(<App />);
+    await screen.findByText("−£6,376.02");
+    expect(screen.queryByText(/still\s+syncing and not included/)).toBeNull();
   });
 });
 
@@ -109,6 +154,28 @@ describe("net position", () => {
     const amex = accounts.find((a) => a.accountId === "c2")!;
     expect(amex.availableBalance).toBeUndefined();
     expect(amex.isCard).toBe(true);
+  });
+});
+
+describe("requests", () => {
+  it("asks for transactions by range alone, with no limit", async () => {
+    // The API has never honoured `limit`, so sending it advertised a capability
+    // nothing implements — and #26 is about to publish this contract, which
+    // would have made the parameter look real to a client that cannot read the
+    // handler. A limit without a cursor truncates rather than paginates, so the
+    // parameter goes rather than gaining a server-side meaning.
+    const { App } = await import("./App");
+    render(<App />);
+    await screen.findAllByText(/9,764 transactions/);
+
+    const txnCalls = apiGet.mock.calls.map((c) => String(c[0])).filter((p) => p.startsWith("/transactions"));
+    expect(txnCalls.length).toBeGreaterThan(0);
+    for (const path of txnCalls) {
+      expect(path, `requested ${path}`).not.toMatch(/limit/);
+      // Still asks for the range, so this does not pass by asking for nothing.
+      expect(path).toMatch(/from=\d{4}-\d{2}-\d{2}/);
+      expect(path).toMatch(/to=\d{4}-\d{2}-\d{2}/);
+    }
   });
 });
 

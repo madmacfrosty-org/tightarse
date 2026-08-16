@@ -53,7 +53,14 @@ export function App() {
     Promise.all([
       apiGet<Summary>(`/summary${q}`),
       apiGet<{ accounts: AccountView[] }>(`/accounts`),
-      apiGet<{ transactions: TransactionView[] }>(`/transactions${q}&limit=60`),
+      // No `limit`: the API has never honoured one (#28), so asking for 60 and
+      // rendering everything in range is what has always happened. A limit
+      // without a cursor truncates rather than paginates — it hides rows with
+      // no way to ask for the next ones — so the parameter goes rather than
+      // gaining a server-side implementation. If a client ever needs less than
+      // the full range on the wire, that is cursor-based pagination and a
+      // contract change, not a bare parameter.
+      apiGet<{ transactions: TransactionView[] }>(`/transactions${q}`),
     ])
       .then(([s, a, t]) => {
         setSummary(s);
@@ -75,7 +82,8 @@ export function App() {
   if (error) return <div className="page error">{error}</div>;
   if (!summary) return <div className="page loading">Loading…</div>;
 
-  const { cardIds, net } = netPosition(accounts);
+  const { cardIds, net, unknown, provisional } = netPosition(accounts);
+  const unknownIds = new Set(unknown.map((a) => a.accountId));
 
   return (
     <div className="page">
@@ -127,14 +135,38 @@ export function App() {
         <div className="hero" style={{ color: net < 0 ? "var(--out)" : "var(--text-primary)" }}>
           {money(net)}
         </div>
+        {/*
+          Said plainly rather than shown as a footnote. An account whose type is
+          not known yet is left out of this figure entirely (#29) — counting it
+          as cash was wrong by twice the balance whenever it turned out to be a
+          card, so the number is short rather than wrong, and it should not look
+          authoritative while it is.
+        */}
+        {provisional && (
+          <p className="note provisional">
+            {unknown.length === 1 ? "One account is" : `${unknown.length} accounts are`} still
+            syncing and not included — this figure is incomplete.
+          </p>
+        )}
         <div className="tiles">
           {accounts.map((a) => (
             <div className="tile" key={a.accountId}>
               <div className="label">
-                {cardIds.has(a.accountId) ? "Card" : "Account"} · {a.institutionName ?? "—"}
+                {unknownIds.has(a.accountId)
+                  ? "Syncing"
+                  : cardIds.has(a.accountId)
+                    ? "Card"
+                    : "Account"}{" "}
+                · {a.institutionName ?? "—"}
               </div>
               <div className="value">
-                {tileBalance(a, cardIds.has(a.accountId)) === undefined
+                {/*
+                  A balance whose sign depends on a flag we do not have yet is
+                  not a balance we can show. Which way a card signs is the whole
+                  question, so an unclassified account shows nothing rather than
+                  a number that is plausible and possibly inverted.
+                */}
+                {unknownIds.has(a.accountId) || tileBalance(a, cardIds.has(a.accountId)) === undefined
                   ? "—"
                   : money(tileBalance(a, cardIds.has(a.accountId))!)}
               </div>

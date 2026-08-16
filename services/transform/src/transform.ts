@@ -148,6 +148,12 @@ export async function transformObject(deps: TransformDeps, key: string): Promise
       await deps.ledger.putBalances(tenantId, accountId, {
         ...mapBalance(raw),
         currency: raw.currency,
+        // The dataset already establishes this — the line below relies on it —
+        // and writing it means a row created by a balance arriving first is
+        // still readable. Without it the row has a balance and no way to tell
+        // whether it is held or owed, and the dashboard was reading the absence
+        // as "not a card" (#29).
+        isCard: isCardDataset(dataset),
       });
 
       // And keep the reading, rather than only the latest figure.

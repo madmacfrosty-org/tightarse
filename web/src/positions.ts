@@ -15,21 +15,61 @@ export interface NetPosition {
   /** Accounts whose balance is money the household owes. */
   readonly cards: readonly AccountView[];
   readonly cardIds: ReadonlySet<string>;
+  /**
+   * Accounts that have not said whether they are a card yet.
+   *
+   * Excluded from every total below rather than guessed at. See `netPosition`.
+   */
+  readonly unknown: readonly AccountView[];
   /** Cash across current accounts. */
   readonly netCash: number;
   /** Total owed on cards, as a positive number. */
   readonly owed: number;
   /** What the household is actually worth: cash less card debt. */
   readonly net: number;
+  /**
+   * True when at least one account could not be classified, so `net` is a
+   * partial figure rather than the household's position. The dashboard says so
+   * rather than showing an authoritative-looking number that is missing an
+   * account.
+   */
+  readonly provisional: boolean;
 }
 
+/**
+ * Split the accounts and total them up.
+ *
+ * `isCard` is deliberately three-valued here. A balance arriving before the
+ * account details leaves a row with `currentBalance` and no `isCard` at all
+ * (#29), and `undefined` is falsy — so `filter(a => a.isCard)` read a missing
+ * flag as a definite "not a card" and added a debt to cash. For a card that is
+ * wrong by twice the balance, because the amount should have been subtracted.
+ *
+ * The window is one sync, so this is transient and rare — and it is open at
+ * exactly the moment someone has opened the dashboard to watch a new account
+ * appear. Ingest now fetches details before balances so the state should not
+ * arise, but that ordering can be changed by someone who does not know it is
+ * load-bearing, and this check cannot be broken silently.
+ */
 export function netPosition(accounts: readonly AccountView[]): NetPosition {
-  const cards = accounts.filter((a) => a.isCard);
+  // `=== true` / `=== false` rather than truthiness: absent means NOT YET
+  // KNOWN, which the contract documents and which is neither of the other two.
+  const cards = accounts.filter((a) => a.isCard === true);
+  const inCredit = accounts.filter((a) => a.isCard === false);
+  const unknown = accounts.filter((a) => a.isCard === undefined || a.isCard === null);
   const cardIds = new Set(cards.map((c) => c.accountId));
-  const inCredit = accounts.filter((a) => !cardIds.has(a.accountId));
   const netCash = inCredit.reduce((s, a) => s + (a.currentBalance ?? 0), 0);
   const owed = cards.reduce((s, a) => s + (a.currentBalance ?? 0), 0);
-  return { inCredit, cards, cardIds, netCash, owed, net: netCash - owed };
+  return {
+    inCredit,
+    cards,
+    cardIds,
+    unknown,
+    netCash,
+    owed,
+    net: netCash - owed,
+    provisional: unknown.length > 0,
+  };
 }
 
 /**

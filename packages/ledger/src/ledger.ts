@@ -206,7 +206,7 @@ export class Ledger {
   async putBalances(
     tenantId: string,
     accountId: string,
-    balances: { current?: number; available?: number; currency?: string },
+    balances: { current?: number; available?: number; currency?: string; isCard?: boolean },
   ): Promise<void> {
     const { pk, sk } = keys.account(tenantId, accountId);
     const sets: string[] = ["#kind = :kind", "#tenantId = :tenantId", "#accountId = :accountId"];
@@ -229,6 +229,13 @@ export class Ledger {
     maybe("currentBalance", balances.current);
     maybe("availableBalance", balances.available);
     maybe("currency", balances.currency);
+    // Written here as well as on the accounts path, because it is the one field
+    // whose absence makes a balance unreadable: it says whether the figure is
+    // money held or money owed (#29). It is not a placeholder — the caller
+    // derives it from which endpoint returned the data, exactly as the accounts
+    // path does, so a row created here carries a real answer rather than a
+    // guess that later has to be overwritten.
+    maybe("isCard", balances.isCard);
 
     await this.doc.send(
       new UpdateCommand({

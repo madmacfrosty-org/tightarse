@@ -7,11 +7,21 @@ import type { AccountView } from "@tightarse/api-contract";
  * only checkable by rendering, which is why `web` sat at 58% of functions.
  */
 
+/**
+ * A current account by default.
+ *
+ * `isCard: false` is set explicitly rather than left out. Every account row the
+ * ledger writes carries the flag, so omitting it here would model a state that
+ * only exists mid-sync (#29) while pretending to be the ordinary case — and
+ * under the old truthiness rule the two were indistinguishable. Tests that want
+ * the half-written row ask for it with `isCard: undefined`.
+ */
 const account = (over: Partial<AccountView> = {}): AccountView => ({
   accountId: "acc-1",
   displayName: "Current",
   institutionName: "First Direct",
   currentBalance: 100_00,
+  isCard: false,
   ...over,
 });
 
@@ -45,6 +55,46 @@ describe("net position", () => {
     const { cards, inCredit } = netPosition([amex, flush]);
     expect(cards.map((c) => c.accountId)).toEqual(["amex"]);
     expect(inCredit.map((c) => c.accountId)).toEqual(["savings"]);
+  });
+
+  it("will not guess at an account that has not said whether it is a card", () => {
+    // The £567.90 bug arrived at from a different direction. Not a wrong sign
+    // this time — a missing flag read as a definite "no". `undefined` is falsy,
+    // so `filter(a => a.isCard)` put a debt in the cash column and the position
+    // was overstated by twice the balance.
+    const half = account({ accountId: "half-written", currentBalance: 567_90, isCard: undefined });
+    const cash = account({ accountId: "cur", currentBalance: 1_000_00 });
+    const p = netPosition([cash, half]);
+
+    expect(p.unknown.map((a) => a.accountId)).toEqual(["half-written"]);
+    expect(p.cards).toEqual([]);
+    expect(p.inCredit.map((a) => a.accountId)).toEqual(["cur"]);
+    // Excluded entirely rather than counted either way.
+    expect(p.net).toBe(1_000_00);
+    expect(p.provisional).toBe(true);
+  });
+
+  it("is not provisional when every account is classified", () => {
+    // Otherwise the warning becomes permanent furniture and stops being read.
+    const p = netPosition([
+      account({ accountId: "cur", currentBalance: 100_00 }),
+      account({ accountId: "card", currentBalance: 50_00, isCard: true }),
+    ]);
+    expect(p.provisional).toBe(false);
+    expect(p.unknown).toEqual([]);
+    expect(p.net).toBe(50_00);
+  });
+
+  it("distinguishes a known-false flag from an absent one", () => {
+    // The distinction the whole fix rests on: `false` is an answer, `undefined`
+    // is the absence of one, and a truthiness check cannot tell them apart.
+    const known = netPosition([account({ accountId: "a", currentBalance: 10_00, isCard: false })]);
+    const absent = netPosition([account({ accountId: "a", currentBalance: 10_00, isCard: undefined })]);
+
+    expect(known.netCash).toBe(10_00);
+    expect(known.provisional).toBe(false);
+    expect(absent.netCash).toBe(0);
+    expect(absent.provisional).toBe(true);
   });
 
   it("counts an account with no balance as nothing, not as a gap in the total", () => {
