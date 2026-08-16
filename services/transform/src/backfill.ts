@@ -8,11 +8,15 @@
  * Usage:
  *   TENANT=frost BUCKET=<name> TABLE=<name> node src/backfill.ts [--dry-run]
  *
- * Point TABLE at a NEW table rather than the live one. The live table has a
- * DynamoDB stream that triggers the categoriser, so replaying into it re-runs
- * categorisation across everything, which costs money in model mode. A fresh
- * table has no stream, and gives you something to compare against — see
- * `compare.ts`.
+ * Prefer a NEW table over the live one, and compare the two — see `compare.ts`.
+ * A replay into live is safe (every write is idempotent, demonstrated at 9,790
+ * rows with zero differences) but it rewrites `ingestedAt` on every row it
+ * touches, which is stamped at write time and cannot be recovered.
+ *
+ * The table has a DynamoDB stream enabled, but nothing consumes it today — the
+ * categoriser runs on a schedule. So a replay does not re-run categorisation.
+ * That will change the day something is wired to the stream, and this note is
+ * here so the cost is reconsidered rather than assumed either way.
  *
  * ## Order does not matter
  *
@@ -65,7 +69,28 @@ export interface ReplayResult {
 export interface ReplayOptions {
   readonly tenantId: string;
   readonly dryRun?: boolean;
+  /**
+   * Replay only these datasets, by exact name. Every dataset when absent.
+   *
+   * The reason it exists: replaying everything into the live table rewrites
+   * `ingestedAt` on every transaction, which is stamped at write time, so a full
+   * replay resets when each row is recorded as having arrived and loses that
+   * information for good.
+   *
+   * A replay confined to the datasets that actually need rebuilding avoids
+   * both. Against a fresh table there is no reason to filter and every reason
+   * not to.
+   */
+  readonly datasets?: readonly string[] | undefined;
   readonly log?: ((line: string) => void) | undefined;
+}
+
+/** Whether a raw object key belongs to one of the named datasets. */
+export function keyMatchesDatasets(key: string, datasets?: readonly string[]): boolean {
+  if (!datasets || datasets.length === 0) return true;
+  // Matched on the whole path segment, so `truelayer.balance` cannot also
+  // select `truelayer.card_balance`.
+  return datasets.some((d) => key.includes(`/dataset=${d}/`));
 }
 
 /** Every raw object key under a tenant, following pagination to the end. */
@@ -88,9 +113,11 @@ export async function listRawKeys(deps: ReplayDeps, tenantId: string): Promise<s
 
 export async function replay(deps: ReplayDeps, opts: ReplayOptions): Promise<ReplayResult> {
   const write = opts.log ?? console.log;
-  const keys = await listRawKeys(deps, opts.tenantId);
+  const all = await listRawKeys(deps, opts.tenantId);
+  const keys = all.filter((k) => keyMatchesDatasets(k, opts.datasets));
 
-  write(`${keys.length} objects under tenant=${opts.tenantId}${opts.dryRun ? " (dry run)" : ""}\n`);
+  const scope = opts.datasets?.length ? ` of ${all.length}, limited to ${opts.datasets.join(", ")}` : "";
+  write(`${keys.length} objects${scope} under tenant=${opts.tenantId}${opts.dryRun ? " (dry run)" : ""}\n`);
 
   let rows = 0;
   const byHandler: Record<string, number> = {};

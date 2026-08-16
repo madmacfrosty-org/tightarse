@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { gzipSync } from "node:zlib";
-import { listRawKeys, replay, type ReplayDeps } from "./backfill";
+import { keyMatchesDatasets, listRawKeys, replay, type ReplayDeps } from "./backfill";
 
 /**
  * Replaying the raw landing zone.
@@ -277,5 +277,54 @@ describe("edges worth not crashing on", () => {
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0]!.error).toContain("a string");
     expect(result.failures[0]!.key).toContain("truelayer.transactions");
+  });
+});
+
+describe("replaying only some datasets", () => {
+  it("matches on the whole path segment, so balance does not select card_balance", () => {
+    // A substring match would sweep card balances into a balance-only replay
+    // and write rows nobody asked for.
+    const accountBalance = key("truelayer.balance");
+    const cardBalance = key("truelayer.card_balance");
+    expect(keyMatchesDatasets(accountBalance, ["truelayer.balance"])).toBe(true);
+    expect(keyMatchesDatasets(cardBalance, ["truelayer.balance"])).toBe(false);
+    expect(keyMatchesDatasets(cardBalance, ["truelayer.card_balance"])).toBe(true);
+  });
+
+  it("takes several datasets at once", () => {
+    expect(keyMatchesDatasets(key("truelayer.card_balance"), ["truelayer.balance", "truelayer.card_balance"])).toBe(true);
+  });
+
+  it("replays everything when nothing is named", () => {
+    // Against a fresh table there is no reason to filter, so the default is a
+    // complete rebuild.
+    expect(keyMatchesDatasets(key("truelayer.transactions"))).toBe(true);
+    expect(keyMatchesDatasets(key("truelayer.transactions"), [])).toBe(true);
+  });
+
+  it("transforms only the matching objects", async () => {
+    // The point of the filter: replaying everything into the live table would
+    // rewrite ingestedAt on every transaction, which is stamped at write time
+    // and is the record of when a row actually arrived.
+    const { deps: d, state } = deps({
+      [key("truelayer.transactions")]: envelope([txn()]),
+      [key("truelayer.balance")]: envelope([{ current: 100, available: 90, currency: "GBP" }]),
+    });
+    const result = await replay(d, { tenantId: "frost", datasets: ["truelayer.balance"], log: () => {} });
+    expect(result.objects).toBe(1);
+    expect(state.transactions.size).toBe(0);
+    expect(state.readings.size).toBe(1);
+  });
+
+  it("says how much of the landing zone it skipped", async () => {
+    // A replay that quietly did a tenth of the work would look like a
+    // successful rebuild.
+    const lines: string[] = [];
+    const { deps: d } = deps({
+      [key("truelayer.transactions")]: envelope([txn()]),
+      [key("truelayer.balance")]: envelope([{ current: 100, currency: "GBP" }]),
+    });
+    await replay(d, { tenantId: "frost", datasets: ["truelayer.balance"], log: (l) => lines.push(l) });
+    expect(lines[0]).toContain("1 objects of 2, limited to truelayer.balance");
   });
 });

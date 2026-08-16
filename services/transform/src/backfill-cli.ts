@@ -3,10 +3,12 @@
  *
  *   TENANT=frost BUCKET=<name> TABLE=<name> npm run backfill -w @tightarse/transform
  *   ... -- --dry-run
+ *   DATASETS=truelayer.balance,truelayer.card_balance ...   only those datasets
  *
- * Point TABLE at a NEW table rather than the live one: the live table has a
- * stream that triggers the categoriser, so replaying into it re-runs
- * categorisation across everything, which costs money in model mode.
+ * Prefer a NEW table over the live one. A replay into live is safe but rewrites
+ * `ingestedAt` on every row it touches, which is stamped at write time and
+ * cannot be recovered — so limit it with DATASETS when only part of the ledger
+ * needs rebuilding.
  */
 import { S3Client } from "@aws-sdk/client-s3";
 import { Ledger } from "@tightarse/ledger";
@@ -27,10 +29,12 @@ async function main(): Promise<void> {
   const tableName = requireEnv("TABLE");
   const region = process.env["AWS_REGION"] ?? "eu-west-1";
   const dryRun = process.argv.includes("--dry-run");
+  // DATASETS=truelayer.balance,truelayer.card_balance replays only those.
+  const datasets = process.env["DATASETS"]?.split(",").map((d) => d.trim()).filter(Boolean);
 
   const result = await replay(
     { s3: new S3Client({ region }), ledger: new Ledger({ tableName, region }), bucket },
-    { tenantId, dryRun },
+    { tenantId, dryRun, ...(datasets?.length ? { datasets } : {}) },
   );
 
   if (!dryRun) {
