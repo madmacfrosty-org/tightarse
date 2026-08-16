@@ -195,4 +195,18 @@ export const AccountsResponse = z.object({
 export type AccountsResponse = z.infer<typeof AccountsResponse>;
 
 // The paths, the version and the compatibility promise (#26, #27).
-export * from "./routes.js";
+//
+// Named explicitly rather than `export *`. This package builds to CommonJS, and
+// a star re-export compiles to `__exportStar`, which rollup cannot analyse
+// statically — the dashboard's bundle then fails with "pathFor is not exported"
+// even though the types resolve and every test passes. Named re-exports compile
+// to property getters, which it can see.
+export {
+  API_VERSION,
+  COMPATIBILITY_PROMISE,
+  CONNECT_PATHS,
+  ROUTES,
+  pathFor,
+  type QueryParam,
+  type Route,
+} from "./routes.js";
