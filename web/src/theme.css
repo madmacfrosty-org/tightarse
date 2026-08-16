@@ -164,3 +164,18 @@ button.provider {
 }
 button.provider:hover:not(:disabled) { border-color: var(--in); }
 button.provider:disabled { opacity: 0.5; cursor: default; }
+
+/* Reveals more of an already-loaded list, so it reads as a continuation of the
+   table rather than an action. */
+button.ghost {
+  margin-top: 12px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--grid);
+  border-radius: 6px;
+  cursor: pointer;
+}
+button.ghost:hover { color: var(--text-primary); border-color: var(--text-muted); }

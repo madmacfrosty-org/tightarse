@@ -39,10 +39,23 @@ const transactions = [
  * clears recorded calls and leaves the implementation in place — so one test
  * overriding a response silently changed every test after it.
  */
+// `from` is deliberately earlier than any range the dashboard asks for, so this
+// fixture represents the unclamped case. A fixture whose start is later than
+// the request is a clamped one, which is a different test.
+const balances = {
+  range: { from: "2000-01-01", to: "2026-03-01" },
+  points: [
+    { date: "2026-01-01", net: 100_00 },
+    { date: "2026-02-01", net: 150_00 },
+    { date: "2026-03-01", net: 120_00 },
+  ],
+};
+
 const defaultApiGet = async (path: string): Promise<unknown> => {
   if (path.startsWith(pathFor("/summary"))) return summary;
   if (path.startsWith(pathFor("/accounts"))) return { accounts };
   if (path.startsWith(pathFor("/transactions"))) return { transactions };
+  if (path.startsWith(pathFor("/balances"))) return balances;
   throw new Error(`unexpected path ${path}`);
 };
 
@@ -71,6 +84,7 @@ describe("an account the sync has not finished describing", () => {
       return { accounts: [{ accountId: "half-written", currentBalance: 1000 }] };
     }
     if (path.startsWith(pathFor("/summary"))) return summary;
+    if (path.startsWith(pathFor("/balances"))) return balances;
     return { transactions: [] };
   };
 
@@ -199,6 +213,81 @@ describe("requests", () => {
   });
 });
 
+describe("balance over time", () => {
+  it("draws the series the API returned", async () => {
+    const { App } = await import("./App");
+    render(<App />);
+    expect(await screen.findByRole("img", { name: /Net position over time/ })).toBeDefined();
+  });
+
+  it("says how far back the figure actually reaches", async () => {
+    // Stated whether or not it was clamped: the start of a net-position chart
+    // is a fact about the data, not a caveat, and a reader should not have to
+    // infer it from the axis.
+    const { App } = await import("./App");
+    render(<App />);
+    expect(await screen.findByText("2000-01-01")).toBeDefined();
+  });
+
+  it("explains a clamp, rather than quietly drawing less", async () => {
+    apiGet.mockImplementation(async (path: string) => {
+      if (path.startsWith(pathFor("/summary"))) return summary;
+      if (path.startsWith(pathFor("/accounts"))) return { accounts };
+      if (path.startsWith(pathFor("/transactions"))) return { transactions };
+      // Far later than the year the dashboard asks for by default.
+      return { range: { from: "2030-01-01", to: "2030-02-01" }, points: [{ date: "2030-01-01", net: 1 }] };
+    });
+    const { App } = await import("./App");
+    render(<App />);
+    expect(await screen.findByText(/as far back as every account has data/)).toBeDefined();
+  });
+
+  it("says nothing about clamping when the full range came back", async () => {
+    // Otherwise the caveat becomes permanent furniture and stops being read.
+    const { App } = await import("./App");
+    render(<App />);
+    await screen.findByRole("img", { name: /Net position over time/ });
+    expect(screen.queryByText(/as far back as every account has data/)).toBeNull();
+  });
+});
+
+describe("the transaction list", () => {
+  it("caps what it renders and offers the rest", async () => {
+    // Not pagination — every transaction in range is already loaded. This is
+    // about the DOM: a year is ~2,900 rows and all of them were being rendered.
+    const many = Array.from({ length: 250 }, (_, i) => ({
+      dedupKey: `d${i}`,
+      timestamp: `2026-03-${String((i % 28) + 1).padStart(2, "0")}T00:00:00Z`,
+      amount: -1_00,
+      currency: "GBP",
+      description: `row ${i}`,
+      accountId: "a1",
+      transactionType: "DEBIT",
+      category: "Uncategorised",
+      provisional: false,
+    }));
+    apiGet.mockImplementation(async (path: string) => {
+      if (path.startsWith(pathFor("/summary"))) return summary;
+      if (path.startsWith(pathFor("/accounts"))) return { accounts };
+      if (path.startsWith(pathFor("/balances"))) return balances;
+      return { transactions: many };
+    });
+    const { App } = await import("./App");
+    render(<App />);
+
+    expect(await screen.findByText("Showing 100 of 250.", { exact: false })).toBeDefined();
+    expect(screen.queryByText("row 150")).toBeNull();
+    expect(screen.getByRole("button", { name: /Show 100 more/ })).toBeDefined();
+  });
+
+  it("offers nothing more when everything is already shown", async () => {
+    const { App } = await import("./App");
+    render(<App />);
+    await screen.findByRole("img", { name: /Net position over time/ });
+    expect(screen.queryByRole("button", { name: /Show .* more/ })).toBeNull();
+  });
+});
+
 describe("chrome", () => {
   it("shows the range the summary covers and the transaction count", async () => {
     const { App } = await import("./App");
@@ -219,7 +308,10 @@ describe("chrome", () => {
     const { App } = await import("./App");
     render(<App />);
     await screen.findByText("−£6,376.02");
-    for (const label of ["3 months", "12 months", "5 years"]) {
+    // "All time" rather than a fixed span: how far back a household total is
+    // trustworthy is set by the shallowest account and widens a day at a time,
+    // so a constant would be wrong today and wrong differently later. #33.
+    for (const label of ["3 months", "12 months", "All time"]) {
       expect(screen.getByRole("button", { name: label })).toBeDefined();
     }
   });

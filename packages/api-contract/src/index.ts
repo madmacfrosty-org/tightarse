@@ -175,6 +175,21 @@ export const AccountView = z.object({
   currentBalance: minorUnits("Balance as the provider reports it; for a card, what is owed").optional(),
   availableBalance: minorUnits("Funds available to spend").optional(),
   lastSyncedAt: z.string().optional().describe("ISO 8601 instant of the last successful fetch"),
+  /** Earliest date this account has any data for. Absent when it has none. */
+  historyFrom: IsoDate.optional().describe("Earliest date this account has data for"),
+  /**
+   * Whether anything is missing before `historyFrom`.
+   *
+   * True means the account was opened within the data we hold, so its absence
+   * from any earlier total is correct. False means it demonstrably existed
+   * earlier — the balance before its first transaction was not zero — and a
+   * total drawn before `historyFrom` is short by whatever it held. For a card
+   * that means missing debt, so the total reads high. See #33.
+   */
+  historyComplete: z
+    .boolean()
+    .optional()
+    .describe("False when the account existed before the earliest data we hold"),
 });
 export type AccountView = z.infer<typeof AccountView>;
 
@@ -189,8 +204,45 @@ export const TransactionsResponse = z.object({
 });
 export type TransactionsResponse = z.infer<typeof TransactionsResponse>;
 
+export const BalancePoint = z.object({
+  date: IsoDate,
+  net: minorUnits("Cash less card debt, across every account with data that day"),
+});
+export type BalancePoint = z.infer<typeof BalancePoint>;
+
+export const BalancesResponse = z.object({
+  /**
+   * The range actually served, which may be narrower than the one requested.
+   *
+   * Nothing incomplete is ever returned, so a request reaching back further
+   * than `completeFrom` is clamped rather than answered with a total missing an
+   * account. Compare this against what was sent to detect it.
+   */
+  range: DateRange,
+  /** One per day across `range`, both ends inclusive. */
+  points: z.array(BalancePoint),
+});
+export type BalancesResponse = z.infer<typeof BalancesResponse>;
+
 export const AccountsResponse = z.object({
   accounts: z.array(AccountView),
+  /**
+   * The earliest date from which a household total is trustworthy.
+   *
+   * Computed here rather than left to clients. The rule is "the latest start
+   * among accounts that are incomplete", and an account opened inside the range
+   * must be excluded — a client doing the obvious `max(historyFrom)` gets it
+   * wrong the first time a new account is opened, and every client would have
+   * to reimplement it.
+   *
+   * Absent when nothing constrains the range. It moves earlier over time on its
+   * own: every fetch is kept, so an account's start date is fixed once, and the
+   * window widens by a day each day regardless of what the provider will serve
+   * later.
+   */
+  completeFrom: IsoDate.optional().describe(
+    "Earliest date a household total is complete; absent when unconstrained",
+  ),
 });
 export type AccountsResponse = z.infer<typeof AccountsResponse>;
 

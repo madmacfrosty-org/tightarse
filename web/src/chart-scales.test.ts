@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  balanceScale,
   categoryScale,
   flowScale,
   compact,
@@ -171,5 +172,52 @@ describe("axis labels", () => {
     // The component renders "−{compact(max)}". Returning a sign here would
     // produce "−−£1k".
     expect(compact(-1_234_00)).toBe("£1k");
+  });
+});
+
+describe("the balance line's scale", () => {
+  const d = (date: string, net: number) => ({ date, net });
+
+  it("spans the data rather than starting at zero", () => {
+    // A household moving between £8,000 and £9,000 drawn from zero is a flat
+    // line at the top of an empty chart, and the shape is the entire point.
+    const s = balanceScale([d("2026-01-01", 800_000), d("2026-01-02", 900_000)]);
+    expect(s.min).toBeGreaterThan(0);
+    expect(s.max).toBeLessThan(1_000_000);
+    // The two points must be far apart vertically, not both pinned to the top.
+    expect(Math.abs(s.points[0]!.y - s.points[1]!.y)).toBeGreaterThan(100);
+  });
+
+  it("draws a zero baseline only when zero is inside the range", () => {
+    // Crossing into the negative is the one threshold here that means
+    // something. Drawn when it is off the plot it would squash the line to
+    // make room for a line saying nothing.
+    expect(balanceScale([d("2026-01-01", -100), d("2026-01-02", 100)]).zeroVisible).toBe(true);
+    expect(balanceScale([d("2026-01-01", 500_00), d("2026-01-02", 600_00)]).zeroVisible).toBe(false);
+  });
+
+  it("survives a flat line without dividing by nothing", () => {
+    // Every point identical gives a zero span, and every y becomes NaN — an
+    // invisible chart rather than an error. A dormant account does this.
+    const s = balanceScale([d("2026-01-01", 331), d("2026-01-02", 331)]);
+    expect(s.points.every((p) => Number.isFinite(p.y))).toBe(true);
+    expect(s.path).not.toMatch(/NaN/);
+  });
+
+  it("survives a single point and no points at all", () => {
+    const one = balanceScale([d("2026-01-01", 100)]);
+    expect(one.points).toHaveLength(1);
+    expect(one.path).not.toMatch(/NaN/);
+    const none = balanceScale([]);
+    expect(none.points).toHaveLength(0);
+    expect(none.area).toBe("");
+  });
+
+  it("thins the axis labels rather than printing one per month for five years", () => {
+    const days: Array<{ date: string; net: number }> = [];
+    for (let y = 2021; y <= 2026; y += 1) {
+      for (let m = 1; m <= 12; m += 1) days.push(d(`${y}-${String(m).padStart(2, "0")}-01`, 1000));
+    }
+    expect(balanceScale(days).ticks.length).toBeLessThanOrEqual(9);
   });
 });

@@ -229,3 +229,125 @@ describe("where the ledger client points", () => {
     expect(ledgerConfig({}).tableName).toBe("");
   });
 });
+
+describe("balance over time", () => {
+  const accountRows = [
+    { accountId: "cur", isCard: false, currentBalance: 900_00, lastSyncedAt: "2026-03-05T05:00:00Z" },
+    { accountId: "card", isCard: true, currentBalance: 100_00, lastSyncedAt: "2026-03-05T05:00:00Z" },
+  ];
+  // Both opened inside the data — running balance equals the first amount, and
+  // the card's transactions sum to what it owes — so nothing constrains the
+  // range and the clamp does not interfere with these assertions.
+  const txnRows = [
+    {
+      accountId: "cur",
+      dedupKey: "c1",
+      timestamp: "2026-03-01T00:00:00Z",
+      amount: 500_00,
+      runningBalance: 500_00,
+      currency: "GBP",
+      description: "",
+      transactionType: "CREDIT",
+    },
+    {
+      accountId: "card",
+      dedupKey: "k1",
+      timestamp: "2026-03-02T00:00:00Z",
+      amount: -100_00,
+      currency: "GBP",
+      description: "",
+      transactionType: "DEBIT",
+    },
+  ];
+
+  beforeEach(() => {
+    listAccounts.mockResolvedValue(accountRows);
+    listRange.mockResolvedValue({ transactions: txnRows, enrichments: [] });
+  });
+
+  it("returns a point for every day in the range", async () => {
+    const res = await route(deps, event({ rawPath: "/v1/balances", queryStringParameters: { from: "2026-03-01", to: "2026-03-05" } }));
+    const body = JSON.parse(res.body);
+    expect(body.points.map((p: { date: string }) => p.date)).toEqual([
+      "2026-03-01",
+      "2026-03-02",
+      "2026-03-03",
+      "2026-03-04",
+      "2026-03-05",
+    ]);
+  });
+
+  it("reads the whole history, not just the requested range", async () => {
+    // A card's balance on a given day is what is owed now less everything
+    // since, so transactions *after* the requested range are load-bearing.
+    // Reading only the range made every card's history wrong by whatever
+    // happened afterwards — and `rangeFrom` defaults to a rolling year, so an
+    // unqualified /accounts reported every account as starting a year ago.
+    await route(deps, event({ rawPath: "/v1/balances", queryStringParameters: { from: "2026-03-01", to: "2026-03-02" } }));
+    const ranges = listRange.mock.calls.map((c) => c[1]);
+    expect(ranges.some((r) => r.from === "1970-01-01")).toBe(true);
+  });
+
+  it("subtracts card debt, so the last point matches the account tiles", async () => {
+    // £900 cash less £100 owed. The same figure the net-position tile shows,
+    // because a chart disagreeing with the headline number reads as a bug.
+    const res = await route(deps, event({ rawPath: "/v1/balances", queryStringParameters: { from: "2026-03-01", to: "2026-03-05" } }));
+    const body = JSON.parse(res.body);
+    expect(body.points[body.points.length - 1].net).toBe(800_00);
+  });
+
+  it("clamps the range and says where it actually starts", async () => {
+    // An account that plainly existed before our data constrains the total.
+    listRange.mockResolvedValue({
+      transactions: [
+        { ...txnRows[0], runningBalance: 900_00, timestamp: "2026-03-03T00:00:00Z" },
+        txnRows[1],
+      ],
+      enrichments: [],
+    });
+    const res = await route(deps, event({ rawPath: "/v1/balances", queryStringParameters: { from: "2026-01-01", to: "2026-03-05" } }));
+    const body = JSON.parse(res.body);
+    expect(body.range.from).toBe("2026-03-03");
+    expect(body.points[0].date).toBe("2026-03-03");
+  });
+});
+
+describe("what /accounts says about coverage", () => {
+  it("reports where each account's history starts and whether anything precedes it", async () => {
+    listAccounts.mockResolvedValue([
+      { accountId: "cur", isCard: false, currentBalance: 100_00, lastSyncedAt: "2026-03-05T05:00:00Z" },
+    ]);
+    listRange.mockResolvedValue({
+      transactions: [
+        {
+          accountId: "cur",
+          dedupKey: "c1",
+          timestamp: "2026-03-01T00:00:00Z",
+          amount: -20_00,
+          runningBalance: 480_00,
+          currency: "GBP",
+          description: "",
+          transactionType: "DEBIT",
+        },
+      ],
+      enrichments: [],
+    });
+    const res = await route(deps, event({ rawPath: "/v1/accounts" }));
+    const body = JSON.parse(res.body);
+    expect(body.accounts[0].historyFrom).toBe("2026-03-01");
+    // £500 before the first transaction we hold, so it existed earlier.
+    expect(body.accounts[0].historyComplete).toBe(false);
+    expect(body.completeFrom).toBe("2026-03-01");
+  });
+
+  it("omits completeFrom when no account constrains the range", async () => {
+    listAccounts.mockResolvedValue([{ accountId: "cur", isCard: false }]);
+    listRange.mockResolvedValue({ transactions: [], enrichments: [] });
+    const res = await route(deps, event({ rawPath: "/v1/accounts" }));
+    const body = JSON.parse(res.body);
+    expect(body.completeFrom).toBeUndefined();
+    // Absent, not false: there is no earliest balance to test. Same rule as
+    // isCard in #29.
+    expect(body.accounts[0].historyComplete).toBeUndefined();
+  });
+});

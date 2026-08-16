@@ -1,8 +1,10 @@
 import { useState, type ReactNode } from "react";
 import {
   compact,
+  balanceScale,
   categoryScale,
   flowScale,
+  type BalanceDatum,
   type CategoryDatum,
   type MonthDatum,
 } from "./chart-scales";
@@ -185,6 +187,94 @@ export function MonthlyFlow({ data }: { data: MonthDatum[] }) {
         <line x1={0} x2={width} y1={axisY} y2={axisY} stroke="var(--text-muted)" strokeWidth={1} />
         <text x={4} y={axisY - 6} fontSize={11} fill="var(--text-muted)">{compact(max)}</text>
         <text x={4} y={axisY + 16} fontSize={11} fill="var(--text-muted)">−{compact(max)}</text>
+      </svg>
+      {node}
+    </div>
+  );
+}
+
+
+/**
+ * Balance over time: one line, one point per day.
+ *
+ * The chart never shows a period where an account is missing, so there is no
+ * partial region to shade and no caveat to render — the range arrives already
+ * clamped by the API. See #33.
+ */
+export function BalanceLine({ data }: { data: BalanceDatum[] }) {
+  const { setTip, node } = useTooltip();
+  if (data.length === 0) return <p className="subtle">No balance history for this period.</p>;
+
+  const { width, height, plotHeight, path, area, points, ticks, zeroY, zeroVisible } = balanceScale(data);
+  // One hit target per point is thousands of nodes over a long range, so the
+  // pointer is mapped to the nearest point instead.
+  const nearest = (clientX: number, rect: DOMRect) => {
+    const rel = ((clientX - rect.left) / rect.width) * width;
+    let best = points[0]!;
+    for (const p of points) if (Math.abs(p.x - rel) < Math.abs(best.x - rel)) best = p;
+    return best;
+  };
+
+  return (
+    <div className="chart-scroll">
+      <svg
+        width="100%"
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label="Net position over time"
+        onMouseMove={(e) => {
+          const p = nearest(e.clientX, e.currentTarget.getBoundingClientRect());
+          setTip({
+            x: e.clientX,
+            y: e.clientY,
+            content: (
+              <>
+                <div>{p.date}</div>
+                <div className="t-label">{money(p.net, { sign: true })}</div>
+              </>
+            ),
+          });
+        }}
+        onMouseLeave={() => setTip(null)}
+      >
+        <defs>
+          <linearGradient id="balance-fill" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="var(--in)" stopOpacity="0.22" />
+            <stop offset="100%" stopColor="var(--in)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+
+        <path d={area} fill="url(#balance-fill)" />
+        <path d={path} fill="none" stroke="var(--in)" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+
+        {/* Only when zero is inside the range. Drawn otherwise it would sit off
+            the plot, or squash the line to make room for a line meaning nothing. */}
+        {zeroVisible && (
+          <line
+            x1={0}
+            x2={width}
+            y1={zeroY}
+            y2={zeroY}
+            stroke="var(--out)"
+            strokeWidth={1}
+            strokeDasharray="4 4"
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
+
+        {ticks.map((t) => (
+          <text
+            key={t.label}
+            x={t.x}
+            y={plotHeight + 18}
+            textAnchor="middle"
+            fontSize={11}
+            fill="var(--text-muted)"
+          >
+            {t.label}
+          </text>
+        ))}
       </svg>
       {node}
     </div>

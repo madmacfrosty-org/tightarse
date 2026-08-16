@@ -99,7 +99,11 @@ describe("what must survive generation", () => {
     const params = Object.values(doc.paths as Record<string, any>).flatMap(
       (p) => p.get.parameters as Array<{ name: string }>,
     );
-    expect(params.map((p) => p.name).sort()).toEqual(["from", "from", "to", "to"]);
+    // The intent, not a count: a route may be added without touching this, but
+    // a parameter naming a household may not. Counting them meant adding
+    // /balances broke a test about tenancy, which is the wrong thing to notice.
+    const names = new Set(params.map((p) => p.name));
+    expect([...names].sort()).toEqual(["from", "to"]);
   });
 
   it("documents no limit parameter", () => {

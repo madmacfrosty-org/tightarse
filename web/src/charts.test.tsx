@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { money, CategoryBars, MonthlyFlow } from "./charts";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { money, BalanceLine, CategoryBars, MonthlyFlow } from "./charts";
 
 describe("money", () => {
   // The dashboard's only job is to state amounts correctly. A card balance
@@ -80,5 +80,46 @@ describe("MonthlyFlow", () => {
       <MonthlyFlow data={[{ month: "2026-08", income: 0, spend: 0, net: 0 }]} />,
     );
     expect(container.innerHTML).not.toContain("NaN");
+  });
+});
+
+
+describe("the balance line", () => {
+  const data = [
+    { date: "2026-01-01", net: 100_00 },
+    { date: "2026-02-01", net: 150_00 },
+    { date: "2026-03-01", net: -20_00 },
+  ];
+
+  it("draws a line for the series", () => {
+    render(<BalanceLine data={data} />);
+    const svg = screen.getByRole("img", { name: /Net position over time/ });
+    const paths = svg.querySelectorAll("path");
+    // One filled area beneath, one line on top.
+    expect(paths.length).toBe(2);
+    for (const p of paths) expect(p.getAttribute("d")).not.toMatch(/NaN/);
+  });
+
+  it("says so plainly when there is nothing to draw", () => {
+    // An empty chart with axes and no line looks broken rather than empty.
+    render(<BalanceLine data={[]} />);
+    expect(screen.getByText(/No balance history/)).toBeDefined();
+  });
+
+  it("reports the value under the pointer", () => {
+    render(<BalanceLine data={data} />);
+    const svg = screen.getByRole("img", { name: /Net position over time/ });
+    // jsdom gives every element a zero-size rect, so the nearest point is the
+    // first one. Enough to exercise the lookup and the tooltip it feeds.
+    fireEvent.mouseMove(svg, { clientX: 0, clientY: 0 });
+    expect(screen.getByText("2026-01-01")).toBeDefined();
+    fireEvent.mouseLeave(svg);
+    expect(screen.queryByText("2026-01-01")).toBeNull();
+  });
+
+  it("labels the axis without printing every month", () => {
+    render(<BalanceLine data={data} />);
+    const svg = screen.getByRole("img", { name: /Net position over time/ });
+    expect(svg.querySelectorAll("text").length).toBeGreaterThan(0);
   });
 });

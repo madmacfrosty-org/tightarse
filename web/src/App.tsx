@@ -1,15 +1,34 @@
 import { useEffect, useState } from "react";
 import { apiGet, completeSignIn, currentIdentity, signIn, signOut, type Identity } from "./auth";
 import { ConnectBank, Connected } from "./Connect";
-import { CategoryBars, MonthlyFlow, money } from "./charts";
+import { BalanceLine, CategoryBars, MonthlyFlow, money } from "./charts";
 import { netPosition, rangeFor, tileBalance } from "./positions";
-import { pathFor, type AccountView, type Summary, type TransactionView } from "@tightarse/api-contract";
+import {
+  pathFor,
+  type AccountView,
+  type BalancesResponse,
+  type Summary,
+  type TransactionView,
+} from "@tightarse/api-contract";
 
 const RANGES = [
   { label: "3 months", days: 90 },
   { label: "12 months", days: 365 },
-  { label: "5 years", days: 365 * 5 },
+  // Not a fixed span. How far back a total is trustworthy is set by the
+  // shallowest account and grows a day at a time as history accrues, so the
+  // API is asked and the answer used. A fixed "5 years" was wrong in both
+  // directions: too long today, and too short once the window widens. #33.
+  { label: "All time", days: Number.POSITIVE_INFINITY },
 ] as const;
+
+/**
+ * How many transactions to put in the DOM at once.
+ *
+ * Not pagination — the whole range is already fetched, and at a few hundred
+ * kilobytes that is fine. This is about rendering: a year is ~2,900 rows and
+ * every one of them was going into the table. #28.
+ */
+const PAGE = 100;
 
 function SignIn({ error }: { error: string | null }) {
   return (
@@ -27,6 +46,19 @@ function SignIn({ error }: { error: string | null }) {
   );
 }
 
+/**
+ * Did the API return less than was asked for?
+ *
+ * It clamps a request that reaches back past the point where every account has
+ * data, because a total drawn earlier omits an account — for a card that means
+ * missing debt, so the line reads high. Saying so is the difference between a
+ * short chart and a chart that looks complete and is not.
+ */
+function clamped(balances: BalancesResponse, days: number): boolean {
+  const asked = rangeFor(Number.isFinite(days) ? days : 365 * 50, new Date());
+  return balances.range.from > asked.from;
+}
+
 export function App() {
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [checking, setChecking] = useState(true);
@@ -34,6 +66,8 @@ export function App() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [accounts, setAccounts] = useState<AccountView[]>([]);
   const [txns, setTxns] = useState<TransactionView[]>([]);
+  const [balances, setBalances] = useState<BalancesResponse | null>(null);
+  const [shown, setShown] = useState(PAGE);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -47,9 +81,13 @@ export function App() {
 
   useEffect(() => {
     if (!identity) return;
-    const { from, to } = rangeFor(days, new Date());
+    // "All time" asks for everything and lets the API clamp. It answers with
+    // the range it actually served, which is the only honest source for how far
+    // back this household's total reaches.
+    const { from, to } = rangeFor(Number.isFinite(days) ? days : 365 * 50, new Date());
     const q = `?from=${from}&to=${to}`;
     setError(null);
+    setShown(PAGE);
     Promise.all([
       apiGet<Summary>(`${pathFor("/summary")}${q}`),
       apiGet<{ accounts: AccountView[] }>(pathFor("/accounts")),
@@ -61,11 +99,13 @@ export function App() {
       // the full range on the wire, that is cursor-based pagination and a
       // contract change, not a bare parameter.
       apiGet<{ transactions: TransactionView[] }>(`${pathFor("/transactions")}${q}`),
+      apiGet<BalancesResponse>(`${pathFor("/balances")}${q}`),
     ])
-      .then(([s, a, t]) => {
+      .then(([s, a, t, b]) => {
         setSummary(s);
         setAccounts(a.accounts ?? []);
         setTxns(t.transactions ?? []);
+        setBalances(b);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load"));
   }, [days, identity]);
@@ -181,6 +221,21 @@ export function App() {
       </div>
 
       <div className="card">
+        <h2>Balance over time</h2>
+        <p className="note">
+          Cash less card debt, every day.
+          {balances?.range && (
+            <>
+              {" "}
+              From <strong>{balances.range.from}</strong>
+              {clamped(balances, days) && " — as far back as every account has data"}.
+            </>
+          )}
+        </p>
+        {balances?.points ? <BalanceLine data={[...balances.points]} /> : <p className="subtle">Loading…</p>}
+      </div>
+
+      <div className="card">
         <h2>Money in and out</h2>
         <p className="note">
           Transfers between your own accounts are excluded — {summary.transferCount} legs,{" "}
@@ -207,7 +262,10 @@ export function App() {
 
       <div className="card">
         <h2>Recent transactions</h2>
-        <p className="note">Newest first.</p>
+        <p className="note">
+          Newest first. Showing {Math.min(shown, txns.length).toLocaleString("en-GB")} of{" "}
+          {txns.length.toLocaleString("en-GB")}.
+        </p>
         <div className="chart-scroll">
           <table>
             <thead>
@@ -219,7 +277,7 @@ export function App() {
               </tr>
             </thead>
             <tbody>
-              {txns.map((t) => (
+              {txns.slice(0, shown).map((t) => (
                 <tr key={t.dedupKey}>
                   <td style={{ color: "var(--text-muted)", whiteSpace: "nowrap" }}>
                     {t.timestamp.slice(0, 10)}
@@ -236,6 +294,17 @@ export function App() {
             </tbody>
           </table>
         </div>
+        {/*
+          A render cap, not pagination. Every transaction in range is already
+          here — a year is a few hundred kilobytes and that is fine — but
+          putting ~2,900 rows in the DOM at once is what a phone actually
+          feels. #28.
+        */}
+        {shown < txns.length && (
+          <button className="ghost" onClick={() => setShown((n) => n + PAGE)}>
+            Show {Math.min(PAGE, txns.length - shown)} more
+          </button>
+        )}
       </div>
     </div>
   );

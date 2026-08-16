@@ -27,6 +27,7 @@ describe("api", () => {
     // the prefix disappear from both sides at once and still pass. #27.
     expect(keys).toEqual([
       "GET /v1/accounts",
+      "GET /v1/balances",
       "GET /v1/connect/callback",
       "GET /v1/connect/start",
       "GET /v1/summary",

@@ -10,7 +10,7 @@
  */
 
 import { z } from "zod";
-import { AccountsResponse, IsoDate, SummaryResponse, TransactionsResponse } from "./index.js";
+import { AccountsResponse, BalancesResponse, IsoDate, SummaryResponse, TransactionsResponse } from "./index.js";
 
 /**
  * The version prefix every path carries.
@@ -113,6 +113,17 @@ export const ROUTES: readonly Route[] = [
       "Returns the whole range: there is no pagination, so a wide range is a large response.",
     query: range,
     response: { name: "TransactionsResponse", schema: TransactionsResponse },
+  },
+  {
+    method: "get",
+    path: "/balances",
+    summary: "Net position for every day in a range",
+    description:
+      "One point per day: cash less card debt across the household. The range is clamped to where " +
+      "every account has data, because a total drawn earlier silently omits an account — for a card " +
+      "that means missing debt, so the figure reads high. The response states the range actually served.",
+    query: range,
+    response: { name: "BalancesResponse", schema: BalancesResponse },
   },
   {
     method: "get",

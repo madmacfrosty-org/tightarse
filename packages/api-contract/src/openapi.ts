@@ -16,6 +16,8 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { z } from "zod";
 import {
   AccountView,
+  BalancePoint,
+  BalancesResponse,
   IsoDate,
   Provisional,
   AccountsResponse,
@@ -54,6 +56,8 @@ const NAMED = {
   Summary,
   TransactionsResponse,
   AccountsResponse,
+  BalancePoint,
+  BalancesResponse,
 } as const;
 
 /**

@@ -149,3 +149,84 @@ export function flowScale(
     })),
   };
 }
+
+export interface BalanceDatum {
+  readonly date: string;
+  readonly net: number;
+}
+
+export interface BalanceScale {
+  readonly width: number;
+  readonly height: number;
+  readonly plotHeight: number;
+  /** The y of zero, whether or not zero is inside the visible range. */
+  readonly zeroY: number;
+  /** Whether zero falls inside the plot, so the baseline is worth drawing. */
+  readonly zeroVisible: boolean;
+  readonly min: number;
+  readonly max: number;
+  readonly path: string;
+  /** Closed area under the line, for the fill beneath it. */
+  readonly area: string;
+  readonly points: ReadonlyArray<{ date: string; net: number; x: number; y: number }>;
+  readonly ticks: ReadonlyArray<{ label: string; x: number }>;
+}
+
+/**
+ * A balance line over time.
+ *
+ * The vertical scale spans the data rather than starting at zero. A household
+ * that moves between £8,000 and £9,000 would otherwise draw as a flat line at
+ * the top of an empty chart, and the shape is the entire point of this view.
+ *
+ * Zero is still drawn when it falls inside the range, because crossing from
+ * positive to negative is the one threshold that actually means something here.
+ */
+export function balanceScale(
+  data: readonly BalanceDatum[],
+  opts: { plotHeight?: number; targetWidth?: number } = {},
+): BalanceScale {
+  const plotHeight = opts.plotHeight ?? 220;
+  const width = opts.targetWidth ?? 720;
+
+  const values = data.map((d) => d.net);
+  const rawMin = values.length > 0 ? Math.min(...values) : 0;
+  const rawMax = values.length > 0 ? Math.max(...values) : 0;
+  // A flat line needs a non-zero span or every point divides by nothing and
+  // lands at NaN. Pad it so the line sits in the middle rather than on an edge.
+  const pad = rawMax === rawMin ? Math.max(Math.abs(rawMax) * 0.1, 100) : (rawMax - rawMin) * 0.08;
+  const min = rawMin - pad;
+  const max = rawMax + pad;
+
+  const y = (net: number) => plotHeight - ((net - min) / (max - min)) * plotHeight;
+  const x = (i: number) => (data.length <= 1 ? width / 2 : (i / (data.length - 1)) * width);
+
+  const points = data.map((d, i) => ({ ...d, x: x(i), y: y(d.net) }));
+  const path = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
+  const area =
+    points.length === 0
+      ? ""
+      : `${path} L${points[points.length - 1]!.x.toFixed(1)} ${plotHeight} L${points[0]!.x.toFixed(1)} ${plotHeight} Z`;
+
+  // One tick per month boundary, thinned so a five-year range does not print a
+  // label every few pixels.
+  const monthFirsts = points.filter((p, i) => i === 0 || p.date.slice(0, 7) !== points[i - 1]!.date.slice(0, 7));
+  const stride = Math.ceil(monthFirsts.length / 8);
+  const ticks = monthFirsts
+    .filter((_, i) => i % stride === 0)
+    .map((p) => ({ label: p.date.slice(2, 7), x: p.x }));
+
+  return {
+    width,
+    height: plotHeight + 28,
+    plotHeight,
+    zeroY: y(0),
+    zeroVisible: min < 0 && max > 0,
+    min,
+    max,
+    path,
+    area,
+    points,
+    ticks,
+  };
+}
