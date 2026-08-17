@@ -100,11 +100,22 @@ describe("lambda sizing", () => {
 });
 
 describe("alerting", () => {
-  it("subscribes the configured address", () => {
-    ingest.hasResourceProperties("AWS::SNS::Subscription", {
-      Protocol: "email",
-      Endpoint: "alerts@example.com",
-    });
+  it("has a topic and no subscription, so nothing claims to notify anyone", () => {
+    // The subscription this replaces asserted that an email address was
+    // configured, and it passed for the whole time alerting was dead: an SNS
+    // email subscription delivers nothing until the recipient clicks a
+    // confirmation link, that link was never clicked, and SNS discarded the
+    // pending subscription after three days. CloudFormation kept reporting
+    // CREATE_COMPLETE, so the template, the stack and this test all described
+    // delivery that did not exist.
+    //
+    // A test can assert a subscription resource exists. It cannot assert anyone
+    // receives anything, which is the only thing that mattered — so the honest
+    // position is no subscription, and alarm history read directly.
+    expect(Object.keys(ingest.findResources("AWS::SNS::Subscription"))).toHaveLength(0);
+    // The topic stays: steps.ts publishes to it when ALERT_TOPIC_ARN is set and
+    // the anomaly alarm targets it, so it is a live seam rather than decoration.
+    expect(Object.keys(ingest.findResources("AWS::SNS::Topic"))).toHaveLength(1);
   });
 });
 

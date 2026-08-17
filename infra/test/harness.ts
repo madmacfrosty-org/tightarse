@@ -90,7 +90,6 @@ export function buildApp(
     table: data.table,
     dataKey: foundation.dataKey,
     clientSecret: foundation.clientSecret,
-    alertEmail: "alerts@example.com",
   });
   const web = new WebStack(app, `TightarseWeb-${settings.name}`, {
     env,

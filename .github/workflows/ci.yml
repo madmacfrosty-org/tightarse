@@ -181,7 +181,4 @@ jobs:
             TightarseApi-dev \
             TightarseIngest-dev \
             TightarseWeb-dev \
-            --require-approval never \
-            -c alertEmail="$ALERT_EMAIL"
-        env:
-          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+            --require-approval never

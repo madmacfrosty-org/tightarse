@@ -62,9 +62,6 @@ new IngestStack(app, `TightarseIngest-${settings.name}`, {
   table: data.table,
   dataKey: foundation.dataKey,
   clientSecret: foundation.clientSecret,
-  ...(app.node.tryGetContext("alertEmail")
-    ? { alertEmail: String(app.node.tryGetContext("alertEmail")) }
-    : {}),
 });
 
 new WebStack(app, `TightarseWeb-${settings.name}`, {

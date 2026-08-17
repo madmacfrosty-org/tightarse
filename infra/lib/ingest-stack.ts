@@ -6,7 +6,6 @@ import * as sfn from "aws-cdk-lib/aws-stepfunctions";
 import * as tasks from "aws-cdk-lib/aws-stepfunctions-tasks";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as sns from "aws-cdk-lib/aws-sns";
-import * as subs from "aws-cdk-lib/aws-sns-subscriptions";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
@@ -26,7 +25,6 @@ export interface IngestStackProps extends cdk.StackProps {
   readonly dataKey: kms.IKey;
   readonly clientSecret: secretsmanager.ISecret;
   /** Where consent warnings and sync failures go. */
-  readonly alertEmail?: string;
   /** Fixed so ApiStack can route to it by name without a construct reference. */
   readonly connectFunctionName: string;
 }
@@ -50,12 +48,28 @@ export class IngestStack extends cdk.Stack {
     const { settings, rawBucket, table, dataKey, clientSecret } = props;
     const connectionPrefix = `${secretPrefix(settings.name)}/connections`;
 
+    /**
+     * A topic, and deliberately no subscription.
+     *
+     * There was an email subscription here and it delivered nothing for its
+     * entire existence. An SNS email subscription is inert until the recipient
+     * clicks a confirmation link; that link was never clicked, SNS discarded the
+     * pending subscription after three days, and CloudFormation went on
+     * reporting the resource as CREATE_COMPLETE. So the stack, the template and
+     * the tests all described alerting that did not exist — worse than having
+     * none, because it stops anyone looking.
+     *
+     * The topic stays because it is a real seam: `steps.ts` publishes to it when
+     * ALERT_TOPIC_ARN is set, and the anomaly alarm targets it directly. Alarm
+     * state and history are recorded by CloudWatch whether or not anything is
+     * subscribed, which is what is wanted for now.
+     *
+     * Adding delivery back is a subscription and a confirmed click. It should
+     * not be described as working until a real alarm has reached a human.
+     */
     const alerts = new sns.Topic(this, "Alerts", {
       displayName: `Tightarse ${settings.name}`,
     });
-    if (props.alertEmail) {
-      alerts.addSubscription(new subs.EmailSubscription(props.alertEmail));
-    }
 
     /**
      * Creating a connection secret.
