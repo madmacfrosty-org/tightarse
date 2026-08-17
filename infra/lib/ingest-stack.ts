@@ -17,7 +17,7 @@ import type * as kms from "aws-cdk-lib/aws-kms";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import * as path from "node:path";
-import { config, secretPrefix, type EnvSettings } from "./config";
+import { config, connectRedirectUri, secretPrefix, type EnvSettings } from "./config";
 
 export interface IngestStackProps extends cdk.StackProps {
   readonly settings: EnvSettings;
@@ -582,7 +582,9 @@ export class IngestStack extends cdk.Stack {
       environment: {
         CONNECTION_SECRET_PREFIX: connectionPrefix,
         CLIENT_SECRET_ID: clientSecret.secretName,
-        CONNECT_REDIRECT_URI: this.node.tryGetContext("connectRedirectUri") ?? "http://localhost:5173/connected",
+        // Derived from the site URL, and registered with TrueLayer by hand —
+        // the provider matches this exactly and nothing in CDK can register it.
+        CONNECT_REDIRECT_URI: connectRedirectUri(settings),
         SYNC_STATE_MACHINE_ARN: syncMachine.stateMachineArn,
       },
       logGroup: new logs.LogGroup(this, "ConnectLogs", {

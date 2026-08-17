@@ -99,6 +99,23 @@ describe("identity", () => {
     expect(emailMutability.filter((m) => m === false)).toHaveLength(1);
   });
 
+  it("accepts the deployed site and localhost as callbacks", () => {
+    // Both, deliberately: the dashboard is served from CloudFront and is also
+    // run locally against the same deployed API, and a pool that only knows one
+    // of them breaks whichever is missing.
+    //
+    // The site URL comes from settings rather than CDK context. Context given on
+    // the command line is not persisted, so a manual deploy followed by any CI
+    // deploy would silently drop the callback and break sign-in on the deployed
+    // site, with nothing in the diff to explain it.
+    const clients = Object.values(dev.data.findResources("AWS::Cognito::UserPoolClient"));
+    for (const c of clients) {
+      const urls = (c as any).Properties.CallbackURLs as string[];
+      expect(urls, "localhost must stay usable").toContain("http://localhost:5173");
+      expect(urls.some((u) => u.includes("cloudfront.net")), `callbacks were ${urls}`).toBe(true);
+    }
+  });
+
   it("gives the two pools different hosted UI prefixes", () => {
     // Cognito domain prefixes are globally unique across every AWS account, and
     // both pools exist at once. Reusing the prefix fails the deploy.

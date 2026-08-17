@@ -3,6 +3,8 @@ import { Match } from "aws-cdk-lib/assertions";
 import { templates, policyStatements } from "./harness";
 
 const { ingest } = templates();
+// prod has no distribution yet, so it exercises the fallback branch.
+const prod = templates({ env: "prod" });
 const statements = policyStatements(ingest);
 
 /** Statements mentioning a Secrets Manager action. */
@@ -272,5 +274,29 @@ describe("monitoring", () => {
       if (!dims) continue;
       expect(dims.map((d: any) => d.Name)).toEqual(["Environment"]);
     }
+  });
+});
+
+describe("where the bank sends the browser back", () => {
+  it("derives the redirect from the deployed site", () => {
+    // One source, because the two must agree — the same reasoning that put the
+    // pool, its client and its hosted UI into one object. And it must match what
+    // is registered with TrueLayer exactly: the provider refuses anything else,
+    // and nothing in CDK can register it.
+    const fns = Object.values(ingest.findResources("AWS::Lambda::Function"));
+    const redirects = fns
+      .map((f: any) => f.Properties.Environment?.Variables?.CONNECT_REDIRECT_URI)
+      .filter((v: unknown): v is string => typeof v === "string");
+    expect(redirects.length).toBeGreaterThan(0);
+    for (const r of redirects) expect(r).toMatch(/^https:\/\/.*cloudfront\.net\/connected$/);
+  });
+
+  it("falls back to the dev server when no site is deployed", () => {
+    // prod has no distribution yet, and a redirect pointing at a site that does
+    // not exist would fail at the bank rather than here.
+    const redirects = Object.values(prod.ingest.findResources("AWS::Lambda::Function"))
+      .map((f: any) => f.Properties.Environment?.Variables?.CONNECT_REDIRECT_URI)
+      .filter((v: unknown): v is string => typeof v === "string");
+    for (const r of redirects) expect(r).toBe("http://localhost:5173/connected");
   });
 });

@@ -165,10 +165,13 @@ jobs:
       # Named stacks rather than `--all`, and cdk directly rather than through
       # npm, which does not forward arguments reliably through a nested script.
       #
-      # TightarseWeb-dev is omitted on purpose: creating its CloudFront
-      # distribution is refused until the AWS account is verified (#8), so
-      # including it would leave this job permanently red and train everyone to
-      # ignore it. Add it back when that support case closes.
+      # TightarseWeb-dev is included again: the account verification that used
+      # to refuse a CloudFront distribution has cleared, and the distribution
+      # exists. Its domain is in config.ts rather than passed here, because CDK
+      # context given on the command line is not persisted — a deploy without it
+      # would drop the callback URL from the user pool and revert the bank
+      # redirect to localhost, breaking the deployed site with nothing in the
+      # diff to explain it.
       - name: Deploy
         working-directory: infra
         run: |
@@ -177,6 +180,7 @@ jobs:
             TightarseData-dev \
             TightarseApi-dev \
             TightarseIngest-dev \
+            TightarseWeb-dev \
             --require-approval never \
             -c alertEmail="$ALERT_EMAIL"
         env:

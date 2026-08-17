@@ -44,9 +44,17 @@ export class WebStack extends cdk.Stack {
     /**
      * Security headers.
      *
-     * connect-src is the one that matters: it names exactly the two hosts this
-     * app may talk to. Injected script that tried to post a transaction
-     * description anywhere else would be blocked by the browser.
+     * connect-src is the one that matters: it names exactly the hosts this app
+     * may talk to. Injected script that tried to post a transaction description
+     * anywhere else would be blocked by the browser.
+     *
+     * There are three, and the hosted UI is easy to miss because nothing
+     * exercises it locally — `vite dev` serves no CSP at all, so a missing host
+     * only fails once deployed. `auth.ts` fetches the hosted UI's
+     * `/oauth2/token` to exchange the authorisation code, and without it here
+     * Google sign-in completes at the provider and then dies silently in the
+     * browser. The redirects to `/oauth2/authorize` and `/logout` are
+     * navigations rather than fetches, so they are not governed by this.
      */
     const headers = new cloudfront.ResponseHeadersPolicy(this, "SecurityHeaders", {
       securityHeadersBehavior: {
@@ -57,7 +65,7 @@ export class WebStack extends cdk.Stack {
             "script-src 'self'",
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' data:",
-            `connect-src 'self' ${apiUrl} https://cognito-idp.${this.region}.amazonaws.com`,
+            `connect-src 'self' ${apiUrl} https://${identity.hostedUiDomain} https://cognito-idp.${this.region}.amazonaws.com`,
             "frame-ancestors 'none'",
             "base-uri 'self'",
             "form-action 'self'",

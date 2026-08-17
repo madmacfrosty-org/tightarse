@@ -87,6 +87,30 @@ describe("api", () => {
 });
 
 describe("web", () => {
+  it("permits every host the app actually fetches, and no others", () => {
+    // The failure this prevents is invisible locally: `vite dev` serves no CSP,
+    // so a missing host only breaks once deployed. `auth.ts` fetches two hosts —
+    // the API for data and the hosted UI to exchange the authorisation code for
+    // a token — and a CSP naming only the first lets Google sign-in complete at
+    // the provider and then die silently in the browser.
+    const policy = Object.values(web.findResources("AWS::CloudFront::ResponseHeadersPolicy"))[0] as any;
+    const csp = JSON.stringify(
+      policy.Properties.ResponseHeadersPolicyConfig.SecurityHeadersConfig.ContentSecurityPolicy
+        .ContentSecurityPolicy,
+    );
+
+    const connect = csp.slice(csp.indexOf("connect-src"), csp.indexOf("frame-ancestors"));
+    expect(connect).toContain("'self'");
+    // The hosted UI, for the token exchange.
+    expect(connect).toMatch(/auth\..*amazoncognito\.com/);
+    // The API, which arrives as a cross-stack import rather than a literal.
+    expect(connect).toContain("ImportValue");
+    expect(connect).toContain("cognito-idp");
+    // Nothing may be reached by default: a transaction description must not be
+    // postable to an arbitrary host by injected script.
+    expect(csp).toContain("default-src 'self'");
+  });
+
   it("keeps the bucket private and reaches it through an origin access control", () => {
     // The dashboard bucket must not be a website endpoint: that would serve
     // the app publicly and bypass CloudFront entirely.

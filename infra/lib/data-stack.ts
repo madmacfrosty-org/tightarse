@@ -206,10 +206,14 @@ export class DataStack extends cdk.Stack {
     });
     this.table.grantReadData(preToken);
 
+    // Localhost stays permitted so the dashboard can still be run against the
+    // deployed API. The site URL comes from settings rather than CDK context:
+    // context given on the command line is not persisted, so a CI deploy would
+    // quietly drop it and break sign-in on the deployed site.
     const callbackUrls = [
       "http://localhost:5173",
       "http://127.0.0.1:5173",
-      ...(this.node.tryGetContext("siteUrl") ? [String(this.node.tryGetContext("siteUrl"))] : []),
+      ...(settings.siteUrl ? [settings.siteUrl] : []),
     ];
 
     /**

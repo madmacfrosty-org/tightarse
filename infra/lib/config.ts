@@ -117,6 +117,20 @@ export interface EnvSettings {
    * exist at once during the changeover. See #36.
    */
   readonly hostedUiPrefixV2: string;
+  /**
+   * Where the dashboard is served from, once its distribution exists.
+   *
+   * Held here rather than passed as CDK context, because context supplied on the
+   * command line is not persisted: a manual `-c siteUrl=…` deploy followed by
+   * any CI deploy would silently drop the callback URL from the user pool and
+   * revert the bank redirect to localhost, breaking the deployed site on the
+   * next merge with nothing in the diff to explain it.
+   *
+   * `undefined` before the distribution has been created — the domain is not
+   * known until CloudFront assigns it, so this is written once after the first
+   * deploy and is stable thereafter.
+   */
+  readonly siteUrl?: string;
   /** How long raw landing-zone objects are kept. See the retention notes on #15. */
   readonly rawRetentionDays: number;
   /**
@@ -140,6 +154,7 @@ const SETTINGS: Record<EnvName, EnvSettings> = {
     googleClientId: "242040418333-3re7ehr425qst2ghgf8eh1qk263noe19.apps.googleusercontent.com",
     hostedUiPrefix: "tightarse-dev-068475",
     hostedUiPrefixV2: "tightarse-dev-068475-b",
+    siteUrl: "https://d235jlz4kj7lqs.cloudfront.net",
     rawRetentionDays: 30,
     // No IA transition: 30 days is inside IA's minimum billing duration.
   },
@@ -178,4 +193,22 @@ export function envSettings(scope: cdk.App): EnvSettings {
  */
 export function secretPrefix(env: EnvName): string {
   return `${config.appName}/${env}/truelayer`;
+}
+
+/**
+ * Where the bank sends the browser back after an authorisation.
+ *
+ * Derived from `siteUrl` rather than configured separately, because the two must
+ * agree and a second field is a second thing to get wrong — the same reasoning
+ * that put the pool, its client and its hosted UI into one object.
+ *
+ * Falls back to the local dev server when no site is deployed yet. Whichever
+ * value this returns must be registered with TrueLayer as an allowed redirect
+ * URI: the provider matches it exactly and refuses anything else, and nothing in
+ * CDK can register it.
+ */
+export function connectRedirectUri(settings: EnvSettings): string {
+  return settings.siteUrl === undefined
+    ? "http://localhost:5173/connected"
+    : `${settings.siteUrl}/connected`;
 }
