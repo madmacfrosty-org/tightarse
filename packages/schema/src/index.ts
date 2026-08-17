@@ -420,7 +420,101 @@ export const BalanceReading = z.object({
 });
 export type BalanceReading = z.infer<typeof BalanceReading>;
 
-export const RowKind = { transaction: "TX", enrichment: "EN" } as const;
+/**
+ * Categorisation shapes. See docs/design/categorisation.md for why the model
+ * looks like this; the short version is that rules are values in versioned sets,
+ * a categorisation is versioned so a transaction has a history, and nothing
+ * authored ever lives on a transaction row.
+ */
+
+/** A predicate over a transaction, not a pattern over a string. */
+export const Matcher = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("merchant"), pattern: z.string().min(1) }),
+  z.object({ kind: z.literal("providerCategory"), value: z.string().min(1) }),
+  z.object({ kind: z.literal("transaction"), dedupKey: z.string().min(1) }),
+]);
+export type Matcher = z.infer<typeof Matcher>;
+
+/**
+ * What a matching rule contributes to the fold.
+ *
+ * `assert` puts a category on the table, `refine` changes one already there,
+ * `tag` attaches an attribute without touching the category. Three kinds is
+ * enough for every case met so far; arbitrary transforms would produce rule sets
+ * nobody can reason about.
+ */
+export const Contribution = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("assert"), category: z.string().min(1) }),
+  z.object({ kind: z.literal("refine"), category: z.string().min(1) }),
+  z.object({ kind: z.literal("tag"), tag: z.string().min(1) }),
+]);
+export type Contribution = z.infer<typeof Contribution>;
+
+/**
+ * A rule is a VALUE, not an entity. It carries no id of its own and no enabled
+ * flag: editing produces a new set version containing a different value, and
+ * disabling is a set version without it. Where identity is needed it is the
+ * content hash, exactly as a transaction's is.
+ */
+export const Rule = z.object({
+  matcher: Matcher,
+  contributes: Contribution,
+  /** Credits are excluded by default; an employer sharing a name with a
+   *  retailer once filed £62,868 of salary as Shopping. */
+  appliesTo: z.enum(["debits", "all"]).default("debits"),
+  note: z.string().optional(),
+});
+export type Rule = z.infer<typeof Rule>;
+
+export const RuleSet = z.object({
+  setId: z.string().min(1),
+  /** Immutable. A change produces the next version, never a mutation. */
+  version: z.number().int().nonnegative(),
+  name: z.string().min(1),
+  /** Explicit precedence. Data, never load order — it decides whether a
+   *  model-proposed rule can outrank one written by hand. */
+  order: z.number().int(),
+  /** True means never regenerated. Overrides live in an authored set. */
+  authored: z.boolean(),
+  /** Ordered: the fold applies matching rules in this order. */
+  rules: z.array(Rule),
+  createdAt: z.string(),
+  createdBy: z.string().optional(),
+});
+export type RuleSet = z.infer<typeof RuleSet>;
+
+export const Categorisation = z.object({
+  dedupKey: z.string().min(1),
+  timestamp: z.string(),
+  category: z.string().min(1),
+  /** Which set produced it, and at which version. Always present. */
+  setId: z.string().min(1),
+  setVersion: z.number().int().nonnegative(),
+  /**
+   * The rules that contributed, by content hash and in fold order. Empty where
+   * the categoriser cannot expose one — the provider's own classification has no
+   * rule we can name.
+   */
+  rules: z.array(z.string()).default([]),
+  version: z.number().int().positive(),
+  status: z.enum(["effective", "proposed", "superseded"]),
+  tags: z.array(z.string()).default([]),
+  confidence: z.number().min(0).max(1).optional(),
+  appliedAt: z.string(),
+  appliedBy: z.string().optional(),
+});
+export type Categorisation = z.infer<typeof Categorisation>;
+
+export const RowKind = {
+  /**
+   * Sorts before TX and EN within a timestamp, so a categorisation arrives in
+   * the same range query the API and the categoriser already make for
+   * transactions. No new access pattern, no second read.
+   */
+  categorisation: "CAT",
+  transaction: "TX",
+  enrichment: "EN",
+} as const;
 export type RowKind = (typeof RowKind)[keyof typeof RowKind];
 
 /**
@@ -482,6 +576,28 @@ export const keys = {
   transaction: (tenantId: string, timestamp: string, dedup: string) => ({
     pk: `T#${tenantId}#TX`,
     sk: `${timestamp}#${RowKind.transaction}#${dedup}`,
+  }),
+
+  /**
+   * A rule set version. `begins_with("RULESET#")` returns every set and every
+   * version; the version is part of the key because a set version is immutable
+   * — editing a rule produces a new one rather than mutating the old.
+   */
+  ruleSet: (tenantId: string, setId: string, version: number) => ({
+    pk: `T#${tenantId}`,
+    sk: `RULESET#${setId}#${String(version).padStart(6, "0")}`,
+  }),
+
+  /**
+   * One version of one transaction's categorisation.
+   *
+   * Zero-padded so versions sort numerically rather than lexically — version 10
+   * must follow version 9, not version 1. Versions of the same categorisation
+   * sort adjacently, so the effective one is the last of its group.
+   */
+  categorisation: (tenantId: string, timestamp: string, dedup: string, version: number) => ({
+    pk: `T#${tenantId}#TX`,
+    sk: `${timestamp}#${RowKind.categorisation}#${dedup}#${String(version).padStart(6, "0")}`,
   }),
 
   /** Same partition and timestamp as the transaction it describes, so the two

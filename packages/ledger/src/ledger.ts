@@ -374,7 +374,11 @@ export class Ledger {
   async listRange(
     tenantId: string,
     range: DateRange,
-  ): Promise<{ transactions: Record<string, unknown>[]; enrichments: Record<string, unknown>[] }> {
+  ): Promise<{
+    transactions: Record<string, unknown>[];
+    enrichments: Record<string, unknown>[];
+    categorisations: Record<string, unknown>[];
+  }> {
     const rows = await this.queryAll({
       TableName: this.table,
       KeyConditionExpression: "pk = :pk AND sk BETWEEN :from AND :to",
@@ -391,6 +395,10 @@ export class Ledger {
     return {
       transactions: rows.filter((r) => r["kind"] === RowKind.transaction),
       enrichments: rows.filter((r) => r["kind"] === RowKind.enrichment),
+      // Free: categorisations sort into the same partition between the same
+      // bounds, so a batch of transactions arrives with its categorisations
+      // already attached. This is what makes batch processing one read.
+      categorisations: rows.filter((r) => r["kind"] === RowKind.categorisation),
     };
   }
 
@@ -527,6 +535,20 @@ export class Ledger {
 
   async listConsents(tenantId: string): Promise<Record<string, unknown>[]> {
     return this.queryByPrefix(tenantId, "CONSENT#");
+  }
+
+  /**
+   * Every rule set version this household has.
+   *
+   * Returns all versions, not just the newest: a categorisation records the set
+   * version that produced it, so reading history requires the version it names
+   * to still be here. Set versions are immutable and small, so they are kept
+   * rather than pruned.
+   *
+   * The caller picks the current version per set and orders by `order`.
+   */
+  async listRuleSets(tenantId: string): Promise<Record<string, unknown>[]> {
+    return this.queryByPrefix(tenantId, "RULESET#");
   }
 
   // ------------------------------------------------------------ internals
