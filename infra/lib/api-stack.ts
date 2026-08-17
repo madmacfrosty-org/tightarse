@@ -83,13 +83,18 @@ export class ApiStack extends cdk.Stack {
       // The dashboard is served from a different origin, so it needs CORS —
       // but only for the origins we actually serve it from.
       corsPreflight: {
-        // The CloudFront domain is not known when this stack is synthesised —
-        // WebStack depends on this one — so it is supplied as context after the
-        // first deploy. Until then the dashboard works from a local dev server.
+        // The site URL is also its origin — scheme and host, no path — so this
+        // reuses the one in settings rather than taking a separate context
+        // value. It used to read `siteOrigin` from CDK context, which nothing
+        // set: the deployed dashboard's preflight came back without an
+        // `access-control-allow-origin` header and every request failed as
+        // "Failed to fetch", while localhost worked perfectly.
+        //
+        // Context is the wrong home for this. It is not persisted, so even when
+        // supplied once by hand the next deploy drops it — the same trap as the
+        // callback URL and the bank redirect.
         allowOrigins: [
-          ...(scope.node.tryGetContext("siteOrigin")
-            ? [String(scope.node.tryGetContext("siteOrigin"))]
-            : []),
+          ...(settings.siteUrl ? [settings.siteUrl] : []),
           ...(settings.name === "prod" ? [] : ["http://localhost:5173", "http://127.0.0.1:5173"]),
         ],
         allowMethods: [apigw.CorsHttpMethod.GET],

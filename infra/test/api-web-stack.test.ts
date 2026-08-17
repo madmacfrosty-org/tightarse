@@ -55,6 +55,21 @@ describe("api", () => {
     });
   });
 
+  it("allows the deployed origin through CORS, not only localhost", () => {
+    // The browser refuses a cross-origin response with no
+    // access-control-allow-origin header, and the app reports it as the wholly
+    // uninformative "Failed to fetch". This allow-list used to come from CDK
+    // context that nothing set, so the deployed dashboard could sign in and then
+    // fail every request while localhost was fine.
+    const cors = (Object.values(api.findResources("AWS::ApiGatewayV2::Api"))[0] as any).Properties
+      .CorsConfiguration;
+    expect(cors.AllowOrigins).toContain("http://localhost:5173");
+    expect(
+      (cors.AllowOrigins as string[]).some((o) => o.includes("cloudfront.net")),
+      `origins were ${JSON.stringify(cors.AllowOrigins)}`,
+    ).toBe(true);
+  });
+
   it("validates tokens against the same pool the dashboard signs in to", () => {
     // The failure this prevents is silent and total: the dashboard sends the
     // user to pool A, the API validates against pool B, and every request comes
