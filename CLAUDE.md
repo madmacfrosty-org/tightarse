@@ -10,6 +10,9 @@ Read before writing code:
   a test belongs: the funnel from unit tests down to canaries
 - [docs/conventions/testing.md](docs/conventions/testing.md) — how to write one;
   every rule there came from a real failure in this repo
+- [docs/design/categorisation.md](docs/design/categorisation.md) — the entity
+  model behind categories, rules and categorisations, and why a model proposes
+  rules rather than classifying transactions
 - [This repository is public](CONTRIBUTING.md#this-repository-is-public)
 - [Money](CONTRIBUTING.md#money) and [Schemas](CONTRIBUTING.md#schemas)
 
