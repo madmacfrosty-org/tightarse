@@ -167,6 +167,14 @@ export interface Household {
   putConsent(consent: Consent): Promise<void>;
 }
 
+// --------------------------------------------------------- consumer-shaped
+//
+// The ports above are organised by what they cover. These are shaped to one
+// component's need, and several deliberately span the planes above or take a
+// slice narrower than any of them. A port is a statement about what a component
+// MAY do, so the right size is "what this one needs" rather than "what belongs
+// together".
+
 /**
  * One method, deliberately.
  *
