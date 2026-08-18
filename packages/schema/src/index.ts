@@ -579,25 +579,65 @@ export const keys = {
   }),
 
   /**
-   * A rule set version. `begins_with("RULESET#")` returns every set and every
-   * version; the version is part of the key because a set version is immutable
-   * — editing a rule produces a new one rather than mutating the old.
+   * The current version of a rule set.
+   *
+   * `begins_with("RULESET#")` returns exactly the sets a fold run needs — no
+   * history to read and discard. The row carries its `version` as an attribute
+   * and is overwritten in place; the immutable versioned copy is written
+   * alongside it by `ruleSetVersion`, in the same transaction, so the two cannot
+   * diverge.
    */
-  ruleSet: (tenantId: string, setId: string, version: number) => ({
+  ruleSet: (tenantId: string, setId: string) => ({
     pk: `T#${tenantId}`,
-    sk: `RULESET#${setId}#${String(version).padStart(6, "0")}`,
+    sk: `RULESET#${setId}`,
   }),
 
   /**
-   * One version of one transaction's categorisation.
+   * One immutable version of a rule set. The record; the current row above is
+   * derived from it.
    *
-   * Zero-padded so versions sort numerically rather than lexically — version 10
-   * must follow version 9, not version 1. Versions of the same categorisation
-   * sort adjacently, so the effective one is the last of its group.
+   * Its own partition, so accumulating history never enlarges the query that
+   * fetches the current sets. Zero-padded because these are compared as numbers:
+   * lexically "10" precedes "9".
    */
-  categorisation: (tenantId: string, timestamp: string, dedup: string, version: number) => ({
+  ruleSetVersion: (tenantId: string, setId: string, version: number) => ({
+    pk: `T#${tenantId}#RULESETH`,
+    sk: `${setId}#${String(version).padStart(6, "0")}`,
+  }),
+
+  /**
+   * A transaction's current categorisation from one rule set.
+   *
+   * Keyed by SET, not by version. One row per set per transaction, overwritten in
+   * place, carrying its `version` as an attribute — so a batch read returns
+   * exactly one row per set however much history has accumulated, and the skip
+   * check is "does this row's setVersion match the set's" without reading
+   * anything else.
+   *
+   * The set id is load-bearing rather than decorative: without it two sets both
+   * at version 1 collide, and the household set silently overwrites the built-in
+   * one. Per-set rows are also what make selective re-firing possible — a set
+   * that has not changed does not need re-folding.
+   *
+   * `CAT` sorts before `EN` and `TX` within a timestamp, so these arrive in the
+   * same range query the API and the categoriser already make.
+   */
+  categorisation: (tenantId: string, timestamp: string, dedup: string, setId: string) => ({
     pk: `T#${tenantId}#TX`,
-    sk: `${timestamp}#${RowKind.categorisation}#${dedup}#${String(version).padStart(6, "0")}`,
+    sk: `${timestamp}#${RowKind.categorisation}#${dedup}#${setId}`,
+  }),
+
+  /**
+   * One immutable version of that categorisation. The history.
+   *
+   * Its own partition per transaction, because the dominant read is a batch of
+   * transactions with their current categorisations, and history there would
+   * make that query grow with churn rather than with transactions. This is
+   * fetched only when somebody asks why a category changed.
+   */
+  categorisationVersion: (tenantId: string, dedup: string, setId: string, version: number) => ({
+    pk: `T#${tenantId}#CATH#${dedup}`,
+    sk: `${setId}#${String(version).padStart(6, "0")}`,
   }),
 
   /** Same partition and timestamp as the transaction it describes, so the two

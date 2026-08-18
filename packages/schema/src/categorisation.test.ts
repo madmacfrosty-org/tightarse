@@ -125,22 +125,50 @@ describe("keys", () => {
     // CAT sorts before EN and TX within a timestamp, so one range query returns
     // a transaction with its categorisations. No new access pattern.
     const tx = keys.transaction("frost", "2026-03-01T00:00:00Z", "d1");
-    const cat = keys.categorisation("frost", "2026-03-01T00:00:00Z", "d1", 1);
+    const cat = keys.categorisation("frost", "2026-03-01T00:00:00Z", "d1", "household");
     expect(cat.pk).toBe(tx.pk);
     expect(cat.sk < tx.sk).toBe(true);
     expect(RowKind.categorisation < RowKind.enrichment).toBe(true);
   });
 
-  it("orders versions numerically, so 10 follows 9", () => {
-    // Zero-padded. Lexically, "10" precedes "9" — and the effective
-    // categorisation is the last of its group, so that would silently pick the
-    // wrong one.
-    const v = (n: number) => keys.categorisation("frost", "2026-03-01T00:00:00Z", "d1", n).sk;
+  it("gives each set its own current row, so two sets cannot collide", () => {
+    // Keyed by set rather than by version. Without the set id, two sets both at
+    // version 1 produce the same key and the household set silently overwrites
+    // the built-in one — and per-set rows are what make selective re-firing
+    // possible at all.
+    const a = keys.categorisation("frost", "2026-03-01T00:00:00Z", "d1", "household");
+    const b = keys.categorisation("frost", "2026-03-01T00:00:00Z", "d1", "built-in");
+    expect(a.sk).not.toBe(b.sk);
+  });
+
+  it("keeps categorisation history out of the batch read", () => {
+    // The dominant read is a range over many transactions. History in that
+    // partition would make it grow with churn rather than with transactions, so
+    // versions live under their own partition and are fetched only on demand.
+    const current = keys.categorisation("frost", "2026-03-01T00:00:00Z", "d1", "household");
+    const history = keys.categorisationVersion("frost", "d1", "household", 1);
+    expect(history.pk).not.toBe(current.pk);
+  });
+
+  it("orders categorisation versions numerically, so 10 follows 9", () => {
+    // Zero-padded. Lexically "10" precedes "9", which would make the newest
+    // version of a long-lived categorisation invisible.
+    const v = (n: number) => keys.categorisationVersion("frost", "d1", "household", n).sk;
     expect([v(10), v(9), v(1)].sort()).toEqual([v(1), v(9), v(10)]);
   });
 
+  it("returns only current rule sets from the prefix a fold run reads", () => {
+    // begins_with("RULESET#") must not drag in history. The two prefixes are
+    // deliberately disjoint: "RULESETH" does not begin with "RULESET#".
+    const current = keys.ruleSet("frost", "household").sk;
+    const history = keys.ruleSetVersion("frost", "household", 3);
+    expect(current.startsWith("RULESET#")).toBe(true);
+    expect(history.sk.startsWith("RULESET#")).toBe(false);
+    expect(history.pk).not.toBe(keys.ruleSet("frost", "household").pk);
+  });
+
   it("orders rule set versions numerically too", () => {
-    const v = (n: number) => keys.ruleSet("frost", "household", n).sk;
+    const v = (n: number) => keys.ruleSetVersion("frost", "household", n).sk;
     expect([v(10), v(2)].sort()).toEqual([v(2), v(10)]);
   });
 });

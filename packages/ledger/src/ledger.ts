@@ -22,8 +22,18 @@ import {
   type CustomRule,
   type Member,
   type BalanceReading,
+  type RuleSet,
+  type Categorisation,
 } from "@tightarse/schema";
-import { accountItem, consentItem, enrichmentItem, pendingItem, transactionItem } from "./items";
+import {
+  accountItem,
+  categorisationItems,
+  consentItem,
+  enrichmentItem,
+  pendingItem,
+  ruleSetItems,
+  transactionItem,
+} from "./items";
 
 const BATCH_SIZE = 25; // DynamoDB's BatchWriteItem limit
 const PENDING_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -402,6 +412,46 @@ export class Ledger {
     };
   }
 
+  /**
+   * Record a transaction's categorisation from one set: the version and the
+   * current pointer, atomically.
+   *
+   * Same reasoning as rule sets — the current row is a copy, and a partial write
+   * would leave the two disagreeing about what is in force.
+   */
+  async putCategorisation(tenantId: string, c: Categorisation): Promise<void> {
+    const { current, version } = categorisationItems(tenantId, c);
+    await this.doc.send(
+      new TransactWriteCommand({
+        TransactItems: [
+          { Put: { TableName: this.table, Item: current } },
+          {
+            Put: {
+              TableName: this.table,
+              Item: version,
+              ConditionExpression: "attribute_not_exists(pk)",
+            },
+          },
+        ],
+      }),
+    );
+  }
+
+  /**
+   * Every version of a transaction's categorisations, oldest first per set.
+   *
+   * Its own partition, so this never enlarges the batch read. Fetched only when
+   * somebody asks why a category changed — which is a detail view, not something
+   * a list carries.
+   */
+  async listCategorisationHistory(tenantId: string, dedupKey: string): Promise<Record<string, unknown>[]> {
+    return this.queryAll({
+      TableName: this.table,
+      KeyConditionExpression: "pk = :pk",
+      ExpressionAttributeValues: { ":pk": keys.categorisationVersion(tenantId, dedupKey, "", 0).pk },
+    });
+  }
+
   /** Per-account history, via gsi1. */
   async listAccountRange(
     tenantId: string,
@@ -538,17 +588,63 @@ export class Ledger {
   }
 
   /**
-   * Every rule set version this household has.
+   * The current version of every rule set, and nothing else.
    *
-   * Returns all versions, not just the newest: a categorisation records the set
-   * version that produced it, so reading history requires the version it names
-   * to still be here. Set versions are immutable and small, so they are kept
-   * rather than pruned.
+   * The prefix is deliberately disjoint from where versions live, so this — the
+   * read every fold run makes — never grows as history accumulates.
    *
-   * The caller picks the current version per set and orders by `order`.
+   * The caller orders by `order`; precedence is data, not the order rows arrive.
    */
   async listRuleSets(tenantId: string): Promise<Record<string, unknown>[]> {
     return this.queryByPrefix(tenantId, "RULESET#");
+  }
+
+  /**
+   * Every version of one rule set, oldest first.
+   *
+   * Kept rather than pruned: a categorisation records the set version that
+   * produced it, so "what did this rule say when it fired?" needs the version it
+   * names to still exist.
+   */
+  async listRuleSetHistory(tenantId: string, setId: string): Promise<Record<string, unknown>[]> {
+    return this.queryAll({
+      TableName: this.table,
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
+      ExpressionAttributeValues: {
+        ":pk": keys.ruleSetVersion(tenantId, setId, 0).pk,
+        ":sk": `${setId}#`,
+      },
+    });
+  }
+
+  /**
+   * Publish a rule set version: the immutable record and the current pointer,
+   * written together.
+   *
+   * One transaction, because the current row is a copy. If only one landed they
+   * would disagree about what the current version is, and every skip decision
+   * downstream reads the copy — so a fold run would silently use the wrong rules
+   * and write categorisations attributing them to a version that says something
+   * else.
+   */
+  async putRuleSetVersion(tenantId: string, set: RuleSet): Promise<void> {
+    const { current, version } = ruleSetItems(tenantId, set);
+    await this.doc.send(
+      new TransactWriteCommand({
+        TransactItems: [
+          { Put: { TableName: this.table, Item: current } },
+          {
+            Put: {
+              TableName: this.table,
+              Item: version,
+              // A published version is immutable. Rewriting one would change
+              // what a categorisation's provenance means after the fact.
+              ConditionExpression: "attribute_not_exists(pk)",
+            },
+          },
+        ],
+      }),
+    );
   }
 
   // ------------------------------------------------------------ internals

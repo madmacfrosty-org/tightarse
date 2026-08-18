@@ -448,3 +448,119 @@ suite("marking a reading dirty (integration)", () => {
     expect(row!["balance"]).toBe(100_00);
   });
 });
+
+suite("versioned rule sets and categorisations", () => {
+  let ledger: Ledger;
+
+  beforeAll(() => {
+    ({ ledger } = testLedger());
+  });
+
+  const set = (version: number, order = 100) => ({
+    setId: `household-${TENANT}`,
+    version,
+    name: "Household",
+    order,
+    authored: true,
+    rules: [
+      {
+        matcher: { kind: "merchant" as const, pattern: "^SOMESHOP" },
+        contributes: { kind: "assert" as const, category: "Groceries" },
+        appliesTo: "debits" as const,
+      },
+    ],
+    createdAt: new Date().toISOString(),
+  });
+
+  it("publishes a version and a current pointer that agree", async () => {
+    await ledger.putRuleSetVersion(TENANT, set(1));
+    const current = (await ledger.listRuleSets(TENANT)).filter(
+      (r) => r["setId"] === `household-${TENANT}`,
+    );
+    expect(current).toHaveLength(1);
+    expect(current[0]!["version"]).toBe(1);
+  });
+
+  it("moves the pointer without losing the old version", async () => {
+    await ledger.putRuleSetVersion(TENANT, set(2));
+    const current = (await ledger.listRuleSets(TENANT)).filter(
+      (r) => r["setId"] === `household-${TENANT}`,
+    );
+    // Still one current row, now pointing at 2.
+    expect(current).toHaveLength(1);
+    expect(current[0]!["version"]).toBe(2);
+    // And version 1 is still readable, because a categorisation naming it has to
+    // stay interpretable.
+    const history = await ledger.listRuleSetHistory(TENANT, `household-${TENANT}`);
+    expect(history.map((h) => h["version"])).toEqual([1, 2]);
+  });
+
+  it("refuses to rewrite a published version", async () => {
+    // Provenance would otherwise change meaning after the fact: a categorisation
+    // says it was produced by version 1, and version 1 must still be what it was.
+    await expect(ledger.putRuleSetVersion(TENANT, set(1, 999))).rejects.toThrow();
+    const history = await ledger.listRuleSetHistory(TENANT, `household-${TENANT}`);
+    expect(history.find((h) => h["version"] === 1)?.["order"]).toBe(100);
+  });
+
+  it("keeps current rule sets out of the history partition and vice versa", async () => {
+    // The read every fold run makes must not grow as history accumulates.
+    const current = await ledger.listRuleSets(TENANT);
+    expect(current.every((r) => String(r["sk"]).startsWith("RULESET#"))).toBe(true);
+    const history = await ledger.listRuleSetHistory(TENANT, `household-${TENANT}`);
+    expect(history.every((r) => !String(r["sk"]).startsWith("RULESET#"))).toBe(true);
+  });
+
+  const categorisation = (setId: string, version: number, category: string) => ({
+    dedupKey: `cat-${TENANT}`,
+    timestamp: "2026-03-01T00:00:00Z",
+    category,
+    setId,
+    setVersion: 1,
+    rules: [],
+    version,
+    status: "effective" as const,
+    tags: [],
+    appliedAt: new Date().toISOString(),
+  });
+
+  it("gives each set its own current row rather than colliding", async () => {
+    // Without the set id in the key these overwrite each other, and the second
+    // set silently wins.
+    await ledger.putCategorisation(TENANT, categorisation("household", 1, "Groceries"));
+    await ledger.putCategorisation(TENANT, categorisation("built-in", 1, "Shopping"));
+
+    const { categorisations } = await ledger.listRange(TENANT, {
+      from: "2026-03-01",
+      to: "2026-03-02",
+    });
+    const mine = categorisations.filter((c) => c["dedupKey"] === `cat-${TENANT}`);
+    expect(mine.map((c) => c["setId"]).sort()).toEqual(["built-in", "household"]);
+  });
+
+  it("returns one row per set in the batch read however deep the history", async () => {
+    await ledger.putCategorisation(TENANT, categorisation("household", 2, "Fuel"));
+    await ledger.putCategorisation(TENANT, categorisation("household", 3, "Transport"));
+
+    const { categorisations } = await ledger.listRange(TENANT, {
+      from: "2026-03-01",
+      to: "2026-03-02",
+    });
+    const household = categorisations.filter(
+      (c) => c["dedupKey"] === `cat-${TENANT}` && c["setId"] === "household",
+    );
+    // Three versions written, one row read. This is the whole point of keying
+    // the current row by set rather than by version.
+    expect(household).toHaveLength(1);
+    expect(household[0]!["version"]).toBe(3);
+    expect(household[0]!["category"]).toBe("Transport");
+  });
+
+  it("keeps every version, ordered, for the question 'why did this change?'", async () => {
+    const history = (await ledger.listCategorisationHistory(TENANT, `cat-${TENANT}`)).filter(
+      (h) => h["setId"] === "household",
+    );
+    expect(history.map((h) => h["version"])).toEqual([1, 2, 3]);
+    expect(history.map((h) => h["category"])).toEqual(["Groceries", "Fuel", "Transport"]);
+  });
+});

@@ -6,6 +6,8 @@ import {
   type Consent,
   type Transaction,
   type TransactionEnrichment,
+  type RuleSet,
+  type Categorisation,
 } from "@tightarse/schema";
 
 /**
@@ -109,4 +111,42 @@ export function accountItem(
 export function consentItem(c: Consent): Record<string, unknown> {
   const { pk, sk } = keys.consent(c.tenantId, c.consentId);
   return { pk, sk, kind: "CONSENT", ...c };
+}
+
+
+/**
+ * The two rows a rule set version becomes: the immutable record, and the current
+ * pointer that is a copy of it.
+ *
+ * Built as a pair, in one place, because the duplication is the whole point of
+ * the design and splitting it across two call sites is how the copies come to
+ * disagree. The caller writes them in a single transaction.
+ */
+export function ruleSetItems(
+  tenantId: string,
+  set: RuleSet,
+): { current: Record<string, unknown>; version: Record<string, unknown> } {
+  const body = { ...set, tenantId, kind: "RULESET" };
+  return {
+    current: { ...keys.ruleSet(tenantId, set.setId), ...body },
+    version: { ...keys.ruleSetVersion(tenantId, set.setId, set.version), ...body },
+  };
+}
+
+/**
+ * The two rows a categorisation becomes.
+ *
+ * The current row is keyed by SET rather than by version, so a batch read
+ * returns one row per set however deep the history — and so two sets cannot
+ * overwrite each other, which they do if the set id is left out of the key.
+ */
+export function categorisationItems(
+  tenantId: string,
+  c: Categorisation,
+): { current: Record<string, unknown>; version: Record<string, unknown> } {
+  const body = { ...c, tenantId, kind: RowKind.categorisation };
+  return {
+    current: { ...keys.categorisation(tenantId, c.timestamp, c.dedupKey, c.setId), ...body },
+    version: { ...keys.categorisationVersion(tenantId, c.dedupKey, c.setId, c.version), ...body },
+  };
 }
