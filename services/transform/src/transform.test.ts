@@ -46,10 +46,14 @@ function deps(results: unknown[]): { deps: TransformDeps; putTransactions: Retur
       bucket: "raw",
       // Uncompressed JSON: readObject sniffs the gzip magic bytes rather than
       // trusting the header, so a plain body is a valid object to it.
-      s3: {
-        send: async () => ({
-          Body: { transformToByteArray: async () => new TextEncoder().encode(JSON.stringify(envelope)) },
-        }),
+      raw: {
+
+        get: async () => new TextEncoder().encode(JSON.stringify(envelope)),
+
+        put: async () => {},
+
+        list: async () => [],
+
       },
       ledger: {
         putTransactions,
@@ -250,15 +254,12 @@ describe("routing a raw object to the right handler", () => {
     // These should not be in the landing zone at all, but a fetcher change
     // could put them there, and an error body is not data.
     const d = deps([]);
-    (d.deps as any).s3 = {
-      send: async () => ({
-        Body: {
-          transformToByteArray: async () =>
-            new TextEncoder().encode(
-              JSON.stringify({ captureVersion: 1, endpoint: "/x", accountId: "acc-1", fetchedAt: "x", httpStatus: 429, body: {} }),
-            ),
-        },
-      }),
+    (d.deps as any).raw = {
+      get: async () => new TextEncoder().encode(
+        JSON.stringify({ captureVersion: 1, endpoint: "/x", accountId: "acc-1", fetchedAt: "x", httpStatus: 429, body: {} }),
+      ),
+      put: async () => {},
+      list: async () => [],
     };
     await expect(transformObject(d.deps, keyFor("truelayer.transactions"))).rejects.toThrow(/non-2xx/);
   });
@@ -277,15 +278,12 @@ describe("routing a raw object to the right handler", () => {
     // would then be invisible to every per-account query.
     const key = "tenant=frost/dataset=truelayer.transactions/2026-03-15T00:00:00Z.json.gz";
     const d = deps([txn()]);
-    (d.deps as any).s3 = {
-      send: async () => ({
-        Body: {
-          transformToByteArray: async () =>
-            new TextEncoder().encode(
-              JSON.stringify({ captureVersion: 1, endpoint: "/x", accountId: null, fetchedAt: "x", httpStatus: 200, body: { results: [txn()] } }),
-            ),
-        },
-      }),
+    (d.deps as any).raw = {
+      get: async () => new TextEncoder().encode(
+        JSON.stringify({ captureVersion: 1, endpoint: "/x", accountId: null, fetchedAt: "x", httpStatus: 200, body: { results: [txn()] } }),
+      ),
+      put: async () => {},
+      list: async () => [],
     };
     await expect(transformObject(d.deps, key)).rejects.toThrow(/no account/);
   });
@@ -304,7 +302,11 @@ describe("reading a raw object", () => {
   const withBody = (bytes: Uint8Array | undefined): TransformDeps =>
     ({
       bucket: "raw",
-      s3: { send: async () => ({ Body: bytes ? { transformToByteArray: async () => bytes } : undefined }) },
+      raw: {
+        get: async () => bytes ?? new Uint8Array(),
+        put: async () => {},
+        list: async () => [],
+      },
       ledger: { putTransactions: vi.fn(async () => {}) },
     }) as unknown as TransformDeps;
 

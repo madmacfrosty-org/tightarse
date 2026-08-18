@@ -12,6 +12,7 @@
       "path": "packages/dynamodb"
     },
     { "path": "packages/ports" },
+    { "path": "packages/aws" },
     {
       "path": "packages/truelayer"
     },

@@ -19,7 +19,8 @@
     "@tightarse/metrics": "*",
     "@tightarse/schema": "*",
     "@tightarse/dynamodb": "*",
-    "@tightarse/ports": "*"
+    "@tightarse/ports": "*",
+    "@tightarse/aws": "*"
   },
   "devDependencies": {
     "@tightarse/vitest-config": "*",

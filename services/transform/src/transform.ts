@@ -1,5 +1,4 @@
 import { gunzipSync } from "node:zlib";
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { parseRawKey } from "@tightarse/schema";
 import { DynamoStore } from "@tightarse/dynamodb";
 import {
@@ -14,7 +13,7 @@ import {
   type RawBalance,
   type RawTransaction,
 } from "./map.js";
-import type { LedgerWrites } from "@tightarse/ports";
+import type { LedgerWrites, RawObjects } from "@tightarse/ports";
 
 /** The envelope the uploader and fetcher write around every response. */
 interface RawEnvelope {
@@ -58,7 +57,7 @@ export interface TransformResult {
 }
 
 export interface TransformDeps {
-  readonly s3: S3Client;
+  readonly raw: RawObjects;
   readonly ledger: LedgerWrites;
   readonly bucket: string;
 }
@@ -182,9 +181,12 @@ export async function transformObject(deps: TransformDeps, key: string): Promise
 }
 
 async function readObject(deps: TransformDeps, key: string): Promise<RawEnvelope> {
-  const res = await deps.s3.send(new GetObjectCommand({ Bucket: deps.bucket, Key: key }));
-  const body = await res.Body?.transformToByteArray();
-  if (!body) throw new Error(`Empty object: ${key}`);
+  const body = await deps.raw.get(key);
+  // The adapter refuses an object with no body at all; this refuses one that
+  // exists and contains nothing. They are different failures — a missing stream
+  // is storage misbehaving, zero bytes is a fetch that stored an empty response —
+  // and treating the second as "no rows" would silently transform nothing.
+  if (body.length === 0) throw new Error(`Empty object: ${key}`);
 
   // The uploader gzips and sets Content-Encoding, but S3 does not decompress on
   // read, so this is always our job. Sniffing the magic bytes is more robust

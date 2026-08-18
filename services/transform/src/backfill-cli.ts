@@ -10,8 +10,8 @@
  * cannot be recovered — so limit it with DATASETS when only part of the ledger
  * needs rebuilding.
  */
-import { S3Client } from "@aws-sdk/client-s3";
 import { DynamoStore } from "@tightarse/dynamodb";
+import { S3RawObjects } from "@tightarse/aws";
 import { replay } from "./backfill.js";
 
 function requireEnv(name: string): string {
@@ -33,7 +33,7 @@ async function main(): Promise<void> {
   const datasets = process.env["DATASETS"]?.split(",").map((d) => d.trim()).filter(Boolean);
 
   const result = await replay(
-    { s3: new S3Client({ region }), ledger: new DynamoStore({ tableName, region }), bucket },
+    { raw: new S3RawObjects({ bucket, region }), ledger: new DynamoStore({ tableName, region }), bucket },
     { tenantId, dryRun, ...(datasets?.length ? { datasets } : {}) },
   );
 

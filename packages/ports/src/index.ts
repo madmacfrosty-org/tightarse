@@ -132,6 +132,67 @@ export interface Balances {
   ): Promise<void>;
 }
 
+/**
+ * The raw landing zone.
+ *
+ * Every provider response is written here before anything derives from it, and
+ * the whole ledger has been rebuilt from it — a replay reproduced 9,790 rows
+ * identically. It is the only thing in the system that is not reconstructible
+ * from something else.
+ *
+ * **There is no delete.** The transform and the backfill previously held an
+ * `S3Client`, which is the entire S3 API including `DeleteObject` and
+ * `DeleteBucket`, in order to read one object. A port is a statement about what
+ * a component may do, and nothing in this application may remove a raw object.
+ * Lifecycle handles expiry, declared in infrastructure where it is reviewed.
+ */
+export interface RawObjects {
+  /** The object's bytes. Callers decompress; storage does not interpret. */
+  get(key: string): Promise<Uint8Array>;
+  /**
+   * Write a raw object.
+   *
+   * `contentType`, `contentEncoding` and `tags` are carried because the landing
+   * zone is queried by tag and served to tools that respect encoding — they are
+   * part of what a raw object IS here, not S3 trivia.
+   */
+  put(
+    key: string,
+    body: Uint8Array,
+    opts?: {
+      contentType?: string;
+      contentEncoding?: string;
+      tags?: Record<string, string>;
+    },
+  ): Promise<void>;
+  /** Every key under a prefix, following pagination. */
+  list(prefix: string): Promise<string[]>;
+}
+
+/**
+ * Provider credentials and per-connection refresh tokens.
+ *
+ * Narrow deliberately: a refresh token is the one secret whose loss costs five
+ * years of history that no amount of retrying gets back, because recovering it
+ * means a fresh consent and a fresh 90-day window.
+ */
+export interface Secrets {
+  get(name: string): Promise<string | undefined>;
+  /** Create or overwrite. The distinction is the adapter's problem, not the caller's. */
+  set(name: string, value: string): Promise<void>;
+}
+
+/**
+ * Somewhere to say that something went wrong.
+ *
+ * One method, and no subscription management: an application that could
+ * subscribe an address could also unsubscribe one, and delivery is not its
+ * concern.
+ */
+export interface Notifications {
+  publish(subject: string, message: string): Promise<void>;
+}
+
 // ------------------------------------------------------------- control plane
 
 /**

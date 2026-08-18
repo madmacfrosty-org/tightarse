@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
 import { SNSClient, PublishCommand } from "@aws-sdk/client-sns";
 import {
@@ -22,6 +21,8 @@ import {
 import { rawObjectKey } from "@tightarse/schema";
 import { emit } from "@tightarse/metrics";
 import { Connections, daysUntilExpiry, type Connection } from "./connections.js";
+import type { RawObjects } from "@tightarse/ports";
+import { S3RawObjects } from "@tightarse/aws";
 
 /**
  * The sync, decomposed into steps a state machine can retry individually.
@@ -50,7 +51,7 @@ import { Connections, daysUntilExpiry, type Connection } from "./connections.js"
 export interface StepDeps {
   readonly truelayer: TrueLayerClient;
   readonly connections: Connections;
-  readonly s3: S3Client;
+  readonly raw: RawObjects;
   readonly rawBucket: string;
   readonly tenantId: string;
   /**
@@ -116,7 +117,7 @@ export async function realDeps(): Promise<StepDeps> {
   return {
     truelayer: new TrueLayerClient(creds, sandbox ? SANDBOX : LIVE),
     connections: new Connections(required("CONNECTION_SECRET_PREFIX"), sm),
-    s3: new S3Client({}),
+    raw: new S3RawObjects({ bucket: required("RAW_BUCKET") }),
     rawBucket: required("RAW_BUCKET"),
     tenantId: required("TENANT_ID"),
     ...stepEnvironments(process.env),
@@ -471,20 +472,19 @@ async function land(
     httpStatus: 200,
     body,
   });
-  await deps.s3.send(
-    new PutObjectCommand({
-      Bucket: deps.rawBucket,
-      Key: rawObjectKey({
+  await deps.raw.put(
+      rawObjectKey({
         tenantId,
         dataset,
         accountId: accountId ?? undefined,
         fetchedAt,
         contentHash: createHash("sha256").update(payload).digest("hex"),
       }),
-      Body: gzipSync(Buffer.from(payload), { level: 9 }),
-      ContentType: "application/json",
-      ContentEncoding: "gzip",
-      Tagging: new URLSearchParams({ tenant: tenantId, layer: "raw", dataset }).toString(),
-    }),
-  );
+      gzipSync(Buffer.from(payload), { level: 9 }),
+      {
+        contentType: "application/json",
+        contentEncoding: "gzip",
+        tags: { tenant: tenantId, layer: "raw", dataset },
+      },
+    );
 }

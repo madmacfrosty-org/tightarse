@@ -82,7 +82,23 @@ function fakes(
         updated.push(c);
       }),
     },
-    s3: { send: vi.fn(async (cmd: { input: Record<string, unknown> }) => puts.push(cmd.input)) },
+    raw: {
+
+      // The port takes a key rather than a Bucket, because which bucket the raw
+
+      // zone lives in is the adapter's business and not the sync's.
+
+      put: vi.fn(async (key: string, _body: Uint8Array, opts?: Record<string, unknown>) =>
+
+        puts.push({ key, ...(opts ?? {}) }),
+
+      ),
+
+      get: vi.fn(async () => new Uint8Array()),
+
+      list: vi.fn(async () => [] as string[]),
+
+    },
     sns: { send: vi.fn(async (cmd: { input: { Message?: string } }) => published.push(cmd.input.Message ?? "")) },
   } as unknown as StepDeps;
 
@@ -139,7 +155,9 @@ describe("refreshAndList", () => {
     const { deps, puts } = fakes(() => ({ results: [{ account_id: "a1" }] }));
     await refreshAndList(deps, { connection: connection() });
     expect(puts.length).toBeGreaterThan(0);
-    expect(puts.every((p) => p["Bucket"] === "raw-bucket")).toBe(true);
+    // Every object lands under the tenant's own prefix. The bucket is no longer
+    // the sync's concern — it is bound when the adapter is constructed.
+    expect(puts.every((p) => String(p["key"]).startsWith("tenant="))).toBe(true);
   });
 });
 

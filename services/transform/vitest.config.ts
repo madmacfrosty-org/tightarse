@@ -9,10 +9,16 @@ export default defineConfig({
     coverage: {
       ...coverageBase,
       thresholds: {
-        lines: 98.99,
+              // Lowered by 0.03-0.04 when the S3 handling moved to @tightarse/aws.
+      // Nothing became less tested: the covered code left this package and is
+      // covered at 100% where it landed, so the same uncovered lines are now a
+      // fractionally larger share of a smaller denominator. This is the one case
+      // where lowering is honest, and it is worth the comment because the rule
+      // otherwise is that these only ever go up.
+      lines: 98.96,
         functions: 97.61,
         branches: 96.06,
-        statements: 98.99,
+        statements: 98.96,
         autoUpdate,
       },
     },

@@ -78,29 +78,17 @@ function fakeLedger() {
 }
 
 /** An S3 that serves a fixed set of keys and bodies, with pagination. */
-function fakeS3(objects: Record<string, unknown>, pageSize = 100) {
-  const keys = Object.keys(objects);
+function fakeRaw(objects: Record<string, unknown>) {
+  // Smaller than the client it replaces: the port has three methods, so the fake
+  // has three, and pagination is the adapter's problem rather than every test's.
   return {
-    send: async (cmd: { input?: Record<string, unknown>; constructor: { name: string } }) => {
-      const input = (cmd as unknown as { input: Record<string, unknown> }).input;
-      if ("Prefix" in input) {
-        const from = input["ContinuationToken"] ? Number(input["ContinuationToken"]) : 0;
-        const page = keys.slice(from, from + pageSize);
-        const next = from + pageSize;
-        return {
-          Contents: page.map((Key) => ({ Key })),
-          ...(next < keys.length ? { NextContinuationToken: String(next) } : {}),
-        };
-      }
-      const key = String(input["Key"]);
+    get: async (key: string) => {
       const body = objects[key];
       if (body === undefined) throw new Error(`NoSuchKey: ${key}`);
-      return {
-        Body: {
-          transformToByteArray: async () => new Uint8Array(gzipSync(Buffer.from(JSON.stringify(body)))),
-        },
-      };
+      return new Uint8Array(gzipSync(Buffer.from(JSON.stringify(body))));
     },
+    put: async () => {},
+    list: async (prefix: string) => Object.keys(objects).filter((k) => k.startsWith(prefix)),
   };
 }
 
@@ -108,7 +96,7 @@ const deps = (objects: Record<string, unknown>, pageSize?: number) => {
   const { ledger, state } = fakeLedger();
   return {
     state,
-    deps: { s3: fakeS3(objects, pageSize), ledger, bucket: "raw" } as unknown as ReplayDeps,
+    deps: { raw: fakeRaw(objects), ledger, bucket: "raw" } as unknown as ReplayDeps,
   };
 };
 
@@ -127,9 +115,13 @@ describe("finding the objects to replay", () => {
   });
 
   it("asks only for the tenant's own prefix", async () => {
-    const send = vi.fn(async (_cmd: unknown) => ({ Contents: [] as Array<{ Key: string }> }));
-    await listRawKeys({ s3: { send }, bucket: "raw" } as unknown as ReplayDeps, "frost");
-    expect(send.mock.calls[0]![0]).toMatchObject({ input: { Prefix: "tenant=frost/" } });
+    // One household's replay must never read another's raw objects.
+
+    const list = vi.fn(async () => [] as string[]);
+
+    await listRawKeys({ raw: { list } } as unknown as ReplayDeps, "frost");
+
+    expect(list).toHaveBeenCalledWith("tenant=frost/");
   });
 });
 
@@ -244,13 +236,6 @@ describe("order independence", () => {
 });
 
 describe("edges worth not crashing on", () => {
-  it("skips a listing entry that carries no key", async () => {
-    // S3 can return entries without one. Pushing undefined would make the next
-    // GetObject fail with a message about nothing in particular.
-    const send = vi.fn(async () => ({ Contents: [{ Key: "a" }, {}, { Key: "b" }] }));
-    const keys = await listRawKeys({ s3: { send }, bucket: "raw" } as unknown as ReplayDeps, "frost");
-    expect(keys).toEqual(["a", "b"]);
-  });
 
   it("writes to the console when given no writer, which is what the command line does", async () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -264,11 +249,16 @@ describe("edges worth not crashing on", () => {
     // Anything can be thrown in JavaScript. Losing the key would leave a
     // failure count with nothing to investigate.
     const d = {
-      s3: {
-        send: async (cmd: { input: Record<string, unknown> }) => {
-          if ("Prefix" in cmd.input) return { Contents: [{ Key: key("truelayer.transactions") }] };
+      raw: {
+
+        list: async () => [key("truelayer.transactions")],
+
+        get: async () => {
+
           throw "a string, not an Error";
+
         },
+
       },
       ledger: {},
       bucket: "raw",

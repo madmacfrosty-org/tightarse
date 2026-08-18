@@ -42,13 +42,12 @@
  * still succeeds and merely leaves a stale set.
  */
 
-import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { DynamoStore } from "@tightarse/dynamodb";
 import { transformObject } from "./transform.js";
-import type { LedgerWrites } from "@tightarse/ports";
+import type { LedgerWrites, RawObjects } from "@tightarse/ports";
 
 export interface ReplayDeps {
-  readonly s3: S3Client;
+  readonly raw: RawObjects;
   readonly ledger: LedgerWrites;
   readonly bucket: string;
 }
@@ -96,20 +95,7 @@ export function keyMatchesDatasets(key: string, datasets?: readonly string[]): b
 
 /** Every raw object key under a tenant, following pagination to the end. */
 export async function listRawKeys(deps: ReplayDeps, tenantId: string): Promise<string[]> {
-  const keys: string[] = [];
-  let token: string | undefined;
-  do {
-    const res = await deps.s3.send(
-      new ListObjectsV2Command({
-        Bucket: deps.bucket,
-        Prefix: `tenant=${tenantId}/`,
-        ...(token ? { ContinuationToken: token } : {}),
-      }),
-    );
-    for (const o of res.Contents ?? []) if (o.Key) keys.push(o.Key);
-    token = res.NextContinuationToken;
-  } while (token);
-  return keys;
+  return deps.raw.list(`tenant=${tenantId}/`);
 }
 
 export async function replay(deps: ReplayDeps, opts: ReplayOptions): Promise<ReplayResult> {
