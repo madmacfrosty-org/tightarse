@@ -10,7 +10,7 @@
  */
 
 import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
-import { Ledger } from "@tightarse/ledger";
+import { DynamoStore } from "@tightarse/dynamodb";
 import { classifyBatch, DEFAULT_MODEL } from "./bedrock.js";
 import { RULES_VERSION } from "./rules.js";
 import { prepare } from "./batch.js";
@@ -37,7 +37,7 @@ async function main() {
   const from = arg("from") ?? "2021-01-01";
   const to = arg("to") ?? new Date().toISOString().slice(0, 10);
 
-  const ledger = new Ledger({ tableName, region });
+  const ledger = new DynamoStore({ tableName, region });
   const bedrock = new BedrockRuntimeClient({ region });
 
   // Mode is an explicit household setting, not implied by whether this has run.

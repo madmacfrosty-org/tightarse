@@ -1,5 +1,5 @@
 import { S3Client } from "@aws-sdk/client-s3";
-import { Ledger } from "@tightarse/ledger";
+import { DynamoStore } from "@tightarse/dynamodb";
 import { emit } from "@tightarse/metrics";
 import { transformObject, type TransformResult } from "@tightarse/transform";
 
@@ -69,7 +69,7 @@ export function handlerConfig(env: NodeJS.ProcessEnv): HandlerConfig {
 export function realDeps(): TransformHandlerDeps {
   const config = handlerConfig(process.env);
   const s3 = new S3Client({});
-  const ledger = new Ledger({ tableName: config.tableName, region: config.region });
+  const ledger = new DynamoStore({ tableName: config.tableName, region: config.region });
   return {
     transform: (key: string) => transformObject({ s3, ledger, bucket: config.bucket }, key),
     environment: config.environment,

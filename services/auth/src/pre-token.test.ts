@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { handler, issueTenantClaim, ledgerConfig, realDeps, type PreTokenDeps } from "./pre-token.js";
 
 /**
- * These used to run against a `vi.mock` of `@tightarse/ledger`, which replaced
+ * These used to run against a `vi.mock` of `@tightarse/dynamodb`, which replaced
  * the module at import time. That tested a handler wired to a mock rather than
  * the wiring that ships, and it could not see the constructor at all.
  */
@@ -66,7 +66,7 @@ describe("building the real dependencies", () => {
   it("constructs a ledger client rather than returning a placeholder", () => {
     // The entry point is the only place a constructor is allowed to run, so
     // nothing else covers this line. It is also where a missing TABLE_NAME
-    // would go unnoticed, since the Ledger accepts an empty string.
+    // would go unnoticed, since the DynamoStore accepts an empty string.
     expect(realDeps().ledger).toHaveProperty("getMemberTenant");
   });
 });
@@ -74,7 +74,7 @@ describe("building the real dependencies", () => {
 describe("the Lambda entry point", () => {
   it("wires the real dependencies through to the decision", async () => {
     // Exercises the entry point itself, which nothing else reaches: it builds
-    // a real Ledger and delegates. A handler that forgot to pass its deps
+    // a real DynamoStore and delegates. A handler that forgot to pass its deps
     // would fail here rather than in production.
     //
     // The unverified path returns before any call is made, so this constructs

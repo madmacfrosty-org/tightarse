@@ -1,7 +1,8 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import { Ledger } from "@tightarse/ledger";
+import { DynamoStore } from "@tightarse/dynamodb";
 import { reconcileConfig, reconcileFrom } from "@tightarse/transform";
+import type { ReconciliationMarks } from "@tightarse/ports";
 
 /**
  * Scheduled reconciliation, wired up.
@@ -15,7 +16,10 @@ import { reconcileConfig, reconcileFrom } from "@tightarse/transform";
  */
 export interface ReconcileDeps {
   readonly doc: DynamoDBDocumentClient;
-  readonly ledger: Ledger;
+  // The port, not the adapter: this hands its store straight to
+  // `reconcileFrom`, which needs two methods. Typing it concretely made a
+  // Lambda that only marks readings dirty capable of writing transactions.
+  readonly ledger: ReconciliationMarks;
   readonly config: ReturnType<typeof reconcileConfig>;
 }
 
@@ -25,7 +29,7 @@ export function realDeps(): ReconcileDeps {
   return {
     config,
     doc: DynamoDBDocumentClient.from(new DynamoDBClient({ region: config.region })),
-    ledger: new Ledger({ tableName: config.tableName, region: config.region }),
+    ledger: new DynamoStore({ tableName: config.tableName, region: config.region }),
   };
 }
 

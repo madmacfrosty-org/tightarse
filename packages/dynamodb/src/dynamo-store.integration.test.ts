@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { dedupKey, type Transaction } from "@tightarse/schema";
-import { Ledger } from "./ledger";
+import { DynamoStore } from "./dynamo-store";
 import { resolveTestTarget } from "./test-table";
 
 /**
@@ -11,8 +11,8 @@ import { resolveTestTarget } from "./test-table";
  * Parameterised by endpoint so they run against either an ephemeral table in
  * the test region or DynamoDB Local:
  *
- *   LEDGER_TEST_TABLE=tightarse-citest-local npm test -w @tightarse/ledger
- *   LEDGER_TEST_TABLE=Ledger LEDGER_TEST_ENDPOINT=http://localhost:8000 npm test …
+ *   LEDGER_TEST_TABLE=tightarse-citest-local npm test -w @tightarse/dynamodb
+ *   LEDGER_TEST_TABLE=DynamoStore LEDGER_TEST_ENDPOINT=http://localhost:8000 npm test …
  *
  * Skipped entirely when unset, so CI without credentials stays green.
  *
@@ -60,7 +60,7 @@ const suite = TABLE ? describe : describe.skip;
  * wrong. If these are ever pointed at a store that outlives the run, that
  * assumption is what breaks.
  */
-function testLedger(): { ledger: Ledger; doc: DynamoDBDocumentClient } {
+function testLedger(): { ledger: DynamoStore; doc: DynamoDBDocumentClient } {
   // Throws rather than falling back if this run is aimed anywhere it should not
   // be. Reached only inside a suite that already skipped without a table, so an
   // unconfigured machine still gets a skip rather than a failure.
@@ -83,7 +83,7 @@ function testLedger(): { ledger: Ledger; doc: DynamoDBDocumentClient } {
     }),
     { marshallOptions: { removeUndefinedValues: true } },
   );
-  return { ledger: new Ledger({ tableName: target.tableName, client: doc }), doc };
+  return { ledger: new DynamoStore({ tableName: target.tableName, client: doc }), doc };
 }
 
 
@@ -101,8 +101,8 @@ const txn = (over: Partial<Transaction> = {}): Transaction => ({
   ...over,
 });
 
-suite("Ledger (integration)", () => {
-  let ledger: Ledger;
+suite("DynamoStore (integration)", () => {
+  let ledger: DynamoStore;
   let doc: DynamoDBDocumentClient;
 
   beforeAll(() => {
@@ -249,8 +249,8 @@ suite("Ledger (integration)", () => {
   });
 });
 
-suite("Ledger account merge (integration)", () => {
-  let ledger: Ledger;
+suite("DynamoStore account merge (integration)", () => {
+  let ledger: DynamoStore;
   let doc: DynamoDBDocumentClient;
 
   beforeAll(() => {
@@ -309,7 +309,7 @@ suite("Ledger account merge (integration)", () => {
 
 suite("household access", () => {
   let doc: DynamoDBDocumentClient;
-  let ledger: Ledger;
+  let ledger: DynamoStore;
   const alice = `alice-${TENANT}@example.com`;
   const bob = `bob-${TENANT}@example.com`;
 
@@ -345,7 +345,7 @@ suite("household access", () => {
 });
 
 suite("balance readings (integration)", () => {
-  let ledger: Ledger;
+  let ledger: DynamoStore;
 
   beforeAll(() => {
     ({ ledger } = testLedger());
@@ -405,7 +405,7 @@ suite("balance readings (integration)", () => {
 });
 
 suite("marking a reading dirty (integration)", () => {
-  let ledger: Ledger;
+  let ledger: DynamoStore;
   beforeAll(() => { ({ ledger } = testLedger()); });
 
   const at = "2026-06-01T05:00:00.000Z";
@@ -450,7 +450,7 @@ suite("marking a reading dirty (integration)", () => {
 });
 
 suite("versioned rule sets and categorisations", () => {
-  let ledger: Ledger;
+  let ledger: DynamoStore;
 
   beforeAll(() => {
     ({ ledger } = testLedger());

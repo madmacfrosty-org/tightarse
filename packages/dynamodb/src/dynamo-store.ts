@@ -25,6 +25,16 @@ import {
   type RuleSet,
   type Categorisation,
 } from "@tightarse/schema";
+import type {
+  Accounts,
+  Balances,
+  Categorisations,
+  DateRange,
+  Enrichments,
+  Household,
+  RuleSets,
+  Transactions,
+} from "@tightarse/ports";
 import {
   accountItem,
   categorisationItems,
@@ -38,7 +48,7 @@ import {
 const BATCH_SIZE = 25; // DynamoDB's BatchWriteItem limit
 const PENDING_TTL_SECONDS = 7 * 24 * 60 * 60;
 
-export interface LedgerOptions {
+export interface DynamoStoreOptions {
   readonly tableName: string;
   /** Supply for tests against DynamoDB Local, or to reuse a warm client. */
   readonly client?: DynamoDBDocumentClient;
@@ -46,18 +56,25 @@ export interface LedgerOptions {
   readonly endpoint?: string;
 }
 
-export interface DateRange {
-  /** Inclusive ISO-8601 lower bound. */
-  readonly from: string;
-  /** Exclusive ISO-8601 upper bound. */
-  readonly to: string;
-}
-
-export class Ledger {
+/**
+ * The DynamoDB adapter.
+ *
+ * `implements` is the point of this refactor rather than decoration: the ports
+ * are declared by the side that needs them, and the compiler now checks that
+ * this satisfies each one. Previously every consumer wrote
+ * `Pick<Ledger, "listRange">` — a view onto whatever this class happened to
+ * have, which nothing could fail to satisfy.
+ *
+ * It is not called Ledger. A ledger is the household's book of record, which is
+ * a domain idea; this is a way of storing one.
+ */
+export class DynamoStore
+  implements Transactions, Enrichments, Categorisations, Accounts, Balances, RuleSets, Household
+{
   private readonly doc: DynamoDBDocumentClient;
   private readonly table: string;
 
-  constructor(opts: LedgerOptions) {
+  constructor(opts: DynamoStoreOptions) {
     this.table = opts.tableName;
     this.doc =
       opts.client ??

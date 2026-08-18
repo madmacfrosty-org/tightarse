@@ -1,4 +1,5 @@
-import { Ledger } from "@tightarse/ledger";
+import { DynamoStore } from "@tightarse/dynamodb";
+import type { MemberLookup } from "@tightarse/ports";
 
 /**
  * Cognito pre-token-generation trigger.
@@ -35,7 +36,7 @@ interface PreTokenEvent {
  * that ships — and it silently stopped covering anything the constructor does.
  */
 export interface PreTokenDeps {
-  readonly ledger: Pick<Ledger, "getMemberTenant">;
+  readonly ledger: MemberLookup;
 }
 
 /**
@@ -57,7 +58,7 @@ export function ledgerConfig(env: NodeJS.ProcessEnv): { tableName: string; regio
 /** Built by the entry point below, and by nothing a test runs. */
 export function realDeps(): PreTokenDeps {
   return {
-    ledger: new Ledger(ledgerConfig(process.env)),
+    ledger: new DynamoStore(ledgerConfig(process.env)),
   };
 }
 

@@ -1,8 +1,8 @@
 /**
  * Create or destroy an ephemeral ledger table for the integration tests.
  *
- *   npm run create-test-table -w @tightarse/ledger          # create, then wait
- *   npm run create-test-table -w @tightarse/ledger -- --delete
+ *   npm run create-test-table -w @tightarse/dynamodb          # create, then wait
+ *   npm run create-test-table -w @tightarse/dynamodb -- --delete
  *
  * Ten tests — idempotency, the account-merge rules, the balance write that must
  * not erase an institution name — were skipping on every push for want of a

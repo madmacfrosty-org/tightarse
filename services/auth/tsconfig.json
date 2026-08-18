@@ -3,5 +3,5 @@
   "compilerOptions": { "rootDir": "src", "outDir": "dist" },
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts"],
-  "references": [{ "path": "../../packages/schema" }, { "path": "../../packages/ledger" }]
+  "references": [{ "path": "../../packages/schema" }, { "path": "../../packages/dynamodb" }, { "path": "../../packages/ports" }]
 }

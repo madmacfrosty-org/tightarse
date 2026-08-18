@@ -12,7 +12,7 @@
  * account numbers. Committing those would publish exactly what this project is
  * careful never to hold.
  */
-import { Ledger } from "@tightarse/ledger";
+import { DynamoStore } from "@tightarse/dynamodb";
 import type { CustomRule } from "@tightarse/schema";
 import { CATEGORIES, isCategory } from "./taxonomy.js";
 import { compileCustom, RULES } from "./rules.js";
@@ -29,7 +29,7 @@ async function main(): Promise<void> {
   const tableName = process.env["TABLE"];
   if (!tableName) throw new Error("Set TABLE to the ledger table name");
   const tenantId = process.env["TENANT"] ?? "frost";
-  const ledger = new Ledger({ tableName, region: process.env["AWS_REGION"] ?? "eu-west-1" });
+  const ledger = new DynamoStore({ tableName, region: process.env["AWS_REGION"] ?? "eu-west-1" });
 
   const [command, a, b, c] = process.argv.slice(2);
   const existing = await ledger.getCustomRules(tenantId);

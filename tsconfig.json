@@ -9,8 +9,9 @@
     },
     { "path": "packages/categorisation" },
     {
-      "path": "packages/ledger"
+      "path": "packages/dynamodb"
     },
+    { "path": "packages/ports" },
     {
       "path": "packages/truelayer"
     },

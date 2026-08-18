@@ -11,10 +11,11 @@
  */
 
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import type { Ledger } from "@tightarse/ledger";
+import type { DynamoStore } from "@tightarse/dynamodb";
 import { emit } from "@tightarse/metrics";
 import { runReconciliation, type ReconcilePhaseDeps, type ReconcilePhaseResult } from "./reconcile-phase.js";
 import { rowKind, scanAll, type Row } from "./compare.js";
+import type { ReconciliationMarks } from "@tightarse/ports";
 
 export interface ReconcileConfig {
   readonly tableName: string;
@@ -85,7 +86,7 @@ export function groupForReconciliation(rows: readonly Row[]): {
  */
 export function phaseDepsFrom(
   rows: readonly Row[],
-  ledger: Pick<Ledger, "markBalanceReadingDirty" | "clearBalanceReadingDirty">,
+  ledger: ReconciliationMarks,
   tenantId: string,
 ): ReconcilePhaseDeps {
   const { accounts, readings, movements } = groupForReconciliation(rows);
@@ -107,7 +108,7 @@ export function phaseDepsFrom(
  */
 export async function reconcileFrom(
   doc: DynamoDBDocumentClient,
-  ledger: Pick<Ledger, "markBalanceReadingDirty" | "clearBalanceReadingDirty">,
+  ledger: ReconciliationMarks,
   config: ReconcileConfig,
   write?: (line: string) => void,
 ): Promise<ReconcilePhaseResult> {

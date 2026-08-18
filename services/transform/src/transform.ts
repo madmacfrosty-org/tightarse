@@ -1,7 +1,7 @@
 import { gunzipSync } from "node:zlib";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { parseRawKey } from "@tightarse/schema";
-import { Ledger } from "@tightarse/ledger";
+import { DynamoStore } from "@tightarse/dynamodb";
 import {
   handlerFor,
   mapAccount,
@@ -14,6 +14,7 @@ import {
   type RawBalance,
   type RawTransaction,
 } from "./map.js";
+import type { LedgerWrites } from "@tightarse/ports";
 
 /** The envelope the uploader and fetcher write around every response. */
 interface RawEnvelope {
@@ -58,7 +59,7 @@ export interface TransformResult {
 
 export interface TransformDeps {
   readonly s3: S3Client;
-  readonly ledger: Ledger;
+  readonly ledger: LedgerWrites;
   readonly bucket: string;
 }
 

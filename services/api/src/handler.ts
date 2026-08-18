@@ -1,7 +1,8 @@
-import { Ledger } from "@tightarse/ledger";
+import { DynamoStore } from "@tightarse/dynamodb";
 import { mergeEnrichments, summarise, toAccountView, type EnrichmentRow, type LedgerRow } from "./aggregate.js";
 import { daysBetween, netPositionSeries, type AccountFacts, type Movement } from "./balances.js";
 import { clampToCoverage, completeFrom, coverageOf } from "./coverage.js";
+import type { LedgerReads } from "@tightarse/ports";
 
 /**
  * HTTP API handler.
@@ -29,7 +30,7 @@ interface HttpEvent {
  * that needs a table and a region, and left it entirely untested.
  */
 export interface ApiDeps {
-  readonly ledger: Pick<Ledger, "listRange" | "listAccounts">;
+  readonly ledger: LedgerReads;
 }
 
 /**
@@ -51,7 +52,7 @@ export function ledgerConfig(env: NodeJS.ProcessEnv): { tableName: string; regio
 /** Built by the entry point below, and by nothing a test runs. */
 export function realDeps(): ApiDeps {
   return {
-    ledger: new Ledger(ledgerConfig(process.env)),
+    ledger: new DynamoStore(ledgerConfig(process.env)),
   };
 }
 

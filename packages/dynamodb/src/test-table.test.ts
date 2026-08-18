@@ -18,7 +18,7 @@ describe("choosing a table for an integration run", () => {
   it("refuses the live table's name on real DynamoDB", () => {
     // The old default. Ambient credentials, nothing set, and the script found
     // the real ledger and called it a success.
-    expect(() => resolveTestTarget(env({ LEDGER_TEST_TABLE: "Ledger" }))).toThrow(/Refusing/);
+    expect(() => resolveTestTarget(env({ LEDGER_TEST_TABLE: "DynamoStore" }))).toThrow(/Refusing/);
   });
 
   it("refuses the region the ledger is in, even for a correctly named table", () => {
@@ -59,12 +59,12 @@ describe("choosing a table for an integration run", () => {
     // so the prefix would buy nothing and would break the documented command.
     expect(
       resolveTestTarget({
-        LEDGER_TEST_TABLE: "Ledger",
+        LEDGER_TEST_TABLE: "DynamoStore",
         LEDGER_TEST_ENDPOINT: "http://localhost:8000",
         AWS_REGION: "eu-west-1",
       }),
     ).toEqual({
-      tableName: "Ledger",
+      tableName: "DynamoStore",
       region: "eu-west-1",
       endpoint: "http://localhost:8000",
     });

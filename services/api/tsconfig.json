@@ -18,7 +18,7 @@
       "path": "../../packages/schema"
     },
     {
-      "path": "../../packages/ledger"
+      "path": "../../packages/dynamodb"
     },
     {
       "path": "../../packages/fixtures"

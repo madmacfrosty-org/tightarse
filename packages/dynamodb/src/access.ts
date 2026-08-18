@@ -6,9 +6,9 @@
  * access or to take it away. For a store holding a family's complete financial
  * history, that is the wrong shape.
  *
- *   npm run access -w @tightarse/ledger -- list
- *   npm run access -w @tightarse/ledger -- grant someone@example.com frost
- *   npm run access -w @tightarse/ledger -- revoke someone@example.com
+ *   npm run access -w @tightarse/dynamodb -- list
+ *   npm run access -w @tightarse/dynamodb -- grant someone@example.com frost
+ *   npm run access -w @tightarse/dynamodb -- revoke someone@example.com
  *
  * The table comes from LEDGER_TABLE, and the AWS profile from the environment
  * as usual, so pointing this at the wrong account takes deliberate effort.
@@ -21,7 +21,7 @@
  */
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import { Ledger } from "./ledger";
+import { DynamoStore } from "./dynamo-store";
 
 const usage = `usage:
   access list
@@ -32,7 +32,7 @@ async function main(): Promise<void> {
   const table = process.env["LEDGER_TABLE"];
   if (!table) throw new Error("Set LEDGER_TABLE to the ledger table name");
 
-  const ledger = new Ledger({
+  const ledger = new DynamoStore({
     tableName: table,
     client: DynamoDBDocumentClient.from(
       new DynamoDBClient({ region: process.env["AWS_REGION"] ?? "eu-west-1" }),

@@ -1,4 +1,4 @@
-export { Ledger, type LedgerOptions, type DateRange } from "./ledger";
+export { DynamoStore, type DynamoStoreOptions } from "./dynamo-store";
 export {
   transactionItem,
   enrichmentItem,

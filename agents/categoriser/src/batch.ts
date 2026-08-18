@@ -9,7 +9,7 @@
  * The model path stays in `run.ts`. It is an operator decision with a cost
  * attached, and it does not belong on a schedule.
  */
-import type { Ledger } from "@tightarse/ledger";
+import type { DynamoStore } from "@tightarse/dynamodb";
 
 /**
  * The ledger, narrowed to what this file actually calls.
@@ -19,9 +19,10 @@ import type { Ledger } from "@tightarse/ledger";
  * Taking the whole `Ledger` forced anything testing this path to construct a
  * real client, which needs a table and a region.
  */
-export type BatchLedger = Pick<Ledger, "listToEnrich" | "getCustomRules" | "putEnrichment">;
+export type BatchLedger = Omit<CategoriserReads, "getSettings">;
 import { applyRules, compileCustom, RULES_VERSION } from "./rules.js";
 import type { Candidate, Classification } from "./categorise.js";
+import type { CategoriserReads } from "@tightarse/ports";
 
 export interface Prepared {
   candidates: Candidate[];

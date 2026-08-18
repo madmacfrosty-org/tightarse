@@ -22,8 +22,11 @@
       "@tightarse/fixtures": [
         "./packages/fixtures/src/index.ts"
       ],
-      "@tightarse/ledger": [
-        "./packages/ledger/src/index.ts"
+      "@tightarse/ports": [
+        "./packages/ports/src/index.ts"
+      ],
+      "@tightarse/dynamodb": [
+        "./packages/dynamodb/src/index.ts"
       ],
       "@tightarse/metrics": [
         "./packages/metrics/src/index.ts"

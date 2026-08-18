@@ -9,7 +9,7 @@
  * out what the check actually says about five years of real data.
  */
 
-import { Ledger } from "@tightarse/ledger";
+import { DynamoStore } from "@tightarse/dynamodb";
 import { emit } from "@tightarse/metrics";
 import { runReconciliation } from "./reconcile-phase.js";
 import { rowKind, scanAll, type Row } from "./compare.js";
@@ -32,7 +32,7 @@ async function main(): Promise<void> {
   const environment = process.env["ENVIRONMENT"] ?? "dev";
   const endpoint = process.env["LEDGER_TEST_ENDPOINT"];
 
-  const ledger = new Ledger({ tableName, region, ...(endpoint ? { endpoint } : {}) });
+  const ledger = new DynamoStore({ tableName, region, ...(endpoint ? { endpoint } : {}) });
   const doc = DynamoDBDocumentClient.from(
     new DynamoDBClient({
       region,

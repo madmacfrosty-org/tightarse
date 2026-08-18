@@ -14,8 +14,9 @@
   },
   "dependencies": {
     "@tightarse/api-contract": "*",
-    "@tightarse/ledger": "*",
-    "@tightarse/schema": "*"
+    "@tightarse/schema": "*",
+    "@tightarse/dynamodb": "*",
+    "@tightarse/ports": "*"
   },
   "devDependencies": {
     "vitest": "^2.1.0",

@@ -7,7 +7,7 @@
  *   TENANT=frost TABLE=<name> node dist/report.js [from] [to]
  */
 
-import { Ledger } from "@tightarse/ledger";
+import { DynamoStore } from "@tightarse/dynamodb";
 import { summarise, type EnrichmentRow, type LedgerRow } from "./aggregate.js";
 
 const money = (minor: number, currency: string | null): string => {
@@ -28,7 +28,7 @@ async function main() {
   const from = process.argv[2] ?? "2021-01-01";
   const to = process.argv[3] ?? new Date().toISOString().slice(0, 10);
 
-  const ledger = new Ledger({ tableName, region: process.env["AWS_REGION"] ?? "eu-west-1" });
+  const ledger = new DynamoStore({ tableName, region: process.env["AWS_REGION"] ?? "eu-west-1" });
   const { transactions, enrichments } = await ledger.listRange(tenantId, { from, to });
 
   const rows = transactions as unknown as LedgerRow[];

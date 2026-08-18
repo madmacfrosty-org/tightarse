@@ -15,9 +15,10 @@
  * narrow range keeps the daily read small. Widen it with BACKFILL_DAYS when a
  * new rule should be applied to history.
  */
-import { Ledger } from "@tightarse/ledger";
+import { DynamoStore } from "@tightarse/dynamodb";
 import { emit } from "@tightarse/metrics";
 import { enrichmentMetrics, prepare, writeRuleEnrichments, type BatchLedger } from "./batch.js";
+import type { CategoriserReads } from "@tightarse/ports";
 
 function required(name: string): string {
   const v = process.env[name];
@@ -39,7 +40,7 @@ export interface CategoriseEvent {
  * in the same way, so a test does not have to mutate `process.env`.
  */
 export interface CategoriseDeps {
-  readonly ledger: BatchLedger & Pick<Ledger, "getSettings">;
+  readonly ledger: CategoriserReads;
   readonly tenantId: string;
   /** Lookback when the event does not override it. */
   readonly defaultBackfillDays: number;
@@ -49,7 +50,7 @@ export interface CategoriseDeps {
 /** Built by the entry point below, and by nothing a test runs. */
 export function realDeps(): CategoriseDeps {
   return {
-    ledger: new Ledger({
+    ledger: new DynamoStore({
       tableName: required("TABLE_NAME"),
       region: process.env["AWS_REGION"] ?? "eu-west-1",
     }),
@@ -121,7 +122,7 @@ export async function categorise(
  * Lambda entry point, and the only place a client is constructed.
  *
  * Built per invocation, as the previous code did — this handler constructed its
- * Ledger inside itself rather than at module scope. Caching across warm
+ * the store inside itself rather than at module scope. Caching across warm
  * invocations would be cheap and probably right, but it also changes when
  * TABLE_NAME and BACKFILL_DAYS are read, and that is not a trade to make
  * silently inside a refactor.

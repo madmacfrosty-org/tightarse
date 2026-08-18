@@ -43,12 +43,13 @@
  */
 
 import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
-import { Ledger } from "@tightarse/ledger";
+import { DynamoStore } from "@tightarse/dynamodb";
 import { transformObject } from "./transform.js";
+import type { LedgerWrites } from "@tightarse/ports";
 
 export interface ReplayDeps {
   readonly s3: S3Client;
-  readonly ledger: Ledger;
+  readonly ledger: LedgerWrites;
   readonly bucket: string;
 }
 

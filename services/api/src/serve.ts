@@ -18,7 +18,7 @@
  */
 
 import { createServer } from "node:http";
-import { Ledger } from "@tightarse/ledger";
+import { DynamoStore } from "@tightarse/dynamodb";
 import { route, type ApiDeps } from "./handler.js";
 
 const PORT = Number(process.env["PORT"] ?? 8787);
@@ -31,7 +31,7 @@ if (!tableName) {
   process.exit(1);
 }
 
-const ledger = new Ledger({ tableName, region: process.env["AWS_REGION"] ?? "eu-west-1" });
+const ledger = new DynamoStore({ tableName, region: process.env["AWS_REGION"] ?? "eu-west-1" });
 
 /**
  * Log what a failure actually was, before `route` hides it.

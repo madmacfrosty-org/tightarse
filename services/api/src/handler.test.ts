@@ -202,7 +202,7 @@ describe("building the real dependencies", () => {
 describe("the Lambda entry point", () => {
   it("wires the real dependencies through to the routing", async () => {
     // Exercises the entry point, which nothing else reaches: it builds a real
-    // Ledger and delegates. The 403 path returns before any call is made, so
+    // DynamoStore and delegates. The 403 path returns before any call is made, so
     // this constructs a client and touches no network.
     const res = await handler(event({ requestContext: undefined }) as never);
     expect(res.statusCode).toBe(403);

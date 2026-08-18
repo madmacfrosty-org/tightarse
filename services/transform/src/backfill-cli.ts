@@ -11,7 +11,7 @@
  * needs rebuilding.
  */
 import { S3Client } from "@aws-sdk/client-s3";
-import { Ledger } from "@tightarse/ledger";
+import { DynamoStore } from "@tightarse/dynamodb";
 import { replay } from "./backfill.js";
 
 function requireEnv(name: string): string {
@@ -33,7 +33,7 @@ async function main(): Promise<void> {
   const datasets = process.env["DATASETS"]?.split(",").map((d) => d.trim()).filter(Boolean);
 
   const result = await replay(
-    { s3: new S3Client({ region }), ledger: new Ledger({ tableName, region }), bucket },
+    { s3: new S3Client({ region }), ledger: new DynamoStore({ tableName, region }), bucket },
     { tenantId, dryRun, ...(datasets?.length ? { datasets } : {}) },
   );
 
