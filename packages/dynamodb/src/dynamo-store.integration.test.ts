@@ -564,3 +564,107 @@ suite("versioned rule sets and categorisations", () => {
     expect(history.map((h) => h["category"])).toEqual(["Groceries", "Fuel", "Transport"]);
   });
 });
+
+suite("control plane: settings, consents and the legacy rules row", () => {
+  let store: DynamoStore;
+
+  beforeAll(() => {
+    ({ ledger: store } = testLedger());
+  });
+
+  // These seven methods had no test naming them. Hidden inside a thirty-method
+  // class at 88% coverage that reads as fine; as the control plane — the data
+  // nothing can regenerate — it is the wrong half to leave unexercised.
+
+  it("returns no settings for a household that has none", async () => {
+    // Distinct from a household that has turned enrichment off. The categoriser
+    // defaults to rules mode on null and skips entirely on "off", so confusing
+    // the two silently changes behaviour.
+    expect(await store.getSettings(`${TENANT}-absent`)).toBeNull();
+  });
+
+  it("round-trips settings", async () => {
+    const settings = { tenantId: TENANT, baseCurrency: "GBP", updatedAt: "2026-08-18T00:00:00Z" };
+    await store.putSettings({ ...settings, enrichment: "off" });
+    expect((await store.getSettings(TENANT))?.enrichment).toBe("off");
+    await store.putSettings({ ...settings, enrichment: "rules" });
+    expect((await store.getSettings(TENANT))?.enrichment).toBe("rules");
+  });
+
+  it("round-trips the household's own rules", async () => {
+    // The single-item row that predates versioned sets. Still the live path.
+    expect(await store.getCustomRules(`${TENANT}-absent`)).toEqual([]);
+    const rules = [{ pattern: "^SOMESHOP", category: "Groceries", addedAt: "2026-08-18T00:00:00Z" }];
+    await store.putCustomRules(TENANT, rules);
+    expect(await store.getCustomRules(TENANT)).toEqual(rules);
+  });
+
+  it("replaces the rules wholesale rather than merging", async () => {
+    // A put replaces the row, so a caller that reads, edits and writes back is
+    // the only safe pattern — worth pinning, because a merge would silently
+    // resurrect a rule somebody deleted.
+    await store.putCustomRules(TENANT, [
+      { pattern: "^A", category: "Groceries", addedAt: "2026-08-18T00:00:00Z" },
+    ]);
+    expect(await store.getCustomRules(TENANT)).toHaveLength(1);
+  });
+
+  it("refuses to categorise a transaction that does not exist", async () => {
+    // Enforced by a condition on the write rather than by a check beforehand,
+    // which is the right place: only the datastore can make "the transaction is
+    // still there" and "the enrichment is written" one atomic decision.
+    await expect(
+      store.putEnrichment({
+        tenantId: TENANT,
+        dedupKey: "no-such-transaction",
+        timestamp: "2026-05-01T00:00:00Z",
+        category: "Groceries",
+        confidence: 1,
+        producedBy: "rules@v2",
+        producedAt: "2026-08-18T00:00:00Z",
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("records a consent and lists it", async () => {
+    await store.putConsent({
+      tenantId: TENANT,
+      consentId: `conn-${TENANT}`,
+      provider: "truelayer",
+      grantedAt: "2026-08-18T00:00:00Z",
+      expiresAt: "2026-11-16T00:00:00Z",
+      status: "active",
+    });
+    const consents = await store.listConsents(TENANT);
+    expect(consents.map((c) => c["consentId"])).toContain(`conn-${TENANT}`);
+  });
+
+  it("deletes only the enrichments a given producer made", async () => {
+    // The blast radius that matters: a model change should invalidate its own
+    // output wholesale and leave every other generation alone.
+    const range = { from: "2026-05-01", to: "2026-05-02" };
+    const t: Transaction = {
+      tenantId: TENANT,
+      accountId: "del",
+      status: "settled",
+      currency: "GBP",
+      transactionId: "del-1",
+      timestamp: "2026-05-01T00:00:00Z",
+      amount: -1_00,
+      description: "x",
+      transactionType: "DEBIT",
+      providerTransactionId: "del-1",
+    };
+    const u: Transaction = { ...t, transactionId: "del-2", providerTransactionId: "del-2", amount: -2_00 };
+    await store.putTransactions([t, u]);
+    const key = dedupKey(t);
+    await store.putEnrichment({ tenantId: TENANT, dedupKey: key, timestamp: t.timestamp, category: "Groceries", confidence: 1, producedBy: "rules@v2", producedAt: "2026-08-18T00:00:00Z" });
+    await store.putEnrichment({ tenantId: TENANT, dedupKey: dedupKey(u), timestamp: u.timestamp, category: "Fuel", confidence: 1, producedBy: "model@v1", producedAt: "2026-08-18T00:00:00Z" });
+
+    const removed = await store.deleteEnrichments(TENANT, range, "rules@v2");
+    expect(removed.deleted).toBe(1);
+
+    const { enrichments } = await store.listRange(TENANT, range);
+    expect(enrichments.map((e) => e["producedBy"])).toEqual(["model@v1"]);
+  });
+});

@@ -9,7 +9,8 @@
     "test": "vitest run",
     "create-test-table": "tsx src/create-test-table.ts",
     "access": "tsx src/access.ts",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:mutation": "stryker run"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.700.0",

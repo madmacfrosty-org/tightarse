@@ -194,15 +194,27 @@ bugs in this repository were enshrined exactly that way.
 
 ### Where it applies
 
-Every package except `packages/dynamodb`, with `break` pinned per package at what
-it scores today — a ratchet, like coverage. `incremental: true` caches the
-report so later runs only re-test what changed.
+Every package, with `break` pinned per package at what it scores today — a
+ratchet, like coverage. `incremental: true` caches the report so later runs only
+re-test what changed.
 
-`ledger` is deliberately excluded. Its code is exercised by integration tests
-that skip without a table, so all 222 mutants come back NoCoverage and the score
-reads 3.81% — a number that measures the absence of a database rather than the
-quality of anything. Running the integration suite once per mutant would mean
-thousands of DynamoDB calls to learn that.
+`dynamodb` was excluded for a while, and the reason recorded here was that its
+code is exercised by integration tests which skip without a table, so all 222
+mutants came back NoCoverage and the score read 3.81% — a number measuring the
+absence of a database rather than the quality of anything.
+
+That observation was correct and the conclusion was not. Run with DynamoDB Local
+up, the same package scores **81.48% in 24 seconds** — higher than several
+packages that were never excluded. It needs the emulator, exactly as its
+integration tests do:
+
+```sh
+LEDGER_TEST_TABLE=Ledger LEDGER_TEST_ENDPOINT=http://localhost:8000 \
+  npm run test:mutation -w @tightarse/dynamodb
+```
+
+Without those variables it will still report a meaningless 3.81%, which is worth
+knowing before anyone concludes the tests have rotted.
 
 Starting floors, which say more about coverage than quality while coverage is
 still low:
