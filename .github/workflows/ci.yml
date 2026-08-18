@@ -64,7 +64,7 @@ jobs:
           role-session-name: gha-citest-${{ github.run_id }}
 
       - name: Create the ephemeral ledger table
-        run: npm run create-test-table -w @tightarse/ledger
+        run: npm run create-test-table -w @tightarse/dynamodb
 
       # Coverage thresholds are pinned per package at what it achieves today, so
       # this fails when coverage falls rather than when it misses an arbitrary
@@ -77,7 +77,7 @@ jobs:
       # prefix, so a mistyped variable here cannot delete anything that matters.
       - name: Destroy the ephemeral ledger table
         if: always()
-        run: npm run create-test-table -w @tightarse/ledger -- --delete
+        run: npm run create-test-table -w @tightarse/dynamodb -- --delete
 
       # The web stack deploys web/dist as an asset, so synth cannot run without
       # it. CI never built it, and every push since "Add the dashboard hosting
@@ -139,7 +139,7 @@ jobs:
           role-session-name: gha-${{ github.run_id }}
 
       # Jobs do not share a filesystem, so this one has to build for itself.
-      # Without it esbuild cannot resolve @tightarse/ledger while bundling the
+      # Without it esbuild cannot resolve @tightarse/dynamodb while bundling the
       # Lambdas — the workspace symlinks exist after npm ci, but they point at
       # dist directories nothing has produced yet.
       - name: Build the workspaces

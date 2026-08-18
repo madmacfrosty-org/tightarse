@@ -110,7 +110,8 @@ version:
 | `infra/` | CDK app — the only thing that deploys |
 | `packages/schema/` | Zod schemas and key construction: single source of truth |
 | `packages/truelayer/` | Provider client, kept behind an interface |
-| `packages/ledger/` | DynamoDB access, plus the `access` admin command |
+| `packages/ports/` | What the application asks of a store — interfaces, no implementation |
+| `packages/dynamodb/` | The DynamoDB adapter, plus the `access` admin command |
 | `packages/fixtures/` | Synthetic data generator — the only source of test data |
 | `services/ingest/` | Connect flow and the Step Functions sync |
 | `services/transform/` | Raw provider payloads to ledger rows |
@@ -188,8 +189,8 @@ npm run deploy
 export LEDGER_TABLE=<the ledger table>
 
 # who can see the household ledger
-npm run access -w @tightarse/ledger -- list
-npm run access -w @tightarse/ledger -- grant someone@example.com <tenant>
+npm run access -w @tightarse/dynamodb -- list
+npm run access -w @tightarse/dynamodb -- grant someone@example.com <tenant>
 
 # this household's own categorisation rules (never committed)
 TABLE=$LEDGER_TABLE npm run rules -w @tightarse/categoriser -- list

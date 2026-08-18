@@ -1,4 +1,8 @@
-# @tightarse/ledger
+# @tightarse/dynamodb
+
+The DynamoDB adapter. It implements the ports declared in `@tightarse/ports`;
+nothing in the application depends on this package except the composition roots
+that construct it.
 
 DynamoDB access. Key construction comes from `@tightarse/schema` — no `T#…`
 strings are built here.
@@ -38,11 +42,11 @@ throttling *without failing*, so ignoring the response silently drops rows.
 ## Tests
 
 ```sh
-npm test -w @tightarse/ledger            # pure item tests only
+npm test -w @tightarse/dynamodb            # pure item tests only
 
 # integration, against either a real table or DynamoDB Local
-LEDGER_TEST_TABLE=<name> AWS_PROFILE=tightarse-dev npm test -w @tightarse/ledger
-LEDGER_TEST_TABLE=Ledger LEDGER_TEST_ENDPOINT=http://localhost:8000 npm test -w @tightarse/ledger
+LEDGER_TEST_TABLE=<name> AWS_PROFILE=tightarse-dev npm test -w @tightarse/dynamodb
+LEDGER_TEST_TABLE=Ledger LEDGER_TEST_ENDPOINT=http://localhost:8000 npm test -w @tightarse/dynamodb
 ```
 
 Integration tests skip when `LEDGER_TEST_TABLE` is unset, so CI without

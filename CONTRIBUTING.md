@@ -58,9 +58,9 @@ Access is one row per person, and there is a command:
 
 ```
 export LEDGER_TABLE=<the ledger table>
-npm run access -w @tightarse/ledger -- list
-npm run access -w @tightarse/ledger -- grant someone@example.com frost
-npm run access -w @tightarse/ledger -- revoke someone@example.com
+npm run access -w @tightarse/dynamodb -- list
+npm run access -w @tightarse/dynamodb -- grant someone@example.com frost
+npm run access -w @tightarse/dynamodb -- revoke someone@example.com
 ```
 
 Grant **before** their first sign-in. The pre-token trigger reads the member row

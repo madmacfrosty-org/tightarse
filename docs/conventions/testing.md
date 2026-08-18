@@ -85,8 +85,8 @@ CI runs them against real DynamoDB, on a table per run:
 
 ```sh
 # CI, and anything wanting the semantics that actually ship
-LEDGER_TEST_TABLE=tightarse-citest-$USER npm run create-test-table -w @tightarse/ledger
-LEDGER_TEST_TABLE=tightarse-citest-$USER npm test -w @tightarse/ledger
+LEDGER_TEST_TABLE=tightarse-citest-$USER npm run create-test-table -w @tightarse/dynamodb
+LEDGER_TEST_TABLE=tightarse-citest-$USER npm test -w @tightarse/dynamodb
 
 # Locally, against the emulator, which needs no credentials and no region
 LEDGER_TEST_TABLE=Ledger LEDGER_TEST_ENDPOINT=http://localhost:8000 npm test
@@ -194,7 +194,7 @@ bugs in this repository were enshrined exactly that way.
 
 ### Where it applies
 
-Every package except `packages/ledger`, with `break` pinned per package at what
+Every package except `packages/dynamodb`, with `break` pinned per package at what
 it scores today — a ratchet, like coverage. `incremental: true` caches the
 report so later runs only re-test what changed.
 
