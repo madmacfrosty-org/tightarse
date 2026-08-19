@@ -8,7 +8,7 @@
  */
 
 import { DynamoStore } from "@tightarse/dynamodb";
-import { summarise, type EnrichmentRow, type LedgerRow } from "./aggregate.js";
+import { reporting } from "./use-cases.js";
 
 const money = (minor: number, currency: string | null): string => {
   const sign = minor < 0 ? "-" : "";
@@ -28,13 +28,16 @@ async function main() {
   const from = process.argv[2] ?? "2021-01-01";
   const to = process.argv[3] ?? new Date().toISOString().slice(0, 10);
 
-  const ledger = new DynamoStore({ tableName, region: process.env["AWS_REGION"] ?? "eu-west-1" });
-  const { transactions, enrichments } = await ledger.listRange(tenantId, { from, to });
-
-  const rows = transactions as unknown as LedgerRow[];
-  const enr = enrichments as unknown as EnrichmentRow[];
-  const s = summarise(rows, enr, { from, to });
-  const raw = summarise(rows, enr, { from, to }, { transfers: false });
+  // Through the inbound port, like every other driver. This CLI used to reach
+  // past the use cases straight into `summarise` with its own casts, which is how
+  // a third driver ends up with a third opinion about what a summary is.
+  const app = reporting({
+    ledger: new DynamoStore({ tableName, region: process.env["AWS_REGION"] ?? "eu-west-1" }),
+  });
+  const [s, raw] = await Promise.all([
+    app.summary(tenantId, { from, to }),
+    app.summary(tenantId, { from, to }, { nettingTransfers: false }),
+  ]);
 
   console.log(`\n${from} to ${to}   ${s.transactionCount} transactions   ${s.currency}\n`);
   console.log(`                  transfers netted        raw`);

@@ -1,6 +1,7 @@
 import { DynamoStore } from "@tightarse/dynamodb";
-import type { LedgerReads } from "@tightarse/ports";
-import { accounts, balances, summary, transactions } from "./use-cases.js";
+import type { Reporting } from "@tightarse/ports";
+import { reporting, type Deps } from "./use-cases.js";
+import { asAccounts, asBalances, asSummary, asTransactions } from "./wire.js";
 
 /**
  * HTTP API handler.
@@ -28,7 +29,15 @@ interface HttpEvent {
  * that needs a table and a region, and left it entirely untested.
  */
 export interface ApiDeps {
-  readonly ledger: LedgerReads;
+  /**
+   * The inbound port, not the ledger.
+   *
+   * This used to be `LedgerReads`, which meant testing the routing — including
+   * the tenant rule below, the single most important line in this file — required
+   * ledger rows and ran the whole aggregation underneath. An adapter should be
+   * testable against the application it drives, not through it.
+   */
+  readonly reporting: Reporting;
 }
 
 /**
@@ -50,7 +59,9 @@ export function ledgerConfig(env: NodeJS.ProcessEnv): { tableName: string; regio
 /** Built by the entry point below, and by nothing a test runs. */
 export function realDeps(): ApiDeps {
   return {
-    ledger: new DynamoStore(ledgerConfig(process.env)),
+    // The composition root: the concrete store is constructed here and nowhere
+    // else, then bound to the inbound port the routing depends on.
+    reporting: reporting({ ledger: new DynamoStore(ledgerConfig(process.env)) }),
   };
 }
 
@@ -96,10 +107,14 @@ export async function route(deps: ApiDeps, event: HttpEvent) {
     const range = rangeFrom(event);
     const path = event.rawPath ?? "/";
 
-    if (path.endsWith("/summary")) return json(200, await summary(deps, tenantId, range));
-    if (path.endsWith("/transactions")) return json(200, await transactions(deps, tenantId, range));
-    if (path.endsWith("/accounts")) return json(200, await accounts(deps, tenantId));
-    if (path.endsWith("/balances")) return json(200, await balances(deps, tenantId, range));
+    // Each result goes through `wire.ts`, which is where the domain answer meets
+    // the promise made to installed clients.
+    if (path.endsWith("/summary")) return json(200, asSummary(await deps.reporting.summary(tenantId, range)));
+    if (path.endsWith("/transactions"))
+      return json(200, asTransactions(await deps.reporting.transactions(tenantId, range)));
+    if (path.endsWith("/accounts")) return json(200, asAccounts(await deps.reporting.accounts(tenantId)));
+    if (path.endsWith("/balances"))
+      return json(200, asBalances(await deps.reporting.balances(tenantId, range)));
 
     return json(404, { error: `No route for ${path}` });
   } catch (err) {

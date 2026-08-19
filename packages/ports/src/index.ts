@@ -366,3 +366,184 @@ export interface CategoriserReads {
   putEnrichment(e: TransactionEnrichment): Promise<void>;
   getSettings(tenantId: string): Promise<TenantSettings | null>;
 }
+
+// ------------------------------------------------------------------- inbound
+//
+// Everything above is driven: interfaces the application calls outward, to a
+// store, a bucket, a topic. What follows is the other side of the hexagon — what
+// the application offers inward, to whatever drives it.
+//
+// It was missing, and its absence had a cost. The four operations below already
+// have three drivers: the Lambda entry point, the local HTTP server and the
+// report CLI. Undeclared, each reached in at whatever depth suited it — the CLI
+// bypassed the use cases entirely and called the aggregation directly, with its
+// own casts. And because the functions had no declared return type, what the API
+// actually promised was inferred from whatever the aggregation happened to
+// return, so a change in the shape of a total could reach a client without
+// failing a build.
+//
+// The types here are domain vocabulary, not wire format. `@tightarse/api-contract`
+// is the HTTP adapter's business: it says how these are spelled on the wire, what
+// URL serves them and what a client may rely on. That is a promise to something
+// already installed, and it changes for different reasons — see CONTRIBUTING.
+
+/** A category and what it came to over a range. */
+export interface CategoryTotal {
+  readonly category: string;
+  /** Negative for spending, positive for income. */
+  readonly total: number;
+  readonly count: number;
+  /**
+   * True when the category is the provider's own payment type rather than one we
+   * produced. A bank's payment type is not a spending category, and counting it
+   * as one overstates how much of the ledger is actually categorised.
+   */
+  readonly provisional: boolean;
+}
+
+/** One month's totals. `month` is YYYY-MM. */
+export interface MonthTotal {
+  readonly month: string;
+  readonly income: number;
+  readonly spend: number;
+  readonly net: number;
+  readonly count: number;
+}
+
+/** What the household spent and received over a range. */
+export interface Summary {
+  /** Null when the range holds no transactions — a value, not a missing field. */
+  readonly currency: string | null;
+  readonly from: string;
+  readonly to: string;
+  readonly transactionCount: number;
+  readonly income: number;
+  readonly spend: number;
+  readonly net: number;
+  readonly byCategory: readonly CategoryTotal[];
+  readonly byMonth: readonly MonthTotal[];
+  /**
+   * Whether movement between the household's own accounts has been removed.
+   * Reported rather than assumed, so an inflated total cannot be mistaken for a
+   * real one.
+   */
+  readonly internalTransfersNetted: boolean;
+  readonly transferCount: number;
+  readonly transferTotal: number;
+  readonly enrichedCount: number;
+}
+
+/** A transaction with its category resolved. */
+export interface CategorisedTransaction {
+  readonly dedupKey: string;
+  readonly timestamp: string;
+  /** Negative left the household, positive arrived. The one sign convention. */
+  readonly amount: number;
+  readonly currency: string;
+  readonly description: string;
+  readonly accountId: string;
+  /** The provider's own type. Not the direction — see `amount`. */
+  readonly transactionType: string;
+  readonly providerCategory?: string | undefined;
+  readonly category: string;
+  readonly provisional: boolean;
+}
+
+/**
+ * An account as currently known.
+ *
+ * Almost everything is optional because a row can exist without it: balances
+ * arrive on their own endpoint and may land before account details, so an
+ * account can legitimately be seen mid-sync with a balance and no identity.
+ *
+ * `isCard` absent means NOT YET KNOWN, never "no". Treating absent as false puts
+ * a card's balance into the cash total and subtracts nothing, overstating the
+ * household by twice the debt — the shape of the £567.90 bug. See #29.
+ */
+export interface AccountState {
+  readonly accountId: string;
+  readonly displayName?: string | undefined;
+  readonly institutionName?: string | undefined;
+  readonly currency?: string | undefined;
+  readonly isCard?: boolean | undefined;
+  readonly accountType?: string | undefined;
+  /** Absent when never fetched, which is not the same as zero. */
+  readonly currentBalance?: number | undefined;
+  readonly availableBalance?: number | undefined;
+  readonly lastSyncedAt?: string | undefined;
+  /** Earliest date this account has any data for. */
+  readonly historyFrom?: string | undefined;
+  /**
+   * False when the account demonstrably existed before the earliest data held,
+   * so a total drawn before `historyFrom` is short by whatever it held. See #33.
+   */
+  readonly historyComplete?: boolean | undefined;
+}
+
+/** The household's net position on one day. */
+export interface BalancePoint {
+  readonly date: string;
+  /** Cash less card debt, across every account with data that day. */
+  readonly net: number;
+}
+
+export interface TransactionsResult {
+  readonly range: DateRange;
+  readonly transactions: readonly CategorisedTransaction[];
+}
+
+export interface AccountsResult {
+  readonly accounts: readonly AccountState[];
+  /**
+   * Earliest date a household total is complete; absent when unconstrained.
+   *
+   * Computed here rather than left to callers. The rule is "the latest start
+   * among accounts that are incomplete", and an account opened inside the range
+   * must be excluded — a caller doing the obvious `max(historyFrom)` gets it
+   * wrong the first time a new account is opened.
+   */
+  readonly completeFrom?: string | undefined;
+}
+
+export interface BalancesResult {
+  /**
+   * The range actually served, which may be narrower than the one requested.
+   * Nothing incomplete is ever returned, so a request reaching further back than
+   * coverage is clamped rather than answered with a total missing an account.
+   */
+  readonly range: DateRange;
+  /** One per day across `range`, both ends inclusive. */
+  readonly points: readonly BalancePoint[];
+}
+
+/**
+ * What the application offers a driver: read-only reporting over one household's
+ * ledger.
+ *
+ * Takes a tenant and a range, never an HTTP event. A driving adapter's job is to
+ * turn its own protocol into these arguments and the results back into its own
+ * representation — which is what keeps the four operations testable without a
+ * request, and a driver testable without a ledger.
+ */
+export interface SummaryOptions {
+  /**
+   * Whether to remove movement between the household's own accounts.
+   *
+   * Defaults to true, which is what any ordinary reading of "what did we spend"
+   * means: a transfer from current account to card is not spending, and counting
+   * both legs inflates income and spend alike.
+   *
+   * Exposed because `Summary.internalTransfersNetted` already reports which way
+   * it went, so the choice is plainly the caller's — and because the reconciliation
+   * CLI shows netted against raw side by side, which is how anyone checks that the
+   * transfer detection is finding real pairs rather than coincidences.
+   */
+  readonly nettingTransfers?: boolean;
+}
+
+export interface Reporting {
+  summary(tenantId: string, range: DateRange, opts?: SummaryOptions): Promise<Summary>;
+  transactions(tenantId: string, range: DateRange): Promise<TransactionsResult>;
+  accounts(tenantId: string): Promise<AccountsResult>;
+  balances(tenantId: string, range: DateRange): Promise<BalancesResult>;
+}

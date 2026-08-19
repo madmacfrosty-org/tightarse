@@ -12,15 +12,28 @@
  * The controller translates; this decides.
  */
 
-import type { LedgerReads } from "@tightarse/ports";
-import { mergeEnrichments, summarise, toAccountView, type EnrichmentRow, type LedgerRow } from "./aggregate.js";
+import type {
+  AccountsResult,
+  BalancesResult,
+  DateRange,
+  LedgerReads,
+  Reporting,
+  SummaryOptions,
+  Summary,
+  TransactionsResult,
+} from "@tightarse/ports";
+import { mergeEnrichments, summarise, toAccountState, type EnrichmentRow, type LedgerRow } from "./aggregate.js";
 import { daysBetween, netPositionSeries, type AccountFacts, type Movement } from "./balances.js";
 import { clampToCoverage, completeFrom, coverageOf, type AccountCoverage } from "./coverage.js";
 
-export interface Range {
-  readonly from: string;
-  readonly to: string;
-}
+/**
+ * The port's own vocabulary, re-exported under the name this module used.
+ *
+ * It was a separate declaration of the same two fields. A range of dates is
+ * domain vocabulary and `@tightarse/ports` already owns it — a second copy is
+ * how two things that must agree stop agreeing.
+ */
+export type Range = DateRange;
 
 /** Everything the use cases reach outside themselves. */
 export interface Deps {
@@ -95,16 +108,23 @@ function coverageFor(
   );
 }
 
-export async function summary(deps: Deps, tenantId: string, range: Range) {
+export async function summary(
+  deps: Deps,
+  tenantId: string,
+  range: Range,
+  opts: SummaryOptions = {},
+): Promise<Summary> {
   const { transactions, enrichments } = await deps.ledger.listRange(tenantId, range);
   return summarise(
     transactions as unknown as LedgerRow[],
     enrichments as unknown as EnrichmentRow[],
     range,
+    // `transfers: false` disables detection; the default enables it.
+    opts.nettingTransfers === false ? { transfers: false } : {},
   );
 }
 
-export async function transactions(deps: Deps, tenantId: string, range: Range) {
+export async function transactions(deps: Deps, tenantId: string, range: Range): Promise<TransactionsResult> {
   const { transactions: txns, enrichments } = await deps.ledger.listRange(tenantId, range);
   return {
     range,
@@ -115,7 +135,7 @@ export async function transactions(deps: Deps, tenantId: string, range: Range) {
   };
 }
 
-export async function accounts(deps: Deps, tenantId: string) {
+export async function accounts(deps: Deps, tenantId: string): Promise<AccountsResult> {
   const [rows, all] = await Promise.all([deps.ledger.listAccounts(tenantId), allHistory(deps, tenantId)]);
   const coverage = coverageFor(rows, all);
   const complete = completeFrom([...coverage.values()]);
@@ -123,7 +143,7 @@ export async function accounts(deps: Deps, tenantId: string) {
     accounts: rows.map((row) => {
       const c = coverage.get(String(row["accountId"]));
       return {
-        ...toAccountView(row),
+        ...toAccountState(row),
         ...(c?.historyFrom !== undefined ? { historyFrom: c.historyFrom } : {}),
         ...(c?.historyComplete !== undefined ? { historyComplete: c.historyComplete } : {}),
       };
@@ -140,7 +160,7 @@ export async function accounts(deps: Deps, tenantId: string) {
  * entirely plausible. The range actually served is returned, so a caller can
  * tell it was narrowed.
  */
-export async function balances(deps: Deps, tenantId: string, range: Range) {
+export async function balances(deps: Deps, tenantId: string, range: Range): Promise<BalancesResult> {
   const [rows, all] = await Promise.all([deps.ledger.listAccounts(tenantId), allHistory(deps, tenantId)]);
   const complete = completeFrom([...coverageFor(rows, all).values()]);
   const served = clampToCoverage(range, complete);
@@ -154,5 +174,26 @@ export async function balances(deps: Deps, tenantId: string, range: Range) {
       toMovements(all),
       daysBetween(served.from, served.to),
     ),
+  };
+}
+
+/**
+ * Bind the use cases to their dependencies, as the inbound port.
+ *
+ * This is what a driver depends on. Before it existed the three drivers — the
+ * Lambda, the local server and the report CLI — each reached in at whatever depth
+ * suited them, and the CLI went straight past these functions to the aggregation
+ * with its own casts.
+ *
+ * The `Reporting` annotation is the check: it is what makes the four return types
+ * above a promise rather than an inference, so widening a total is a deliberate
+ * edit to the port instead of something that leaks out to a client.
+ */
+export function reporting(deps: Deps): Reporting {
+  return {
+    summary: (tenantId, range, opts) => summary(deps, tenantId, range, opts),
+    transactions: (tenantId, range) => transactions(deps, tenantId, range),
+    accounts: (tenantId) => accounts(deps, tenantId),
+    balances: (tenantId, range) => balances(deps, tenantId, range),
   };
 }

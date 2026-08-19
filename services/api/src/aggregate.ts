@@ -1,25 +1,31 @@
-import {
-  type CategoryTotal,
-  type MonthTotal,
-  type Summary,
-  type TransactionView,
-  type AccountView,
-} from "@tightarse/api-contract";
+import type {
+  AccountState,
+  CategorisedTransaction,
+  CategoryTotal,
+  MonthTotal,
+  Summary,
+} from "@tightarse/ports";
 import { assertSingleCurrency } from "@tightarse/schema";
 import { detectTransfers, type TransferOptions } from "./transfers.js";
 
 /**
- * The response shapes are defined in `@tightarse/api-contract`, not here.
+ * The result shapes come from `@tightarse/ports`, not from here and not from the
+ * wire contract.
  *
- * They used to be interfaces in this file, and the dashboard kept its own copy
- * of each — already drifted, and a rename would have compiled clean on both
- * sides and rendered `undefined`. See #22.
+ * They were interfaces in this file once, and the dashboard kept its own copy of
+ * each — already drifted, and a rename would have compiled clean on both sides
+ * and rendered `undefined` (#22). They then moved to `@tightarse/api-contract`,
+ * which fixed the drift and put a promise made to installed clients in the middle
+ * of the application's own vocabulary. They are domain shapes; how they are spelled
+ * on the wire is `wire.ts`'s problem.
  *
- * `LedgerRow` and `EnrichmentRow` stay below: they describe what comes back
- * from the ledger, which is an input to this file rather than anything promised
- * to a client.
+ * `LedgerRow` and `EnrichmentRow` stay below: they describe what comes back from
+ * the ledger, which is an input to this file rather than a result.
  */
-export type { CategoryTotal, MonthTotal, Summary, TransactionView, AccountView };
+export type { AccountState, CategorisedTransaction, CategoryTotal, MonthTotal, Summary };
+
+/** Mutable while accumulating. See `summarise`. */
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 /**
  * Aggregation over ledger rows. Pure — no DynamoDB, no HTTP.
@@ -81,8 +87,12 @@ export function summarise(
       ? { pairs: [], keys: new Set<string>(), totalMoved: 0 }
       : detectTransfers(transactions, opts.transfers ?? {});
 
-  const categories = new Map<string, CategoryTotal>();
-  const months = new Map<string, MonthTotal>();
+  // Mutable while accumulating; the port's result types are readonly, which is a
+  // statement about what a caller may do with an answer rather than about how it
+  // is built. `-readonly` keeps the two from being separate declarations that can
+  // drift.
+  const categories = new Map<string, Mutable<CategoryTotal>>();
+  const months = new Map<string, Mutable<MonthTotal>>();
   let income = 0;
   let spend = 0;
 
@@ -137,7 +147,7 @@ export function summarise(
 export function mergeEnrichments(
   transactions: readonly LedgerRow[],
   enrichments: readonly EnrichmentRow[],
-): TransactionView[] {
+): CategorisedTransaction[] {
   const enriched = new Map(enrichments.map((e) => [e.dedupKey, e]));
   return [...transactions]
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
@@ -152,13 +162,13 @@ export function mergeEnrichments(
  * any use to a client and all three became a promise the moment they were
  * served.
  *
- * A projection rather than `AccountView.parse`, deliberately. A strict parse
+ * A projection rather than `AccountState.parse`, deliberately. A strict parse
  * would throw on one malformed row and fail the whole endpoint, and an account
  * missing from the list understates the household's position — a quieter wrong
  * answer than an error. The return type is what keeps this honest: adding a
  * required field to the contract fails this function's build.
  */
-export function toAccountView(row: Record<string, unknown>): AccountView {
+export function toAccountState(row: Record<string, unknown>): AccountState {
   const str = (key: string): string | undefined =>
     typeof row[key] === "string" ? (row[key] as string) : undefined;
   const num = (key: string): number | undefined =>

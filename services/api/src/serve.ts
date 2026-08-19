@@ -20,6 +20,7 @@
 import { createServer } from "node:http";
 import { DynamoStore } from "@tightarse/dynamodb";
 import { route, type ApiDeps } from "./handler.js";
+import { reporting } from "./use-cases.js";
 
 const PORT = Number(process.env["PORT"] ?? 8787);
 const HOST = "127.0.0.1";
@@ -51,11 +52,17 @@ async function logged<T>(what: string, run: () => Promise<T>): Promise<T> {
   }
 }
 
+// The logging wrapper sits on the driven port, where the calls it reports
+// actually happen, and the routing depends on the inbound port exactly as the
+// Lambda does. This server drifted from the deployed handler once already (#28);
+// sharing the port is what stops it happening again.
 const deps: ApiDeps = {
-  ledger: {
-    listRange: (tenant, range) => logged("listRange", () => ledger.listRange(tenant, range)),
-    listAccounts: (tenant) => logged("listAccounts", () => ledger.listAccounts(tenant)),
-  },
+  reporting: reporting({
+    ledger: {
+      listRange: (tenant, range) => logged("listRange", () => ledger.listRange(tenant, range)),
+      listAccounts: (tenant) => logged("listAccounts", () => ledger.listAccounts(tenant)),
+    },
+  }),
 };
 
 const server = createServer((req, res) => {

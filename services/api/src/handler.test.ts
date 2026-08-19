@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { handler, ledgerConfig, route, realDeps, type ApiDeps } from "./handler.js";
+import { reporting } from "./use-cases.js";
+import type { Reporting } from "@tightarse/ports";
 
 /**
  * The routing was unreachable until the ledger client became an argument: it
@@ -10,7 +12,10 @@ import { handler, ledgerConfig, route, realDeps, type ApiDeps } from "./handler.
 
 const listRange = vi.fn();
 const listAccounts = vi.fn();
-const deps: ApiDeps = { ledger: { listRange, listAccounts } };
+// Bound through the inbound port, over a fake ledger. These tests assert on real
+// aggregated output, so they keep driving the whole application — see the routing
+// tests at the end for the ones that no longer need a ledger at all.
+const deps: ApiDeps = { reporting: reporting({ ledger: { listRange, listAccounts } }) };
 
 const event = (over: Record<string, unknown> = {}) => ({
   rawPath: "/summary",
@@ -193,9 +198,20 @@ describe("what a failure tells the caller", () => {
 });
 
 describe("building the real dependencies", () => {
-  it("constructs a ledger client rather than returning a placeholder", () => {
+  it("binds the use cases to a real store rather than returning a placeholder", () => {
     // Only the entry point may run a constructor, so nothing else covers it.
-    expect(realDeps().ledger).toHaveProperty("listRange");
+    // It now yields the inbound port, not the store: the routing depends on what
+    // the application offers, and the store is an implementation detail resolved
+    // here and nowhere else.
+    const app = realDeps().reporting;
+    expect(app).toEqual(
+      expect.objectContaining({
+        summary: expect.any(Function),
+        transactions: expect.any(Function),
+        accounts: expect.any(Function),
+        balances: expect.any(Function),
+      }),
+    );
   });
 });
 
@@ -349,5 +365,78 @@ describe("what /accounts says about coverage", () => {
     // Absent, not false: there is no earliest balance to test. Same rule as
     // isCard in #29.
     expect(body.accounts[0].historyComplete).toBeUndefined();
+  });
+});
+
+describe("routing, against the application rather than through it", () => {
+  /**
+   * What the inbound port bought.
+   *
+   * Every test above fakes `LedgerReads` and lets the aggregation run, so a
+   * routing assertion depends on transfer detection, coverage and currency
+   * checking all behaving. These fake `Reporting` instead: four functions, no
+   * rows, no aggregation. A break here is a routing break.
+   */
+  const called: string[] = [];
+  const fake: Reporting = {
+    summary: async () => {
+      called.push("summary");
+      return { currency: "GBP", from: "2026-01-01", to: "2026-01-31", transactionCount: 0, income: 0, spend: 0, net: 0, byCategory: [], byMonth: [], internalTransfersNetted: true, transferCount: 0, transferTotal: 0, enrichedCount: 0 };
+    },
+    transactions: async (_t, range) => {
+      called.push("transactions");
+      return { range, transactions: [] };
+    },
+    accounts: async () => {
+      called.push("accounts");
+      return { accounts: [] };
+    },
+    balances: async (_t, range) => {
+      called.push("balances");
+      return { range, points: [] };
+    },
+  };
+  const only: ApiDeps = { reporting: fake };
+
+  beforeEach(() => {
+    called.length = 0;
+  });
+
+  it.each([
+    ["/summary", "summary"],
+    ["/transactions", "transactions"],
+    ["/accounts", "accounts"],
+    ["/balances", "balances"],
+  ])("dispatches %s to exactly one use case", async (path, expected) => {
+    const res = await route(only, event({ rawPath: `/v1${path}` }));
+    expect(res.statusCode).toBe(200);
+    expect(called).toEqual([expected]);
+  });
+
+  it("passes the resolved household through, never anything from the request", async () => {
+    // The tenant rule is the whole access-control model. Here it is checked
+    // directly, rather than inferred from which rows came back.
+    let seen: string | undefined;
+    await route(
+      { reporting: { ...fake, accounts: async (t) => { seen = t; return { accounts: [] }; } } },
+      event({ rawPath: "/v1/accounts", queryStringParameters: { tenantId: "someone-else" } }),
+    );
+    expect(seen).toBe("frost");
+  });
+
+  it("still 404s a path no use case serves", async () => {
+    const res = await route(only, event({ rawPath: "/v1/nope" }));
+    expect(res.statusCode).toBe(404);
+    expect(called).toEqual([]);
+  });
+
+  it("turns a use-case failure into a 500 that says nothing about the cause", async () => {
+    // A thrown error can carry key material and table structure.
+    const boom: ApiDeps = {
+      reporting: { ...fake, summary: async () => { throw new Error("table tightarse-prod scan denied"); } },
+    };
+    const res = await route(boom, event({ rawPath: "/v1/summary" }));
+    expect(res.statusCode).toBe(500);
+    expect(res.body).not.toContain("tightarse-prod");
   });
 });

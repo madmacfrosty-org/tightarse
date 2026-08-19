@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { summarise, mergeEnrichments, toAccountView, type LedgerRow, type EnrichmentRow } from "./aggregate.js";
+import { summarise, mergeEnrichments, toAccountState, type LedgerRow, type EnrichmentRow } from "./aggregate.js";
 
 /**
  * Overrides for a test-data builder.
@@ -139,7 +139,7 @@ describe("projecting a stored account for a client", () => {
   };
 
   it("keeps every field the contract publishes and nothing else", () => {
-    expect(toAccountView(full)).toEqual({
+    expect(toAccountState(full)).toEqual({
       accountId: "acc-1",
       displayName: "Current",
       institutionName: "First Direct",
@@ -156,13 +156,13 @@ describe("projecting a stored account for a client", () => {
     // putBalances creates a row with balances and no identity, so every one of
     // these is genuinely absent in production. A default here would be a client
     // reading a made-up institution name, or worse a made-up isCard.
-    expect(toAccountView({ accountId: "acc-2" })).toEqual({ accountId: "acc-2" });
+    expect(toAccountState({ accountId: "acc-2" })).toEqual({ accountId: "acc-2" });
   });
 
   it("ignores a field of the wrong type instead of passing it through", () => {
     // The row is Record<string, unknown> straight from DynamoDB. A number where
     // a name belongs should not reach a generated client that expects a string.
-    expect(toAccountView({ accountId: "acc-3", displayName: 42, currentBalance: "lots" })).toEqual({
+    expect(toAccountState({ accountId: "acc-3", displayName: 42, currentBalance: "lots" })).toEqual({
       accountId: "acc-3",
     });
   });
@@ -170,6 +170,6 @@ describe("projecting a stored account for a client", () => {
   it("survives a row with no accountId rather than throwing", () => {
     // Would mean a corrupt row. Failing the whole endpoint hides every other
     // account, and a missing account understates the household's position.
-    expect(toAccountView({}).accountId).toBe("");
+    expect(toAccountState({}).accountId).toBe("");
   });
 });
