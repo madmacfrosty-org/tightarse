@@ -1,715 +1,85 @@
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import {
-  DynamoDBDocumentClient,
-  BatchWriteCommand,
-  PutCommand,
-  GetCommand,
-  QueryCommand,
-  UpdateCommand,
-  DeleteCommand,
-  ScanCommand,
-  TransactWriteCommand,
-  type QueryCommandInput,
-} from "@aws-sdk/lib-dynamodb";
-import {
-  keys,
-  RowKind,
-  type Account,
-  type Consent,
-  type Transaction,
-  type TransactionEnrichment,
-  type TenantSettings,
-  type CustomRule,
-  type Member,
-  type BalanceReading,
-  type RuleSet,
-  type Categorisation,
-} from "@tightarse/schema";
+/**
+ * Every port at once, for composition roots that need several.
+ *
+ * A facade over seven adapters rather than one class of thirty methods. It exists
+ * because a Lambda handler often needs two or three ports and constructing each
+ * separately would build a client each time. It is not what application code
+ * should depend on — depend on the ports.
+ *
+ * Delegation rather than inheritance, so each adapter satisfies exactly one port
+ * and is testable and mutation-testable on its own. A single class spanning four
+ * concerns was neither.
+ */
+
 import type {
   Accounts,
   Balances,
   Categorisations,
-  DateRange,
   Enrichments,
   Household,
   RuleSets,
   Transactions,
 } from "@tightarse/ports";
-import {
-  accountItem,
-  categorisationItems,
-  consentItem,
-  enrichmentItem,
-  pendingItem,
-  ruleSetItems,
-  transactionItem,
-} from "./items";
+import { DynamoAccounts } from "./accounts.js";
+import { DynamoBalances } from "./balances.js";
+import { DynamoCategorisations } from "./categorisations.js";
+import { DynamoEnrichments } from "./enrichments.js";
+import { DynamoHousehold } from "./household.js";
+import { DynamoRuleSets } from "./rulesets.js";
+import { DynamoTransactions } from "./transactions.js";
+import type { TableOptions } from "./table.js";
 
-const BATCH_SIZE = 25; // DynamoDB's BatchWriteItem limit
-const PENDING_TTL_SECONDS = 7 * 24 * 60 * 60;
+export type DynamoStoreOptions = TableOptions;
 
-export interface DynamoStoreOptions {
-  readonly tableName: string;
-  /** Supply for tests against DynamoDB Local, or to reuse a warm client. */
-  readonly client?: DynamoDBDocumentClient;
-  readonly region?: string;
-  readonly endpoint?: string;
-}
-
-/**
- * The DynamoDB adapter.
- *
- * `implements` is the point of this refactor rather than decoration: the ports
- * are declared by the side that needs them, and the compiler now checks that
- * this satisfies each one. Previously every consumer wrote
- * `Pick<Ledger, "listRange">` — a view onto whatever this class happened to
- * have, which nothing could fail to satisfy.
- *
- * It is not called Ledger. A ledger is the household's book of record, which is
- * a domain idea; this is a way of storing one.
- */
 export class DynamoStore
   implements Transactions, Enrichments, Categorisations, Accounts, Balances, RuleSets, Household
 {
-  private readonly doc: DynamoDBDocumentClient;
-  private readonly table: string;
+  private readonly transactions: DynamoTransactions;
+  private readonly enrichments: DynamoEnrichments;
+  private readonly categorisations: DynamoCategorisations;
+  private readonly accounts: DynamoAccounts;
+  private readonly balances: DynamoBalances;
+  private readonly rulesets: DynamoRuleSets;
+  private readonly household: DynamoHousehold;
 
   constructor(opts: DynamoStoreOptions) {
-    this.table = opts.tableName;
-    this.doc =
-      opts.client ??
-      DynamoDBDocumentClient.from(
-        new DynamoDBClient({
-          ...(opts.region ? { region: opts.region } : {}),
-          ...(opts.endpoint ? { endpoint: opts.endpoint } : {}),
-        }),
-        // Optional schema fields are simply absent rather than null, so an
-        // undefined merchantName does not become an attribute.
-        { marshallOptions: { removeUndefinedValues: true } },
-      );
+    this.transactions = new DynamoTransactions(opts);
+    this.enrichments = new DynamoEnrichments({ ...opts, transactions: this.transactions });
+    this.categorisations = new DynamoCategorisations(opts);
+    this.accounts = new DynamoAccounts(opts);
+    this.balances = new DynamoBalances(opts);
+    this.rulesets = new DynamoRuleSets(opts);
+    this.household = new DynamoHousehold(opts);
   }
 
-  // -------------------------------------------------------------- writes
-
-  /**
-   * Upsert settled transactions.
-   *
-   * No read-before-write. A settled booking date is stable and the sort key
-   * embeds the dedup key, so a plain put is idempotent — replaying the entire
-   * raw landing zone converges on the same rows rather than duplicating them.
-   */
-  async putTransactions(
-    txns: readonly Transaction[],
-    opts: { sourceObject?: string } = {},
-  ): Promise<{ written: number }> {
-    const items = txns.map((t) =>
-      transactionItem(t, opts.sourceObject ? { sourceObject: opts.sourceObject } : {}),
-    );
-    await this.batchWrite(items.map((Item) => ({ PutRequest: { Item } })));
-    return { written: items.length };
-  }
-
-  /**
-   * Store an enrichment.
-   *
-   * A plain put on a deterministic key, so re-running the categoriser over the
-   * same transaction converges rather than duplicating. Nothing on the
-   * transaction row is touched — the ledger stays deterministic and agents only
-   * ever add rows beside it.
-   *
-   * The condition guards against enriching a transaction that is not there,
-   * which would leave a row describing nothing.
-   */
-  async putEnrichment(e: TransactionEnrichment): Promise<void> {
-    const txnKey = keys.transaction(e.tenantId, e.timestamp, e.dedupKey);
-    await this.doc.send(
-      new TransactWriteCommand({
-        TransactItems: [
-          { Put: { TableName: this.table, Item: enrichmentItem(e) } },
-          {
-            ConditionCheck: {
-              TableName: this.table,
-              Key: txnKey,
-              ConditionExpression: "attribute_exists(pk)",
-            },
-          },
-        ],
-      }),
-    );
-  }
-
-  /**
-   * Replace the pending set for one account.
-   *
-   * Delete-and-replace rather than merge: pending transactions change amount,
-   * change id on settlement, and disappear without notice. Treating them as a
-   * cache is the only honest model.
-   */
-  async replacePending(
-    tenantId: string,
-    accountId: string,
-    pending: readonly Transaction[],
-  ): Promise<{ deleted: number; written: number }> {
-    const existing = await this.listPending(tenantId, accountId);
-    const deletes = existing.map((row) => ({
-      DeleteRequest: { Key: { pk: row["pk"], sk: row["sk"] } },
-    }));
-    await this.batchWrite(deletes);
-
-    const items = pending.map((t) => pendingItem(t, { ttlSeconds: PENDING_TTL_SECONDS }));
-    await this.batchWrite(items.map((Item) => ({ PutRequest: { Item } })));
-    return { deleted: deletes.length, written: items.length };
-  }
-
-  /**
-   * Upsert an account, MERGING rather than replacing.
-   *
-   * A plain put loses data depending on processing order. Account details and
-   * balances arrive on different endpoints, so a later `/accounts` list object
-   * would overwrite a balance written moments earlier by `/balance` — which is
-   * exactly what happened to the card, whose dataset name sorts after its
-   * balance. Regular accounts survived only by the accident of `balance`
-   * sorting last, and under S3 events, where order is arbitrary, they would be
-   * just as exposed.
-   *
-   * Balances are therefore only written when supplied, and never cleared.
-   */
-  async putAccount(a: Account, balances: { current?: number; available?: number } = {}): Promise<void> {
-    const item = accountItem(a, balances);
-    const { pk, sk, ...attributes } = item as Record<string, unknown> & { pk: string; sk: string };
-
-    const names: Record<string, string> = {};
-    const values: Record<string, unknown> = {};
-    const sets: string[] = [];
-    let i = 0;
-    for (const [key, value] of Object.entries(attributes)) {
-      if (value === undefined) continue;
-      const n = `#n${i}`;
-      const v = `:v${i}`;
-      names[n] = key;
-      values[v] = value;
-      sets.push(`${n} = ${v}`);
-      i += 1;
-    }
-
-    await this.doc.send(
-      new UpdateCommand({
-        TableName: this.table,
-        Key: { pk, sk },
-        UpdateExpression: `SET ${sets.join(", ")}`,
-        ExpressionAttributeNames: names,
-        ExpressionAttributeValues: values,
-      }),
-    );
-  }
-
-  async putSettings(s: TenantSettings): Promise<void> {
-    const { pk, sk } = keys.settings(s.tenantId);
-    await this.doc.send(
-      new PutCommand({ TableName: this.table, Item: { pk, sk, kind: "SETTINGS", ...s } }),
-    );
-  }
-
-  /**
-   * Household settings, or null if never set.
-   *
-   * Callers must decide their own default rather than getting one here — an
-   * implicit default for how data is processed is exactly the kind of thing
-   * that should be a visible decision at the call site.
-   */
-  async getSettings(tenantId: string): Promise<TenantSettings | null> {
-    const rows = await this.queryByPrefix(tenantId, "SETTINGS");
-    return (rows[0] as TenantSettings | undefined) ?? null;
-  }
-
-  /**
-   * Write balances only, touching nothing else on the account row.
-   *
-   * Balances arrive on their own endpoint, so a row may not exist yet. The
-   * previous approach upserted a whole minimal Account here — and its
-   * placeholder values then overwrote real details fetched moments earlier,
-   * which is why every current account read "institutionName: unknown".
-   */
-  async putBalances(
-    tenantId: string,
-    accountId: string,
-    balances: { current?: number; available?: number; currency?: string; isCard?: boolean },
-  ): Promise<void> {
-    const { pk, sk } = keys.account(tenantId, accountId);
-    const sets: string[] = ["#kind = :kind", "#tenantId = :tenantId", "#accountId = :accountId"];
-    const names: Record<string, string> = {
-      "#kind": "kind",
-      "#tenantId": "tenantId",
-      "#accountId": "accountId",
-    };
-    const values: Record<string, unknown> = {
-      ":kind": "ACCOUNT",
-      ":tenantId": tenantId,
-      ":accountId": accountId,
-    };
-    const maybe = (key: string, value: unknown) => {
-      if (value === undefined) return;
-      names[`#${key}`] = key;
-      values[`:${key}`] = value;
-      sets.push(`#${key} = :${key}`);
-    };
-    maybe("currentBalance", balances.current);
-    maybe("availableBalance", balances.available);
-    maybe("currency", balances.currency);
-    // Written here as well as on the accounts path, because it is the one field
-    // whose absence makes a balance unreadable: it says whether the figure is
-    // money held or money owed (#29). It is not a placeholder — the caller
-    // derives it from which endpoint returned the data, exactly as the accounts
-    // path does, so a row created here carries a real answer rather than a
-    // guess that later has to be overwritten.
-    maybe("isCard", balances.isCard);
-
-    await this.doc.send(
-      new UpdateCommand({
-        TableName: this.table,
-        Key: { pk, sk },
-        UpdateExpression: `SET ${sets.join(", ")}`,
-        ExpressionAttributeNames: names,
-        ExpressionAttributeValues: values,
-      }),
-    );
-  }
-
-  /**
-   * A household's own categorisation rules.
-   *
-   * One row holding the list: there are tens of these, not thousands, and the
-   * categoriser wants all of them on every run. A row each would turn one Get
-   * into a Query for no benefit.
-   */
-  async getCustomRules(tenantId: string): Promise<CustomRule[]> {
-    const res = await this.doc.send(
-      new GetCommand({ TableName: this.table, Key: keys.customRules(tenantId) }),
-    );
-    return ((res.Item as { rules?: CustomRule[] } | undefined)?.rules ?? []) as CustomRule[];
-  }
-
-  async putCustomRules(tenantId: string, rules: readonly CustomRule[]): Promise<void> {
-    const { pk, sk } = keys.customRules(tenantId);
-    await this.doc.send(
-      new PutCommand({
-        TableName: this.table,
-        Item: { pk, sk, kind: "RULES", tenantId, rules, updatedAt: new Date().toISOString() },
-      }),
-    );
-  }
-
-  /** Grant a person access to a household. Administrative action only. */
-  async putMember(m: Member): Promise<void> {
-    const { pk, sk } = keys.member(m.email);
-    await this.doc.send(
-      new PutCommand({ TableName: this.table, Item: { pk, sk, kind: "MEMBER", ...m, email: m.email.trim().toLowerCase() } }),
-    );
-  }
-
-  /**
-   * Which household this email belongs to, or null.
-   *
-   * Null is the safe answer and must stay that way: a caller that invented a
-   * default here would hand an unknown identity access to somebody's ledger.
-   */
-  /**
-   * Everyone with access to any household.
-   *
-   * A Scan, deliberately. Member rows sit in their own partitions keyed by
-   * email — that is what makes the sign-in lookup a single Get on the hot path
-   * — so there is no partition to query them by. An index to serve an
-   * administrative command run a handful of times would cost storage on every
-   * write forever. Scanning a table this size, for this, is the cheaper trade.
-   */
-  async listMembers(): Promise<Array<{ email: string; tenantId: string; addedAt?: string }>> {
-    const found: Array<{ email: string; tenantId: string; addedAt?: string }> = [];
-    let last: Record<string, unknown> | undefined;
-    do {
-      const res = await this.doc.send(
-        new ScanCommand({
-          TableName: this.table,
-          FilterExpression: "#kind = :kind",
-          ExpressionAttributeNames: { "#kind": "kind" },
-          ExpressionAttributeValues: { ":kind": "MEMBER" },
-          ...(last ? { ExclusiveStartKey: last } : {}),
-        }),
-      );
-      for (const item of res.Items ?? []) {
-        found.push(item as { email: string; tenantId: string; addedAt?: string });
-      }
-      last = res.LastEvaluatedKey;
-    } while (last);
-    return found.sort((a, b) => a.email.localeCompare(b.email));
-  }
-
-  /**
-   * Revoke a person's access.
-   *
-   * Their claim is baked into any token already issued, so this takes effect
-   * when that token expires rather than immediately. Access that cannot be
-   * removed at all is the worse problem, but do not mistake this for a kill
-   * switch.
-   */
-  async deleteMember(email: string): Promise<void> {
-    await this.doc.send(new DeleteCommand({ TableName: this.table, Key: keys.member(email) }));
-  }
-
-  async getMemberTenant(email: string): Promise<string | null> {
-    const res = await this.doc.send(
-      new GetCommand({ TableName: this.table, Key: keys.member(email) }),
-    );
-    const tenantId = (res.Item as { tenantId?: string } | undefined)?.tenantId;
-    return tenantId ?? null;
-  }
-
-  async putConsent(c: Consent): Promise<void> {
-    await this.doc.send(new PutCommand({ TableName: this.table, Item: consentItem(c) }));
-  }
-
-  /**
-   * Delete every enrichment in a range produced by one source.
-   *
-   * This is what the `producedBy` provenance is for: a bad rule version or a
-   * superseded model can be invalidated wholesale, and the affected
-   * transactions return to the backlog automatically because the backlog is
-   * derived from the absence of an enrichment.
-   */
-  async deleteEnrichments(
-    tenantId: string,
-    range: DateRange,
-    producedBy: string,
-  ): Promise<{ deleted: number }> {
-    const { enrichments } = await this.listRange(tenantId, range);
-    const doomed = enrichments.filter((e) => e["producedBy"] === producedBy);
-    await this.batchWrite(
-      doomed.map((e) => ({ DeleteRequest: { Key: { pk: e["pk"], sk: e["sk"] } } })),
-    );
-    return { deleted: doomed.length };
-  }
-
-  // --------------------------------------------------------------- reads
-
-  /**
-   * Transactions and their enrichments for a date range, in one query.
-   *
-   * This is the dashboard's primary read. The row kind sits after the timestamp
-   * in the sort key precisely so a single `between` spans both — an earlier
-   * month-partitioned design needed one query per month and could not return
-   * enrichments alongside without a second pass.
-   */
-  async listRange(
-    tenantId: string,
-    range: DateRange,
-  ): Promise<{
-    transactions: Record<string, unknown>[];
-    enrichments: Record<string, unknown>[];
-    categorisations: Record<string, unknown>[];
-  }> {
-    const rows = await this.queryAll({
-      TableName: this.table,
-      KeyConditionExpression: "pk = :pk AND sk BETWEEN :from AND :to",
-      ExpressionAttributeValues: {
-        ":pk": keys.transaction(tenantId, range.from, "").pk,
-        ":from": range.from,
-        // "￿" sorts above any character the sort key can contain, making
-        // the upper bound exclusive of `to` itself but inclusive of everything
-        // stamped within the preceding instant.
-        ":to": `${range.to}￿`,
-      },
-    });
-
-    return {
-      transactions: rows.filter((r) => r["kind"] === RowKind.transaction),
-      enrichments: rows.filter((r) => r["kind"] === RowKind.enrichment),
-      // Free: categorisations sort into the same partition between the same
-      // bounds, so a batch of transactions arrives with its categorisations
-      // already attached. This is what makes batch processing one read.
-      categorisations: rows.filter((r) => r["kind"] === RowKind.categorisation),
-    };
-  }
-
-  /**
-   * Record a transaction's categorisation from one set: the version and the
-   * current pointer, atomically.
-   *
-   * Same reasoning as rule sets — the current row is a copy, and a partial write
-   * would leave the two disagreeing about what is in force.
-   */
-  async putCategorisation(tenantId: string, c: Categorisation): Promise<void> {
-    const { current, version } = categorisationItems(tenantId, c);
-    await this.doc.send(
-      new TransactWriteCommand({
-        TransactItems: [
-          { Put: { TableName: this.table, Item: current } },
-          {
-            Put: {
-              TableName: this.table,
-              Item: version,
-              ConditionExpression: "attribute_not_exists(pk)",
-            },
-          },
-        ],
-      }),
-    );
-  }
-
-  /**
-   * Every version of a transaction's categorisations, oldest first per set.
-   *
-   * Its own partition, so this never enlarges the batch read. Fetched only when
-   * somebody asks why a category changed — which is a detail view, not something
-   * a list carries.
-   */
-  async listCategorisationHistory(tenantId: string, dedupKey: string): Promise<Record<string, unknown>[]> {
-    return this.queryAll({
-      TableName: this.table,
-      KeyConditionExpression: "pk = :pk",
-      ExpressionAttributeValues: { ":pk": keys.categorisationVersion(tenantId, dedupKey, "", 0).pk },
-    });
-  }
-
-  /** Per-account history, via gsi1. */
-  async listAccountRange(
-    tenantId: string,
-    accountId: string,
-    range: DateRange,
-  ): Promise<Record<string, unknown>[]> {
-    return this.queryAll({
-      TableName: this.table,
-      IndexName: "gsi1-account",
-      KeyConditionExpression: "gsi1pk = :pk AND gsi1sk BETWEEN :from AND :to",
-      ExpressionAttributeValues: {
-        ":pk": keys.accountIndex(tenantId, accountId, range.from, "").gsi1pk,
-        ":from": range.from,
-        ":to": `${range.to}￿`,
-      },
-    });
-  }
-
-  /**
-   * Transactions in a range with no enrichment yet — the categoriser's backlog.
-   *
-   * Derived rather than indexed. A sparse index needed a marker on the
-   * transaction row, and a plain put replaces the whole row, so replaying a raw
-   * object re-queued work that was already done. Since replay is the point of
-   * the landing zone, that failure was routine rather than exotic.
-   *
-   * The range query already returns both kinds, so the diff is free beyond the
-   * rows themselves.
-   */
-  async listToEnrich(
-    tenantId: string,
-    range: DateRange,
-    limit?: number,
-  ): Promise<Record<string, unknown>[]> {
-    const { transactions, enrichments } = await this.listRange(tenantId, range);
-    const enriched = new Set(enrichments.map((e) => String(e["dedupKey"])));
-    const outstanding = transactions.filter((t) => !enriched.has(String(t["dedupKey"])));
-    return limit === undefined ? outstanding : outstanding.slice(0, limit);
-  }
-
-  /**
-   * Record one balance reading, keeping every previous one.
-   *
-   * A plain put keyed by fetch time, so re-transforming the same raw object
-   * converges rather than duplicating — the same property the rest of the
-   * transform relies on, and what lets a replay rebuild the whole series.
-   */
-  async putBalanceReading(reading: BalanceReading): Promise<void> {
-    const { pk, sk } = keys.balanceReading(reading.tenantId, reading.accountId, reading.asOf, reading.fetchedAt);
-    await this.doc.send(
-      new PutCommand({ TableName: this.table, Item: { pk, sk, kind: "BALANCE", ...reading } }),
-    );
-  }
-
-  /**
-   * Flag a reading whose arithmetic did not work, and by how much.
-   *
-   * The number is kept and marked rather than hidden or corrected. A synthetic
-   * transaction that makes the sum come out right is a healthy-looking figure
-   * over missing data; a marked one says what it is.
-   */
-  async markBalanceReadingDirty(
-    tenantId: string,
-    accountId: string,
-    asOf: string,
-    fetchedAt: string,
-    discrepancy: number,
-  ): Promise<void> {
-    const { pk, sk } = keys.balanceReading(tenantId, accountId, asOf, fetchedAt);
-    await this.doc.send(
-      new UpdateCommand({
-        TableName: this.table,
-        Key: { pk, sk },
-        UpdateExpression: "SET #dirty = :dirty, #discrepancy = :discrepancy",
-        ExpressionAttributeNames: { "#dirty": "dirty", "#discrepancy": "discrepancy" },
-        ExpressionAttributeValues: { ":dirty": true, ":discrepancy": discrepancy },
-        // Only touch a reading that exists. Creating one here would invent a
-        // balance out of a failed check.
-        ConditionExpression: "attribute_exists(pk)",
-      }),
-    );
-  }
-
-  /**
-   * Clear a mark on a reading that now reconciles.
-   *
-   * The reconciliation recomputes from scratch every run, so a break explained
-   * by a late transaction has to be able to stop being one. Without this, marks
-   * would only ever accumulate.
-   */
-  async clearBalanceReadingDirty(
-    tenantId: string,
-    accountId: string,
-    asOf: string,
-    fetchedAt: string,
-  ): Promise<void> {
-    const { pk, sk } = keys.balanceReading(tenantId, accountId, asOf, fetchedAt);
-    await this.doc.send(
-      new UpdateCommand({
-        TableName: this.table,
-        Key: { pk, sk },
-        UpdateExpression: "REMOVE #dirty, #discrepancy",
-        ExpressionAttributeNames: { "#dirty": "dirty", "#discrepancy": "discrepancy" },
-        ConditionExpression: "attribute_exists(pk)",
-      }),
-    );
-  }
-
-  /** Every balance reading for an account, ordered by when the balance was true. */
-  async listBalanceReadings(tenantId: string, accountId: string): Promise<Record<string, unknown>[]> {
-    return this.queryAll({
-      TableName: this.table,
-      KeyConditionExpression: "pk = :pk",
-      ExpressionAttributeValues: { ":pk": keys.balanceReading(tenantId, accountId, "", "").pk },
-    });
-  }
-
-  async listPending(tenantId: string, accountId: string): Promise<Record<string, unknown>[]> {
-    return this.queryAll({
-      TableName: this.table,
-      KeyConditionExpression: "pk = :pk",
-      ExpressionAttributeValues: {
-        ":pk": keys.pending(tenantId, accountId, "", "").pk,
-      },
-    });
-  }
-
-  async listAccounts(tenantId: string): Promise<Record<string, unknown>[]> {
-    return this.queryByPrefix(tenantId, "ACCOUNT#");
-  }
-
-  async listConsents(tenantId: string): Promise<Record<string, unknown>[]> {
-    return this.queryByPrefix(tenantId, "CONSENT#");
-  }
-
-  /**
-   * The current version of every rule set, and nothing else.
-   *
-   * The prefix is deliberately disjoint from where versions live, so this — the
-   * read every fold run makes — never grows as history accumulates.
-   *
-   * The caller orders by `order`; precedence is data, not the order rows arrive.
-   */
-  async listRuleSets(tenantId: string): Promise<Record<string, unknown>[]> {
-    return this.queryByPrefix(tenantId, "RULESET#");
-  }
-
-  /**
-   * Every version of one rule set, oldest first.
-   *
-   * Kept rather than pruned: a categorisation records the set version that
-   * produced it, so "what did this rule say when it fired?" needs the version it
-   * names to still exist.
-   */
-  async listRuleSetHistory(tenantId: string, setId: string): Promise<Record<string, unknown>[]> {
-    return this.queryAll({
-      TableName: this.table,
-      KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
-      ExpressionAttributeValues: {
-        ":pk": keys.ruleSetVersion(tenantId, setId, 0).pk,
-        ":sk": `${setId}#`,
-      },
-    });
-  }
-
-  /**
-   * Publish a rule set version: the immutable record and the current pointer,
-   * written together.
-   *
-   * One transaction, because the current row is a copy. If only one landed they
-   * would disagree about what the current version is, and every skip decision
-   * downstream reads the copy — so a fold run would silently use the wrong rules
-   * and write categorisations attributing them to a version that says something
-   * else.
-   */
-  async putRuleSetVersion(tenantId: string, set: RuleSet): Promise<void> {
-    const { current, version } = ruleSetItems(tenantId, set);
-    await this.doc.send(
-      new TransactWriteCommand({
-        TransactItems: [
-          { Put: { TableName: this.table, Item: current } },
-          {
-            Put: {
-              TableName: this.table,
-              Item: version,
-              // A published version is immutable. Rewriting one would change
-              // what a categorisation's provenance means after the fact.
-              ConditionExpression: "attribute_not_exists(pk)",
-            },
-          },
-        ],
-      }),
-    );
-  }
-
-  // ------------------------------------------------------------ internals
-
-  private async queryByPrefix(tenantId: string, prefix: string): Promise<Record<string, unknown>[]> {
-    return this.queryAll({
-      TableName: this.table,
-      KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
-      ExpressionAttributeValues: { ":pk": `T#${tenantId}`, ":sk": prefix },
-    });
-  }
-
-  /** Query every page. Callers deal in complete result sets at this volume. */
-  private async queryAll(input: QueryCommandInput): Promise<Record<string, unknown>[]> {
-    const out: Record<string, unknown>[] = [];
-    let start: Record<string, unknown> | undefined;
-    do {
-      const res = await this.doc.send(
-        new QueryCommand({ ...input, ...(start ? { ExclusiveStartKey: start } : {}) }),
-      );
-      out.push(...((res.Items ?? []) as Record<string, unknown>[]));
-      start = res.LastEvaluatedKey as Record<string, unknown> | undefined;
-    } while (start);
-    return out;
-  }
-
-  /**
-   * Batch write with retry.
-   *
-   * BatchWriteItem can return UnprocessedItems on throttling without failing,
-   * so ignoring the response silently drops rows — the kind of data loss that
-   * shows up months later as a missing transaction.
-   */
-  private async batchWrite(requests: readonly Record<string, unknown>[]): Promise<void> {
-    for (let i = 0; i < requests.length; i += BATCH_SIZE) {
-      let batch = requests.slice(i, i + BATCH_SIZE);
-      for (let attempt = 0; batch.length > 0; attempt += 1) {
-        if (attempt > 8) {
-          throw new Error(`BatchWrite still had ${batch.length} unprocessed items after ${attempt} attempts`);
-        }
-        if (attempt > 0) {
-          await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * 50, 2000)));
-        }
-        const res = await this.doc.send(
-          new BatchWriteCommand({ RequestItems: { [this.table]: batch as never } }),
-        );
-        batch = (res.UnprocessedItems?.[this.table] ?? []) as typeof batch;
-      }
-    }
-  }
+  readonly listRange: Transactions["listRange"] = (...a) => this.transactions.listRange(...a);
+  readonly listAccountRange: Transactions["listAccountRange"] = (...a) => this.transactions.listAccountRange(...a);
+  readonly putTransactions: Transactions["putTransactions"] = (...a) => this.transactions.putTransactions(...a);
+  readonly listPending: Transactions["listPending"] = (...a) => this.transactions.listPending(...a);
+  readonly replacePending: Transactions["replacePending"] = (...a) => this.transactions.replacePending(...a);
+  readonly listToEnrich: Enrichments["listToEnrich"] = (...a) => this.enrichments.listToEnrich(...a);
+  readonly putEnrichment: Enrichments["putEnrichment"] = (...a) => this.enrichments.putEnrichment(...a);
+  readonly deleteEnrichments: Enrichments["deleteEnrichments"] = (...a) => this.enrichments.deleteEnrichments(...a);
+  readonly putCategorisation: Categorisations["putCategorisation"] = (...a) => this.categorisations.putCategorisation(...a);
+  readonly listCategorisationHistory: Categorisations["listCategorisationHistory"] = (...a) => this.categorisations.listCategorisationHistory(...a);
+  readonly listAccounts: Accounts["listAccounts"] = (...a) => this.accounts.listAccounts(...a);
+  readonly putAccount: Accounts["putAccount"] = (...a) => this.accounts.putAccount(...a);
+  readonly putBalances: Accounts["putBalances"] = (...a) => this.accounts.putBalances(...a);
+  readonly putBalanceReading: Balances["putBalanceReading"] = (...a) => this.balances.putBalanceReading(...a);
+  readonly listBalanceReadings: Balances["listBalanceReadings"] = (...a) => this.balances.listBalanceReadings(...a);
+  readonly markBalanceReadingDirty: Balances["markBalanceReadingDirty"] = (...a) => this.balances.markBalanceReadingDirty(...a);
+  readonly clearBalanceReadingDirty: Balances["clearBalanceReadingDirty"] = (...a) => this.balances.clearBalanceReadingDirty(...a);
+  readonly listRuleSets: RuleSets["listRuleSets"] = (...a) => this.rulesets.listRuleSets(...a);
+  readonly listRuleSetHistory: RuleSets["listRuleSetHistory"] = (...a) => this.rulesets.listRuleSetHistory(...a);
+  readonly putRuleSetVersion: RuleSets["putRuleSetVersion"] = (...a) => this.rulesets.putRuleSetVersion(...a);
+  readonly getCustomRules: RuleSets["getCustomRules"] = (...a) => this.rulesets.getCustomRules(...a);
+  readonly putCustomRules: RuleSets["putCustomRules"] = (...a) => this.rulesets.putCustomRules(...a);
+  readonly getMemberTenant: Household["getMemberTenant"] = (...a) => this.household.getMemberTenant(...a);
+  readonly putMember: Household["putMember"] = (...a) => this.household.putMember(...a);
+  readonly deleteMember: Household["deleteMember"] = (...a) => this.household.deleteMember(...a);
+  readonly listMembers: Household["listMembers"] = (...a) => this.household.listMembers(...a);
+  readonly getSettings: Household["getSettings"] = (...a) => this.household.getSettings(...a);
+  readonly putSettings: Household["putSettings"] = (...a) => this.household.putSettings(...a);
+  readonly listConsents: Household["listConsents"] = (...a) => this.household.listConsents(...a);
+  readonly putConsent: Household["putConsent"] = (...a) => this.household.putConsent(...a);
 }

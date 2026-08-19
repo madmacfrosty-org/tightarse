@@ -106,7 +106,9 @@ export interface Categorisations {
 
 export interface Accounts {
   listAccounts(tenantId: string): Promise<Row[]>;
-  putAccount(account: Account): Promise<void>;
+  /** Balances are optional: the accounts list carries none, and a later balance
+   *  fetch fills them in without disturbing the identity fields. */
+  putAccount(account: Account, balances?: { current?: number; available?: number }): Promise<void>;
   putBalances(
     tenantId: string,
     accountId: string,
@@ -281,7 +283,9 @@ export interface LedgerWrites {
     accountId: string,
     txns: readonly Transaction[],
   ): Promise<{ deleted: number; written: number }>;
-  putAccount(account: Account): Promise<void>;
+  /** Balances are optional: the accounts list carries none, and a later balance
+   *  fetch fills them in without disturbing the identity fields. */
+  putAccount(account: Account, balances?: { current?: number; available?: number }): Promise<void>;
   putBalances(
     tenantId: string,
     accountId: string,
