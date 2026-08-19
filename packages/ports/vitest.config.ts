@@ -17,7 +17,7 @@ export default defineConfig({
     passWithNoTests: true,
     coverage: {
       ...coverageBase,
-      thresholds: { lines: 0, functions: 0, branches: 0, statements: 0, autoUpdate },
+      thresholds: { lines: 100, functions: 100, branches: 100, statements: 100, autoUpdate },
     },
   },
 });

@@ -41,6 +41,7 @@ ledger can always be rebuilt; that property is worth protecting.
 npm run typecheck          # tsc --build; also produces the dist/ that bundling needs
 npm test                   # all workspaces; integration tests need DynamoDB Local
 npm run test:coverage      # the same, enforcing each package's coverage ratchet
+npm run coverage:pin       # raise the ratchet to what the suite now achieves, then commit it
 npm run test:mutation -w <pkg>   # slow; finds tests that run code without checking it
 npm run synth              # needs web/dist — run `npm run build -w @tightarse/web` first
 ```

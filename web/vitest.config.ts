@@ -40,10 +40,10 @@ export default defineConfig({
       //
       // Only `branches` moves; the other three are the same either way.
       thresholds: {
-        lines: 86.06,
-        functions: 62.5,
-        branches: 87.0,
-        statements: 86.06,
+        lines: 88.86,
+        functions: 69.81,
+        branches: 90.45,
+        statements: 88.86,
         autoUpdate,
       },
     },

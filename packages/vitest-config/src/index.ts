@@ -13,8 +13,25 @@
  * were wrong — see docs/conventions/testing.md.
  */
 
-/** Off in CI: a config that rewrites itself mid-run leaves a dirty tree. */
-export const autoUpdate = !process.env["CI"];
+/**
+ * Opt-in, via `npm run coverage:pin`.
+ *
+ * This used to be `!process.env["CI"]` — on for every local run — and the result
+ * was a ratchet that never ratcheted. Each run rewrote the thresholds in every
+ * workspace, including the ones the change never touched, so `npm run
+ * test:coverage` left a pile of modified config files indistinguishable from
+ * noise. They got discarded, every time. CI could not save it either: rewriting a
+ * config mid-run leaves a dirty tree and there is nothing there to commit to.
+ *
+ * Measured before changing it: six workspaces were sitting below what they
+ * already achieved, services/api by eleven points. The floors had never once been
+ * committed at their tightened value.
+ *
+ * So checking and tightening are now separate operations. `test:coverage` only
+ * ever checks and leaves the tree clean; `coverage:pin` moves the floors, and you
+ * commit that on purpose.
+ */
+export const autoUpdate = process.env["COVERAGE_PIN"] === "1";
 
 export const coverageBase = {
   provider: "v8" as const,

@@ -24,7 +24,8 @@
     "deploy": "npm run deploy -w infra",
     "prepare": "git config core.hooksPath .githooks",
     "test:coverage": "npm run test:coverage --workspaces --if-present",
-    "test:mutation": "npm run test:mutation --workspaces --if-present"
+    "test:mutation": "npm run test:mutation --workspaces --if-present",
+    "coverage:pin": "COVERAGE_PIN=1 npm run test:coverage --workspaces --if-present"
   },
   "devDependencies": {
     "@stryker-mutator/core": "^9.6.1",
