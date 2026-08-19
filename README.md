@@ -108,7 +108,7 @@ version:
 | Path | What |
 |---|---|
 | `infra/` | CDK app — the only thing that deploys |
-| `packages/schema/` | Zod schemas and key construction: single source of truth |
+| `packages/schema/` | Zod schemas: the shapes, and the single source of truth for them |
 | `packages/truelayer/` | Provider client, kept behind an interface |
 | `packages/ports/` | What the application asks of a store — interfaces, no implementation |
 | `packages/dynamodb/` | The DynamoDB adapter, plus the `access` admin command |

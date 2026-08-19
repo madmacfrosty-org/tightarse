@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import { dedupKey, type Transaction } from "@tightarse/schema";
+import {
+  dedupKey,
+  type Transaction,
+} from "@tightarse/schema";
 import { DynamoStore } from "./dynamo-store";
 import { resolveTestTarget } from "./test-table";
 

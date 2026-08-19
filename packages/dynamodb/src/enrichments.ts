@@ -15,8 +15,6 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import {
-  keys,
-  RowKind,
   type Account,
   type BalanceReading,
   type Categorisation,
@@ -28,6 +26,7 @@ import {
   type Transaction,
   type TransactionEnrichment,
 } from "@tightarse/schema";
+import { keys, RowKind } from "./keys.js";
 import type {
   Accounts,
   Balances,

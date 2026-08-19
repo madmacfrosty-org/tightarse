@@ -1,7 +1,5 @@
 import {
-  keys,
   dedupKey,
-  RowKind,
   type Account,
   type Consent,
   type Transaction,
@@ -9,6 +7,7 @@ import {
   type RuleSet,
   type Categorisation,
 } from "@tightarse/schema";
+import { keys, RowKind } from "./keys.js";
 
 /**
  * Item construction. Pure — no I/O, no SDK — so the shape of every row is

@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { RowKind, type Transaction, type TransactionEnrichment } from "@tightarse/schema";
+import {
+  type Transaction,
+  type TransactionEnrichment,
+} from "@tightarse/schema";
+import { RowKind } from "./keys.js";
 import { categorisationItems, ruleSetItems, transactionItem, enrichmentItem, pendingItem } from "./items";
 
 const txn = (over: Partial<Transaction> = {}): Transaction => ({
