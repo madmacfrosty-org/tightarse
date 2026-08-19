@@ -10,12 +10,11 @@
  * Runs after the sync and after the categoriser, so it sees a settled ledger.
  */
 
-import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import type { DynamoStore } from "@tightarse/dynamodb";
 import { emit } from "@tightarse/metrics";
 import { runReconciliation, type ReconcilePhaseDeps, type ReconcilePhaseResult } from "./reconcile-phase.js";
 import { rowKind, scanAll, type Row } from "./compare.js";
-import type { ReconciliationMarks } from "@tightarse/ports";
+import type { ReconciliationMarks, TableRows } from "@tightarse/ports";
 
 export interface ReconcileConfig {
   readonly tableName: string;
@@ -107,12 +106,12 @@ export function phaseDepsFrom(
  * point below is the only place that constructs real ones.
  */
 export async function reconcileFrom(
-  doc: DynamoDBDocumentClient,
+  tableRows: TableRows,
   ledger: ReconciliationMarks,
   config: ReconcileConfig,
   write?: (line: string) => void,
 ): Promise<ReconcilePhaseResult> {
-  const rows = await scanAll(doc, config.tableName);
+  const rows = [...(await scanAll(tableRows))];
   const result = await runReconciliation({
     ...phaseDepsFrom(rows, ledger, config.tenantId),
     ...(write ? { log: write } : {}),

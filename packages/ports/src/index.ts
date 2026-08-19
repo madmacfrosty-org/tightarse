@@ -135,6 +135,23 @@ export interface Balances {
 }
 
 /**
+ * Every row in the table.
+ *
+ * A deliberately blunt capability, and its own port so that bluntness is
+ * visible. Reconciliation and the replay comparison both need the whole ledger
+ * at once — grouping by account in memory is fewer calls than a query per
+ * account per kind at this size — but "read everything" is not something most
+ * components should be able to ask for.
+ *
+ * Read-only, and no filtering: a scan that could be narrowed would invite
+ * narrowing it, and a comparison against a fraction of the ledger reports a
+ * confident match.
+ */
+export interface TableRows {
+  scanAll(): Promise<ReadonlyArray<Readonly<Record<string, unknown>>>>;
+}
+
+/**
  * The raw landing zone.
  *
  * Every provider response is written here before anything derives from it, and

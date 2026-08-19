@@ -19,28 +19,19 @@
  * quietly stops meaning anything.
  */
 
-import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import { ScanCommand } from "@aws-sdk/lib-dynamodb";
+import type { TableRows } from "@tightarse/ports";
 
 export type Row = Readonly<Record<string, unknown>>;
 
 /**
- * Every row in a table, following pagination to the end.
+ * Every row, via the port.
  *
- * A scan returns up to 1MB at a time. Stopping at the first page would compare
- * a fraction of the ledger and report a confident match.
+ * The pagination that used to live here is the adapter's now — this only ever
+ * wanted the complete set, and a caller of a port should not have to know that
+ * a scan arrives 1MB at a time.
  */
-export async function scanAll(doc: DynamoDBDocumentClient, tableName: string): Promise<Row[]> {
-  const rows: Row[] = [];
-  let start: Record<string, unknown> | undefined;
-  do {
-    const res = await doc.send(
-      new ScanCommand({ TableName: tableName, ...(start ? { ExclusiveStartKey: start } : {}) }),
-    );
-    for (const item of res.Items ?? []) rows.push(item as Row);
-    start = res.LastEvaluatedKey;
-  } while (start);
-  return rows;
+export async function scanAll(rows: TableRows): Promise<readonly Row[]> {
+  return rows.scanAll();
 }
 
 /** What a row is, from its keys. Sort keys carry the kind; partition keys carry the shape. */

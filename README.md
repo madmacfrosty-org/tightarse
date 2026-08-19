@@ -110,7 +110,9 @@ version:
 | `infra/` | CDK app — the only thing that deploys |
 | `packages/schema/` | Zod schemas: the shapes, and the single source of truth for them |
 | `packages/truelayer/` | Provider client, kept behind an interface |
-| `packages/ports/` | What the application asks of a store — interfaces, no implementation |
+| `packages/ports/` | What the application asks of the outside — interfaces, no implementation |
+| `packages/categorisation/` | Categorisation domain: pure, no SDKs |
+| `packages/aws/` | S3, Secrets and SNS adapters, one class per port |
 | `packages/dynamodb/` | The DynamoDB adapter, plus the `access` admin command |
 | `packages/fixtures/` | Synthetic data generator — the only source of test data |
 | `services/ingest/` | Connect flow and the Step Functions sync |

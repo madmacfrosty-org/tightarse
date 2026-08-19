@@ -11,6 +11,7 @@ export { DynamoAccounts } from "./accounts";
 export { DynamoBalances } from "./balances";
 export { DynamoRuleSets } from "./rulesets";
 export { DynamoHousehold } from "./household";
+export { DynamoTableRows } from "./rows";
 export {
   transactionItem,
   enrichmentItem,

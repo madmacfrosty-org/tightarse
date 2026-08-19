@@ -17,6 +17,7 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { compareRows, formatReport, isMatch, scanAll } from "./compare.js";
+import { DynamoTableRows } from "@tightarse/dynamodb";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -40,7 +41,13 @@ async function main(): Promise<void> {
     }),
   );
 
-  const [left, right] = await Promise.all([scanAll(doc, leftTable), scanAll(doc, rightTable)]);
+  // One adapter per table. Comparing two tables is the one case that genuinely
+  // needs two, and binding the table name at construction is what stops a caller
+  // scanning the wrong one by passing the wrong string.
+  const [left, right] = await Promise.all([
+    scanAll(new DynamoTableRows({ tableName: leftTable, region, ...(endpoint ? { endpoint } : {}) })),
+    scanAll(new DynamoTableRows({ tableName: rightTable, region, ...(endpoint ? { endpoint } : {}) })),
+  ]);
   console.log(`left   ${leftTable}  ${left.length} rows`);
   console.log(`right  ${rightTable}  ${right.length} rows\n`);
 

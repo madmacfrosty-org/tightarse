@@ -9,7 +9,7 @@
  * out what the check actually says about five years of real data.
  */
 
-import { DynamoStore } from "@tightarse/dynamodb";
+import { DynamoTableRows, DynamoStore } from "@tightarse/dynamodb";
 import { emit } from "@tightarse/metrics";
 import { runReconciliation } from "./reconcile-phase.js";
 import { rowKind, scanAll, type Row } from "./compare.js";
@@ -42,7 +42,7 @@ async function main(): Promise<void> {
 
   // One scan, then everything is grouped in memory. This ledger is small enough
   // that a query per account per kind would be more calls for no benefit.
-  const rows: Row[] = await scanAll(doc, tableName);
+  const rows: Row[] = [...(await scanAll(new DynamoTableRows({ tableName, region, ...(endpoint ? { endpoint } : {}) })))];
   const byAccount = <T>(kind: string, pick: (r: Row) => T): Map<string, T[]> => {
     const out = new Map<string, T[]>();
     for (const r of rows) {

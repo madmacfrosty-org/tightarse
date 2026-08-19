@@ -143,29 +143,26 @@ describe("the report", () => {
     expect(text).toContain("description");
   });
 
+  it("names the row kinds it skipped rather than dropping them silently", () => {
+    // A replay cannot produce an enrichment — that comes from the categoriser,
+    // not from a raw provider object. Leaving them out of the report without
+    // saying so would make a reader think the comparison covered the whole table.
+    const enrichment = {
+      pk: "T#frost#TX",
+      sk: "2026-03-15T00:00:00Z#EN#n:1",
+      kind: "EN",
+      category: "Groceries",
+    };
+    const text = formatReport(compareRows([txn(), enrichment], [txn(), enrichment]));
+    expect(text).toContain("not produced by the transform");
+    expect(text).toContain("enrichment");
+  });
+
   it("truncates a long list rather than printing thousands of lines", () => {
     const many = Array.from({ length: 50 }, (_, i) => txn({ sk: `2026-03-15T00:00:00Z#TX#n:${i}` }));
     const changed = many.map((m) => ({ ...m, amount: 1 }));
     const text = formatReport(compareRows(many, changed));
     expect(text).toContain("and 40 more");
-  });
-});
-
-describe("reading a whole table", () => {
-  it("follows pagination rather than comparing only the first page", async () => {
-    // A scan returns up to 1MB at a time. Stopping at the first page would
-    // compare a fraction of the ledger and report a confident match.
-    const all = Array.from({ length: 250 }, (_, i) => ({ pk: "T#frost#TX", sk: `${i}` }));
-    let call = 0;
-    const doc = {
-      send: async () => {
-        const page = all.slice(call * 100, call * 100 + 100);
-        call += 1;
-        return { Items: page, ...(call * 100 < all.length ? { LastEvaluatedKey: { n: call } } : {}) };
-      },
-    };
-    
-    expect(await scanAll(doc as never, "Ledger")).toHaveLength(250);
   });
 });
 

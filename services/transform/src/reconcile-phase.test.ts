@@ -235,13 +235,15 @@ describe("the scheduled run, end to end against fakes", () => {
     { pk: "T#frost#BAL#acc-1", sk: "a", accountId: "acc-1", asOf: "2026-01-01T05:00:00.000Z", fetchedAt: "2026-01-01T05:00:00.000Z", balance: 100_00 },
     { pk: "T#frost#BAL#acc-1", sk: "b", accountId: "acc-1", asOf: "2026-01-03T05:00:00.000Z", fetchedAt: "2026-01-03T05:00:00.000Z", balance: 60_00 },
   ];
-  const doc = { send: async () => ({ Items: rows }) } as never;
+  // The port, not a command switchboard. Faking "read every row" is one
+  // function now, which is what a port sized by need buys.
+  const tableRows = { scanAll: async () => rows } as never;
   const ledger = { markBalanceReadingDirty: vi.fn(async () => {}), clearBalanceReadingDirty: vi.fn(async () => {}) };
   const config = { tableName: "Ledger", tenantId: "frost", region: "eu-west-1", environment: "prod" };
 
   it("reads the table, finds the break, and marks it", async () => {
     const lines: string[] = [];
-    const result = await reconcileFrom(doc, ledger, config, (l) => lines.push(l));
+    const result = await reconcileFrom(tableRows, ledger, config, (l) => lines.push(l));
     expect(result.breaks).toBe(1);
     expect(ledger.markBalanceReadingDirty).toHaveBeenCalledWith(
       "frost", "acc-1", "2026-01-03T05:00:00.000Z", "2026-01-03T05:00:00.000Z", -40_00,
@@ -252,7 +254,7 @@ describe("the scheduled run, end to end against fakes", () => {
     // #31: a metric emitted under "live" is invisible to an alarm watching
     // "dev", and the alarm then never fires for any reason.
     const lines: string[] = [];
-    await reconcileFrom(doc, ledger, config, (l) => lines.push(l));
+    await reconcileFrom(tableRows, ledger, config, (l) => lines.push(l));
     const doc0 = lines.map((l) => JSON.parse(l)).find((d) => "_aws" in d);
     expect(doc0["Environment"]).toBe("prod");
     expect(doc0["ReconciliationBreaksAccount"]).toBe(1);
@@ -260,7 +262,7 @@ describe("the scheduled run, end to end against fakes", () => {
 
   it("emits counts only, never a balance", async () => {
     const lines: string[] = [];
-    await reconcileFrom(doc, ledger, config, (l) => lines.push(l));
+    await reconcileFrom(tableRows, ledger, config, (l) => lines.push(l));
     expect(lines.join(" ")).not.toContain("10000");
     expect(lines.join(" ")).not.toContain("6000");
   });
@@ -276,7 +278,7 @@ describe("reporting with no writer supplied", () => {
       { pk: "T#frost#BAL#acc-1", sk: "b", accountId: "acc-1", asOf: "2026-01-03T05:00:00.000Z", fetchedAt: "2026-01-03T05:00:00.000Z", balance: 100 },
     ];
     const ledger = { markBalanceReadingDirty: async () => {}, clearBalanceReadingDirty: async () => {} };
-    const result = await reconcileFrom({ send: async () => ({ Items: rows }) } as never, ledger, {
+    const result = await reconcileFrom({ scanAll: async () => rows } as never, ledger, {
       tableName: "Ledger",
       tenantId: "frost",
       region: "eu-west-1",

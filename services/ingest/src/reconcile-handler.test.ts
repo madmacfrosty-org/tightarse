@@ -13,7 +13,7 @@ import { realDeps } from "./reconcile-handler.js";
 describe("building the real dependencies", () => {
   it("constructs both clients rather than returning placeholders", () => {
     const deps = realDeps();
-    expect(deps.doc).toBeDefined();
+    expect(deps.rows).toHaveProperty("scanAll");
     expect(deps.ledger).toHaveProperty("markBalanceReadingDirty");
   });
 
