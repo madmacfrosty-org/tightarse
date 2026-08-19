@@ -94,7 +94,8 @@ export function Connected({ api, onFinished }: { api: Api; onFinished: () => voi
       .catch((e: unknown) =>
         setState({ phase: "failed", message: e instanceof Error ? e.message : "Exchange failed" }),
       );
-  }, []);
+    // Same as App.tsx: `api` is the injected port, bound once in main.tsx.
+  }, [api]);
 
   return (
     <div className="page" style={{ maxWidth: 460 }}>

@@ -39,6 +39,7 @@ ledger can always be rebuilt; that property is worth protecting.
 
 ```sh
 npm run typecheck          # tsc --build; also produces the dist/ that bundling needs
+npm run lint               # the layer boundaries — seconds, no credentials, run it first
 npm test                   # all workspaces; integration tests need DynamoDB Local
 npm run test:coverage      # the same, enforcing each package's coverage ratchet
 npm run coverage:pin       # raise the ratchet to what the suite now achieves, then commit it

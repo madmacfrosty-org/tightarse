@@ -94,6 +94,50 @@ package is the single source of truth for CDK, the handlers, the agents and the
 web app — the whole point of going all-TypeScript was to have exactly one
 definition rather than a hand-maintained pair that drifts.
 
+## Layers
+
+Three kinds of workspace, and `npm run lint` fails the build on a crossing.
+
+**The domain model is `ports` and `schema`.** `schema` says what a thing is;
+`ports` says what may be done with it — both what the application requires
+outward (`LedgerReads`, `RawObjects`, `Secrets`) and what it offers inward
+(`Reporting`). `categorisation` and `truelayer` are domain logic over that
+vocabulary, and `metrics` is a pure formatter. No AWS SDK, no `aws-cdk-lib`, no
+`@tightarse/aws`, no `@tightarse/dynamodb`, and never an import of a service,
+agent or app. Dependencies point inward.
+
+**Tooling — `api-contract` and `fixtures` — is not the domain model, and the
+domain may not import it.** `api-contract` is the HTTP adapter's business: the
+wire spelling of a result, the URL that serves it, and the OpenAPI generated from
+both. It is a promise to clients already installed, and it changes for different
+reasons than the application's own vocabulary — a browser reloads, an iOS build
+on somebody's phone does not. The two meet in exactly one file,
+`services/api/src/wire.ts`, which is annotated on both sides so that a divergence
+fails the build rather than reaching a client. `fixtures` is test data; nothing it
+produces ships.
+
+**Driven adapters** — `packages/aws`, `packages/dynamodb`. Each implements a port
+and holds the SDK that does it. That is the job; the ban above does not apply.
+
+**Driving adapters** — everything in `services/`, `agents/`, `spike/`, plus
+`infra` and `web`. Things the outside world starts: a Lambda entry point, a CLI, a
+CDK app, a browser bundle. **None may import another.** They are siblings at the
+edge; shared code goes in a package. Tests are exempt, and one uses that
+deliberately: `services/api`'s sign regression drives real `mapTransaction` output
+through the API's own aggregation, because a fake would not have caught the
+inverted card sign.
+
+Every import must also appear in its own workspace's `package.json`, and code
+under `src/` may only use `dependencies` — not `devDependencies`, which are not
+in a Lambda bundle.
+
+None of this is enforced by npm or by TypeScript. Every SDK is hoisted to the root
+`node_modules` and every workspace is symlinked into `node_modules/@tightarse/`, so
+resolution finds anything from anywhere; project references order the build without
+restricting imports. `eslint.config.mjs` is the only gate, and its rules are tested
+against violating code in `packages/ports/src/architecture.test.ts` — a `files`
+glob matching nothing gives the same clean run as a clean codebase.
+
 ## The ledger is deterministic
 
 `services/ingest` is the only writer of `Transaction` items. Agents write

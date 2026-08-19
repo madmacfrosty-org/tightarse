@@ -37,6 +37,18 @@ jobs:
 
       - run: npm ci
 
+      # First, because it takes seconds and needs no credentials. Enforces the
+      # package boundaries: no AWS SDK in domain code, no driving adapter
+      # importing another, no import missing from its own manifest. Until this
+      # existed `npm run lint` delegated to workspace scripts that no workspace
+      # implemented, so it succeeded having run nothing — #40.
+      #
+      # The rules are themselves tested, in packages/ports/src/architecture.test.ts,
+      # because a `files` glob that matches nothing produces the same clean run as
+      # a codebase with no violations.
+      - name: Lint
+        run: npm run lint
+
       # Covers test files too, under three configs: the strict root one, infra's
       # relaxed CDK settings, and web's own. Test files are excluded from the
       # build, so until this existed nothing checked their types.

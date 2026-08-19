@@ -88,7 +88,11 @@ export function App({ session, api }: { session: Session; api: Api }) {
       .then(setIdentity)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Sign in failed"))
       .finally(() => setChecking(false));
-  }, []);
+    // `session` is the injected port, bound once as a module-level constant in
+    // main.tsx, so its identity never changes and this still runs exactly once on
+    // mount. Listed anyway: if a caller ever passed a different adapter, running
+    // against the new one is correct, and an empty array would silently keep the old.
+  }, [session]);
 
   useEffect(() => {
     if (!identity) return;

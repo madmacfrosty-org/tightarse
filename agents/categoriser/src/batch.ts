@@ -9,7 +9,6 @@
  * The model path stays in `run.ts`. It is an operator decision with a cost
  * attached, and it does not belong on a schedule.
  */
-import type { DynamoStore } from "@tightarse/dynamodb";
 
 /**
  * The ledger, narrowed to what this file actually calls.

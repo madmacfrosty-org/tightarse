@@ -19,7 +19,7 @@
     "build": "npm run build --workspaces --if-present",
     "typecheck": "tsc --build && tsc -p tsconfig.tests.json && tsc -p infra/tsconfig.tests.json && tsc -p web/tsconfig.json",
     "test": "npm run test --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present",
+    "lint": "eslint . --max-warnings 0",
     "synth": "npm run synth -w infra",
     "deploy": "npm run deploy -w infra",
     "prepare": "git config core.hooksPath .githooks",
@@ -33,6 +33,10 @@
     "@types/node": "^22.10.0",
     "@vitest/coverage-v8": "^2.1.9",
     "esbuild": "^0.24.0",
-    "typescript": "^5.7.0"
+    "eslint": "^9.39.5",
+    "eslint-plugin-import-x": "^4.17.1",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.67.0"
   }
 }
