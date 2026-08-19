@@ -2,4 +2,4 @@ export { transformObject, type TransformDeps, type TransformResult } from "./tra
 export * from "./map.js";
 export * from "./reconcile.js";
 export * from "./reconcile-phase.js";
-export * from "./reconcile-handler.js";
+export * from "./reconcile-job.js";

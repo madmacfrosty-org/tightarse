@@ -14,8 +14,6 @@
  * the raw zone cannot account for — both worth knowing.
  */
 
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { compareRows, formatReport, isMatch, scanAll } from "./compare.js";
 import { DynamoTableRows } from "@tightarse/dynamodb";
 
@@ -33,13 +31,6 @@ async function main(): Promise<void> {
   const rightTable = requireEnv("RIGHT");
   const region = process.env["AWS_REGION"] ?? "eu-west-1";
   const endpoint = process.env["LEDGER_TEST_ENDPOINT"];
-
-  const doc = DynamoDBDocumentClient.from(
-    new DynamoDBClient({
-      region,
-      ...(endpoint ? { endpoint, credentials: { accessKeyId: "local", secretAccessKey: "local" } } : {}),
-    }),
-  );
 
   // One adapter per table. Comparing two tables is the one case that genuinely
   // needs two, and binding the table name at construction is what stops a caller

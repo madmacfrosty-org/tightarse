@@ -42,7 +42,6 @@
  * still succeeds and merely leaves a stale set.
  */
 
-import { DynamoStore } from "@tightarse/dynamodb";
 import { transformObject } from "./transform.js";
 import type { LedgerWrites, RawObjects } from "@tightarse/ports";
 

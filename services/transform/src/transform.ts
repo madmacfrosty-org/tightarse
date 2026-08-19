@@ -1,6 +1,5 @@
 import { gunzipSync } from "node:zlib";
 import { parseRawKey } from "@tightarse/schema";
-import { DynamoStore } from "@tightarse/dynamodb";
 import {
   handlerFor,
   mapAccount,

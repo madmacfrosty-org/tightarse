@@ -9,16 +9,23 @@ export default defineConfig({
     coverage: {
       ...coverageBase,
       thresholds: {
-              // Lowered by 0.03-0.04 when the S3 handling moved to @tightarse/aws.
-      // Nothing became less tested: the covered code left this package and is
-      // covered at 100% where it landed, so the same uncovered lines are now a
-      // fractionally larger share of a smaller denominator. This is the one case
-      // where lowering is honest, and it is worth the comment because the rule
-      // otherwise is that these only ever go up.
-      lines: 98.96,
-        functions: 97.61,
-        branches: 96.06,
-        statements: 98.96,
+        // Re-baselined when the two Lambda entry points moved between packages.
+        //
+        // NOT a relaxation of the standard, and worth the evidence because it looks
+        // exactly like one: transform-handler.ts and reconcile-handler.ts were
+        // diffed against their previous blobs and are byte-identical apart from an
+        // import path. No test was removed or weakened and no file's own coverage
+        // changed — the set of files in this package did, so a percentage over that
+        // set is measuring something different from what it measured before.
+        //
+        // The uncovered remainder is Lambda `handler` bodies, which construct real
+        // AWS clients and cannot run in a unit test; steps-handler.ts has sat at 0%
+        // for the same reason. To earn these numbers back, cover the remaining
+        // branch in transform.ts, which is uncovered on its merits.
+        lines: 98.18,
+        functions: 92,
+        branches: 97.23,
+        statements: 98.18,
         autoUpdate,
       },
     },

@@ -282,7 +282,7 @@ export class IngestStack extends cdk.Stack {
 
     const transform = new NodejsFunction(this, "Transform", {
       ...common,
-      entry: path.join(__dirname, "../../services/ingest/src/transform-handler.ts"),
+      entry: path.join(__dirname, "../../services/transform/src/transform-handler.ts"),
       handler: "handler",
       // 512 is the ceiling on a new AWS account until its Lambda quota is
       // raised. Ample here: the largest raw object is about 6MB decompressed.
@@ -371,7 +371,7 @@ export class IngestStack extends cdk.Stack {
     // events. Checking at write time would compare against whatever had landed.
     const reconcile = new NodejsFunction(this, "Reconcile", {
       ...common,
-      entry: path.join(__dirname, "../../services/ingest/src/reconcile-handler.ts"),
+      entry: path.join(__dirname, "../../services/transform/src/reconcile-handler.ts"),
       handler: "handler",
       memorySize: 512,
       // Scans the table and groups in memory. Small at this size, and a single

@@ -1,7 +1,7 @@
 import { DynamoStore } from "@tightarse/dynamodb";
 import { S3RawObjects } from "@tightarse/aws";
 import { emit } from "@tightarse/metrics";
-import { transformObject, type TransformResult } from "@tightarse/transform";
+import { transformObject, type TransformResult } from "./transform.js";
 
 /**
  * EventBridge handler: one raw object in, ledger rows out.

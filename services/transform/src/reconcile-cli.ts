@@ -13,8 +13,6 @@ import { DynamoTableRows, DynamoStore } from "@tightarse/dynamodb";
 import { emit } from "@tightarse/metrics";
 import { runReconciliation } from "./reconcile-phase.js";
 import { rowKind, scanAll, type Row } from "./compare.js";
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -33,13 +31,6 @@ async function main(): Promise<void> {
   const endpoint = process.env["LEDGER_TEST_ENDPOINT"];
 
   const ledger = new DynamoStore({ tableName, region, ...(endpoint ? { endpoint } : {}) });
-  const doc = DynamoDBDocumentClient.from(
-    new DynamoDBClient({
-      region,
-      ...(endpoint ? { endpoint, credentials: { accessKeyId: "local", secretAccessKey: "local" } } : {}),
-    }),
-  );
-
   // One scan, then everything is grouped in memory. This ledger is small enough
   // that a query per account per kind would be more calls for no benefit.
   const rows: Row[] = [...(await scanAll(new DynamoTableRows({ tableName, region, ...(endpoint ? { endpoint } : {}) })))];

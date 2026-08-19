@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { handlerConfig, keyFromEvent, processObject, realDeps, type TransformHandlerDeps } from "./transform-handler.js";
-import type { TransformResult } from "@tightarse/transform";
+import type { TransformResult } from "./transform.js";
 
 /**
  * What this handler reports about an object it just transformed.

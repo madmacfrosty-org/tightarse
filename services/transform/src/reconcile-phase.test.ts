@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { runReconciliation, type ReconcilePhaseDeps } from "./reconcile-phase";
-import { groupForReconciliation, phaseDepsFrom, reconcileConfig, reconcileFrom } from "./reconcile-handler";
+import { groupForReconciliation, phaseDepsFrom, reconcileConfig, reconcileFrom } from "./reconcile-job";
 import type { Movement, Reading } from "./reconcile";
 
 /**
