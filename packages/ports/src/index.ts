@@ -197,8 +197,27 @@ export interface RawObjects {
  */
 export interface Secrets {
   get(name: string): Promise<string | undefined>;
-  /** Create or overwrite. The distinction is the adapter's problem, not the caller's. */
-  set(name: string, value: string): Promise<void>;
+  /**
+   * Create or overwrite. The distinction is the adapter's problem, not the
+   * caller's — code storing a refreshed token does not know whether this
+   * connection has been stored before.
+   *
+   * `description` and `tags` exist because a connection secret is created once
+   * and then read by people looking at a console; an untagged, undescribed secret
+   * holding five years of history access is worse than an inconvenience.
+   */
+  set(
+    name: string,
+    value: string,
+    opts?: { description?: string; tags?: Record<string, string> },
+  ): Promise<void>;
+  /**
+   * Names under a prefix, following pagination.
+   *
+   * Names only. Returning values would mean fetching every secret to answer
+   * "which connections exist", and the caller decides which it actually needs.
+   */
+  list(prefix: string): Promise<string[]>;
 }
 
 /**

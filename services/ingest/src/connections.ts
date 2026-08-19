@@ -1,12 +1,5 @@
-import {
-  SecretsManagerClient,
-  CreateSecretCommand,
-  GetSecretValueCommand,
-  PutSecretValueCommand,
-  ListSecretsCommand,
-  DeleteSecretCommand,
-} from "@aws-sdk/client-secrets-manager";
 import type { TokenSet } from "@tightarse/truelayer";
+import type { Secrets } from "@tightarse/ports";
 
 /**
  * Where a household's bank connections live.
@@ -31,9 +24,17 @@ export interface Connection {
 }
 
 export class Connections {
+  /**
+   * Takes the `Secrets` port rather than a Secrets Manager client.
+   *
+   * A refresh token is the one secret whose loss costs five years of history that
+   * no retry recovers — the only way back is a fresh consent, and a fresh consent
+   * only offers 90 days. A class holding the whole SDK client could delete one;
+   * this can get, set and list, which is all it does.
+   */
   constructor(
     private readonly prefix: string,
-    private readonly client = new SecretsManagerClient({}),
+    private readonly secrets: Secrets,
   ) {}
 
   private name(tenantId: string, connectionId: string): string {
@@ -41,13 +42,13 @@ export class Connections {
   }
 
   async create(connection: Connection): Promise<void> {
-    await this.client.send(
-      new CreateSecretCommand({
-        Name: this.name(connection.tenantId, connection.connectionId),
-        SecretString: JSON.stringify(connection),
-        Description: `TrueLayer connection for ${connection.tenantId}`,
-        Tags: [{ Key: "tenant", Value: connection.tenantId }],
-      }),
+    await this.secrets.set(
+      this.name(connection.tenantId, connection.connectionId),
+      JSON.stringify(connection),
+      {
+        description: `TrueLayer connection for ${connection.tenantId}`,
+        tags: { tenant: connection.tenantId },
+      },
     );
   }
 
@@ -60,59 +61,30 @@ export class Connections {
    * quietly a few days later.
    */
   async update(connection: Connection): Promise<void> {
-    await this.client.send(
-      new PutSecretValueCommand({
-        SecretId: this.name(connection.tenantId, connection.connectionId),
-        SecretString: JSON.stringify(connection),
-      }),
+    await this.secrets.set(
+      this.name(connection.tenantId, connection.connectionId),
+      JSON.stringify(connection),
     );
   }
 
   async get(tenantId: string, connectionId: string): Promise<Connection | null> {
-    try {
-      const res = await this.client.send(
-        new GetSecretValueCommand({ SecretId: this.name(tenantId, connectionId) }),
-      );
-      return res.SecretString ? (JSON.parse(res.SecretString) as Connection) : null;
-    } catch {
-      return null;
-    }
+    const value = await this.secrets.get(this.name(tenantId, connectionId));
+    return value ? (JSON.parse(value) as Connection) : null;
   }
 
   /** Every connection for a household. */
   async list(tenantId: string): Promise<Connection[]> {
+    // The port pages for us and returns names only, so this fetches exactly the
+    // secrets it is going to parse.
+    const names = await this.secrets.list(`${this.prefix}/${tenantId}/`);
     const out: Connection[] = [];
-    let token: string | undefined;
-    do {
-      const res = await this.client.send(
-        new ListSecretsCommand({
-          Filters: [{ Key: "name", Values: [`${this.prefix}/${tenantId}/`] }],
-          ...(token ? { NextToken: token } : {}),
-        }),
-      );
-      for (const s of res.SecretList ?? []) {
-        if (!s.Name) continue;
-        const value = await this.client.send(new GetSecretValueCommand({ SecretId: s.Name }));
-        if (value.SecretString) out.push(JSON.parse(value.SecretString) as Connection);
-      }
-      token = res.NextToken;
-    } while (token);
+    for (const name of names) {
+      const value = await this.secrets.get(name);
+      if (value) out.push(JSON.parse(value) as Connection);
+    }
     return out;
   }
 
-  /**
-   * Remove a connection. Used for erasure and for revoking a superseded
-   * consent — leaving a stale one live at the bank for 90 days is the failure
-   * mode this exists to prevent.
-   */
-  async delete(tenantId: string, connectionId: string): Promise<void> {
-    await this.client.send(
-      new DeleteSecretCommand({
-        SecretId: this.name(tenantId, connectionId),
-        ForceDeleteWithoutRecovery: true,
-      }),
-    );
-  }
 }
 
 /**

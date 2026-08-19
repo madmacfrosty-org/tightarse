@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
-import { SFNClient, StartExecutionCommand } from "@aws-sdk/client-sfn";
 import { TrueLayerClient, LIVE, SANDBOX, TrueLayerError } from "@tightarse/truelayer";
 import { Connections, consentExpiry, type Connection } from "./connections.js";
+import { AwsSecrets, startExecution } from "@tightarse/aws";
 
 /**
  * The connect flow: turn a bank authorisation into a stored connection.
@@ -130,35 +129,26 @@ export interface ConnectEvent {
  * the TrueLayer client needs the application secret.
  */
 export async function realConnectDeps(): Promise<ConnectDeps> {
-  const sm = new SecretsManagerClient({});
-  const raw = await sm.send(
-    new GetSecretValueCommand({ SecretId: required("CLIENT_SECRET_ID") }),
-  );
-  const creds = JSON.parse(raw.SecretString ?? "{}") as { clientId: string; clientSecret: string };
+  const secrets = new AwsSecrets();
+  const stored = await secrets.get(required("CLIENT_SECRET_ID"));
+  const creds = JSON.parse(stored ?? "{}") as { clientId: string; clientSecret: string };
   const sandbox = process.env["TL_ENV"] === "sandbox";
   const machine = process.env["SYNC_STATE_MACHINE_ARN"];
 
   return {
     truelayer: new TrueLayerClient(creds, sandbox ? SANDBOX : LIVE),
-    connections: new Connections(required("CONNECTION_SECRET_PREFIX"), sm),
+    connections: new Connections(required("CONNECTION_SECRET_PREFIX"), secrets),
     redirectUri: required("CONNECT_REDIRECT_URI"),
     providers: process.env["TL_PROVIDERS"] ?? "uk-ob-all uk-oauth-all",
     clientId: creds.clientId,
     authBase: sandbox ? SANDBOX.auth : LIVE.auth,
     ...(machine
       ? {
-          startSync: async (connectionId: string) => {
-            await new SFNClient({}).send(
-              new StartExecutionCommand({
-                stateMachineArn: machine,
-                name: `connect-${connectionId}`.slice(0, 80),
-                // Only the connection just made. Its deep-history window is the
-                // one that shuts within the hour; the others are synced on
-                // schedule and have their own rate limits to protect.
-                input: JSON.stringify({ connectionId }),
-              }),
-            );
-          },
+          // Only the connection just made. Its deep-history window is the one
+          // that shuts within the hour; the others are synced on schedule and
+          // have their own rate limits to protect.
+          startSync: (connectionId: string) =>
+            startExecution(machine, `connect-${connectionId}`, { connectionId }),
         }
       : {}),
   };

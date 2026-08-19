@@ -1,7 +1,5 @@
 import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
-import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
-import { SNSClient, PublishCommand } from "@aws-sdk/client-sns";
 import {
   TrueLayerClient,
   TrueLayerError,
@@ -23,6 +21,8 @@ import { emit } from "@tightarse/metrics";
 import { Connections, daysUntilExpiry, type Connection } from "./connections.js";
 import type { RawObjects } from "@tightarse/ports";
 import { S3RawObjects } from "@tightarse/aws";
+import { AwsSecrets, SnsNotifications } from "@tightarse/aws";
+import type { Notifications } from "@tightarse/ports";
 
 /**
  * The sync, decomposed into steps a state machine can retry individually.
@@ -71,8 +71,15 @@ export interface StepDeps {
    * an undefined dimension matches no alarm at all.
    */
   readonly deploymentEnvironment: string;
-  readonly alertTopicArn?: string | undefined;
-  readonly sns?: SNSClient | undefined;
+  /**
+   * Where to send something a person has to act on. Absent means nowhere, which
+   * is a valid configuration and not a failure — a deployment without a topic
+   * still runs, it just does not alert.
+   *
+   * The topic ARN lives inside the adapter. The step decides that a problem is
+   * worth telling someone about; it has no business knowing the destination.
+   */
+  readonly notifications?: Notifications | undefined;
 }
 
 export function required(name: string): string {
@@ -109,20 +116,21 @@ export function stepEnvironments(env: NodeJS.ProcessEnv): {
  * client needs a secret, so this is async.
  */
 export async function realDeps(): Promise<StepDeps> {
-  const sm = new SecretsManagerClient({});
-  const raw = await sm.send(new GetSecretValueCommand({ SecretId: required("CLIENT_SECRET_ID") }));
-  const creds = JSON.parse(raw.SecretString ?? "{}") as { clientId: string; clientSecret: string };
+  const secrets = new AwsSecrets();
+  const stored = await secrets.get(required("CLIENT_SECRET_ID"));
+  const creds = JSON.parse(stored ?? "{}") as { clientId: string; clientSecret: string };
   const sandbox = process.env["TL_ENV"] === "sandbox";
 
   return {
     truelayer: new TrueLayerClient(creds, sandbox ? SANDBOX : LIVE),
-    connections: new Connections(required("CONNECTION_SECRET_PREFIX"), sm),
+    connections: new Connections(required("CONNECTION_SECRET_PREFIX"), secrets),
     raw: new S3RawObjects({ bucket: required("RAW_BUCKET") }),
     rawBucket: required("RAW_BUCKET"),
     tenantId: required("TENANT_ID"),
     ...stepEnvironments(process.env),
-    alertTopicArn: process.env["ALERT_TOPIC_ARN"],
-    sns: process.env["ALERT_TOPIC_ARN"] ? new SNSClient({}) : undefined,
+    ...(process.env["ALERT_TOPIC_ARN"]
+      ? { notifications: new SnsNotifications({ topicArn: process.env["ALERT_TOPIC_ARN"] }) }
+      : {}),
   };
 }
 
@@ -439,14 +447,8 @@ export async function recordOutcome(
     },
   });
 
-  if (problems.length > 0 && deps.alertTopicArn && deps.sns) {
-    await deps.sns.send(
-      new PublishCommand({
-        TopicArn: deps.alertTopicArn,
-        Subject: "Tightarse: attention needed",
-        Message: problems.join("\n"),
-      }),
-    );
+  if (problems.length > 0 && deps.notifications) {
+    await deps.notifications.publish("Tightarse: attention needed", problems.join("\n"));
   }
   return { problems };
 }

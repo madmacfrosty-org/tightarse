@@ -64,7 +64,6 @@ function fakes(
 
   const deps = {
     ...config,
-    alertTopicArn: "arn:aws:sns:eu-west-1:1:alerts",
     truelayer: {
       // The real client counts data calls; the fake reports what it recorded.
       get calls() {
@@ -99,7 +98,9 @@ function fakes(
       list: vi.fn(async () => [] as string[]),
 
     },
-    sns: { send: vi.fn(async (cmd: { input: { Message?: string } }) => published.push(cmd.input.Message ?? "")) },
+    // A Notifications, not an SNS client. The step decides something needs a
+    // person; the topic it lands on is the adapter's business.
+    notifications: { publish: async (_subject: string, message: string) => void published.push(message) },
   } as unknown as StepDeps;
 
   return { deps, gets, puts, updated, published };

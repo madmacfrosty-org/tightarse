@@ -18,13 +18,16 @@
       "path": "../../packages/truelayer"
     },
     {
-      "path": "../../packages/dynamodb"
+      "path": "../../packages/metrics"
+    },
+    {
+      "path": "../../packages/ports"
+    },
+    {
+      "path": "../../packages/aws"
     },
     {
       "path": "../transform"
-    },
-    {
-      "path": "../../packages/metrics"
     }
   ]
 }

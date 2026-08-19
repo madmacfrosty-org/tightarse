@@ -8,3 +8,4 @@
 export { S3RawObjects, type S3RawObjectsOptions } from "./raw-objects.js";
 export { AwsSecrets, type AwsSecretsOptions } from "./secrets.js";
 export { SnsNotifications, type SnsNotificationsOptions } from "./notifications.js";
+export { startExecution } from "./workflows.js";
