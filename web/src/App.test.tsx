@@ -1,6 +1,7 @@
 import { pathFor } from "@tightarse/api-contract";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { Identity } from "./ports";
 
 const identity = { email: "someone@example.com", tenant: "frost" };
 
@@ -61,13 +62,21 @@ const defaultApiGet = async (path: string): Promise<unknown> => {
 
 const apiGet = vi.fn(defaultApiGet);
 
-vi.mock("./auth", () => ({
-  apiGet: (p: string) => apiGet(p),
-  completeSignIn: vi.fn(async () => null),
-  currentIdentity: vi.fn(async () => identity),
-  signIn: vi.fn(),
-  signOut: vi.fn(),
-}));
+/**
+ * Ports supplied as objects, not a replaced module.
+ *
+ * `vi.mock("./auth")` substituted the wiring away, which is why neither this
+ * week's CORS failure nor the blank page from a CommonJS import was reachable by
+ * any test here.
+ */
+const session = {
+  signIn: vi.fn(async () => {}),
+  signOut: vi.fn(async () => {}),
+  current: vi.fn(async () => identity as Identity | null),
+  complete: vi.fn(async () => null as Identity | null),
+};
+const api = { get: <T,>(p: string) => apiGet(p) as Promise<T> };
+const ports = { session, api };
 
 beforeEach(() => {
   apiGet.mockReset();
@@ -93,7 +102,7 @@ describe("an account the sync has not finished describing", () => {
     // "Syncing · " and looking broken rather than incomplete.
     apiGet.mockImplementation(halfWritten);
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     expect(await screen.findByText(/Syncing · —/)).toBeDefined();
   });
 
@@ -104,7 +113,7 @@ describe("an account the sync has not finished describing", () => {
     // once for the debt not subtracted, once for cash that was never there.
     apiGet.mockImplementation(halfWritten);
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     await screen.findByText(/Syncing · —/);
     expect(screen.queryByText(/Account · —/)).toBeNull();
     expect(screen.queryByText(/Card · —/)).toBeNull();
@@ -115,7 +124,7 @@ describe("an account the sync has not finished describing", () => {
     // A plausible number that might be inverted is worse than no number.
     apiGet.mockImplementation(halfWritten);
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     await screen.findByText(/Syncing · —/);
     expect(screen.queryByText("£10.00")).toBeNull();
     expect(screen.queryByText("−£10.00")).toBeNull();
@@ -127,14 +136,14 @@ describe("an account the sync has not finished describing", () => {
     // the household's position.
     apiGet.mockImplementation(halfWritten);
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     expect(await screen.findByText(/still\s+syncing and not included/)).toBeDefined();
   });
 
   it("says nothing about syncing once every account is described", async () => {
     // The warning must be tied to the state, not permanent furniture.
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     await screen.findByText("−£6,376.02");
     expect(screen.queryByText(/still\s+syncing and not included/)).toBeNull();
   });
@@ -151,13 +160,13 @@ describe("net position", () => {
     // owed     181447 + 56790          =  238237
     // net     -399365 - 238237         = -637602
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     expect(await screen.findByText("−£6,376.02")).toBeDefined();
   });
 
   it("labels a card as a card and shows what is owed as a positive debt", async () => {
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     await screen.findByText("−£6,376.02");
     expect(screen.getAllByText(/Card · AMEX/).length).toBe(1);
     // Shown negative in the tile, because it reduces what the household has.
@@ -182,7 +191,7 @@ describe("requests", () => {
     // #27: an installed client keeps calling whatever shape it was built
     // against, so an unversioned path served once has to be supported for ever.
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     await screen.findAllByText(/9,764 transactions/);
 
     const paths = apiGet.mock.calls.map((c) => String(c[0]));
@@ -199,7 +208,7 @@ describe("requests", () => {
     // handler. A limit without a cursor truncates rather than paginates, so the
     // parameter goes rather than gaining a server-side meaning.
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     await screen.findAllByText(/9,764 transactions/);
 
     const txnCalls = apiGet.mock.calls.map((c) => String(c[0])).filter((p) => p.startsWith(pathFor("/transactions")));
@@ -216,7 +225,7 @@ describe("requests", () => {
 describe("balance over time", () => {
   it("draws the series the API returned", async () => {
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     expect(await screen.findByRole("img", { name: /Net position over time/ })).toBeDefined();
   });
 
@@ -225,7 +234,7 @@ describe("balance over time", () => {
     // is a fact about the data, not a caveat, and a reader should not have to
     // infer it from the axis.
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     expect(await screen.findByText("2000-01-01")).toBeDefined();
   });
 
@@ -238,14 +247,14 @@ describe("balance over time", () => {
       return { range: { from: "2030-01-01", to: "2030-02-01" }, points: [{ date: "2030-01-01", net: 1 }] };
     });
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     expect(await screen.findByText(/as far back as every account has data/)).toBeDefined();
   });
 
   it("says nothing about clamping when the full range came back", async () => {
     // Otherwise the caveat becomes permanent furniture and stops being read.
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     await screen.findByRole("img", { name: /Net position over time/ });
     expect(screen.queryByText(/as far back as every account has data/)).toBeNull();
   });
@@ -273,7 +282,7 @@ describe("the transaction list", () => {
       return { transactions: many };
     });
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
 
     expect(await screen.findByText("Showing 100 of 250.", { exact: false })).toBeDefined();
     expect(screen.queryByText("row 150")).toBeNull();
@@ -282,7 +291,7 @@ describe("the transaction list", () => {
 
   it("offers nothing more when everything is already shown", async () => {
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     await screen.findByRole("img", { name: /Net position over time/ });
     expect(screen.queryByRole("button", { name: /Show .* more/ })).toBeNull();
   });
@@ -291,7 +300,7 @@ describe("the transaction list", () => {
 describe("chrome", () => {
   it("shows the range the summary covers and the transaction count", async () => {
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     // Appears in more than one place, which is fine — assert it is present
     // rather than unique.
     expect((await screen.findAllByText(/9,764 transactions/)).length).toBeGreaterThan(0);
@@ -300,7 +309,7 @@ describe("chrome", () => {
   it("says how many internal transfers were netted out", async () => {
     // Without this the totals look wrong to anyone who knows what they moved.
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     await waitFor(() => expect(screen.getByText(/225/)).toBeDefined());
   });
 
@@ -310,7 +319,7 @@ describe("chrome", () => {
     // and the full history is over Lambda's 6MB response limit — so it failed
     // with a 500 after several seconds of loading.
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     await screen.findByText("−£6,376.02");
 
     const allTime = screen.getByRole("button", { name: "All time" });
@@ -337,14 +346,14 @@ describe("chrome", () => {
       return balances;
     });
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     await screen.findByText("−£6,376.02");
     expect((screen.getByRole("button", { name: "All time" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("offers the three ranges", async () => {
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     await screen.findByText("−£6,376.02");
     // "All time" rather than a fixed span: how far back a household total is
     // trustworthy is set by the shallowest account and widens a day at a time,
@@ -357,10 +366,11 @@ describe("chrome", () => {
 
 describe("when nobody is signed in", () => {
   it("offers sign-in rather than an empty dashboard", async () => {
-    const auth = await import("./auth");
-    vi.mocked(auth.currentIdentity).mockResolvedValueOnce(null);
+    // Nobody signed in: the port says so directly, rather than a module being
+    // reached into and re-mocked mid-test.
+    session.current.mockResolvedValueOnce(null);
     const { App } = await import("./App");
-    render(<App />);
+    render(<App {...ports} />);
     await waitFor(() => expect(screen.getByRole("button", { name: /sign in/i })).toBeDefined());
     expect(apiGet).not.toHaveBeenCalled();
   });

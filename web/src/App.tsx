@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiGet, completeSignIn, currentIdentity, signIn, signOut, type Identity } from "./auth";
+import type { Api, Identity, Session } from "./ports";
 import { ConnectBank, Connected } from "./Connect";
 import { BalanceLine, CategoryBars, MonthlyFlow, money } from "./charts";
 import { netPosition, rangeFor, tileBalance } from "./positions";
@@ -30,7 +30,7 @@ const RANGES = [
  */
 const PAGE = 100;
 
-function SignIn({ error }: { error: string | null }) {
+function SignIn({ error, onSignIn }: { error: string | null; onSignIn: () => void }) {
   return (
     <div className="page" style={{ maxWidth: 380 }}>
       <h1>Tightarse</h1>
@@ -39,7 +39,7 @@ function SignIn({ error }: { error: string | null }) {
         <p className="note">
           Your household ledger. Sign in with Google, or with an email and password.
         </p>
-        <button type="submit" onClick={() => void signIn()}>Continue to sign in</button>
+        <button type="submit" onClick={onSignIn}>Continue to sign in</button>
         {error ? <p className="error" style={{ padding: "12px 0 0", fontSize: 13 }}>{error}</p> : null}
       </div>
     </div>
@@ -59,7 +59,14 @@ function clamped(balances: BalancesResponse, days: number): boolean {
   return balances.range.from > asked.from;
 }
 
-export function App() {
+/**
+ * The dashboard.
+ *
+ * Takes its session and API rather than importing them, so a test supplies an
+ * object instead of replacing a module — and so the wiring that ships is the
+ * wiring a test exercises.
+ */
+export function App({ session, api }: { session: Session; api: Api }) {
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [checking, setChecking] = useState(true);
   const [days, setDays] = useState<number>(365);
@@ -76,8 +83,8 @@ export function App() {
 
   useEffect(() => {
     // Safe on every load: returns null when this is not a redirect back.
-    completeSignIn()
-      .then((fromRedirect) => fromRedirect ?? currentIdentity())
+    session.complete()
+      .then((fromRedirect) => fromRedirect ?? session.current())
       .then(setIdentity)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Sign in failed"))
       .finally(() => setChecking(false));
@@ -100,8 +107,8 @@ export function App() {
     setError(null);
     setShown(PAGE);
     Promise.all([
-      apiGet<Summary>(`${pathFor("/summary")}${q}`),
-      apiGet<{ accounts: AccountView[]; completeFrom?: string }>(pathFor("/accounts")),
+      api.get<Summary>(`${pathFor("/summary")}${q}`),
+      api.get<{ accounts: AccountView[]; completeFrom?: string }>(pathFor("/accounts")),
       // No `limit`: the API has never honoured one (#28), so asking for 60 and
       // rendering everything in range is what has always happened. A limit
       // without a cursor truncates rather than paginates — it hides rows with
@@ -109,8 +116,8 @@ export function App() {
       // gaining a server-side implementation. If a client ever needs less than
       // the full range on the wire, that is cursor-based pagination and a
       // contract change, not a bare parameter.
-      apiGet<{ transactions: TransactionView[] }>(`${pathFor("/transactions")}${q}`),
-      apiGet<BalancesResponse>(`${pathFor("/balances")}${q}`),
+      api.get<{ transactions: TransactionView[] }>(`${pathFor("/transactions")}${q}`),
+      api.get<BalancesResponse>(`${pathFor("/balances")}${q}`),
     ])
       .then(([s, a, t, b]) => {
         setSummary(s);
@@ -133,9 +140,9 @@ export function App() {
   // The provider redirects here after a bank authorisation. Checked before the
   // sign-in gate so a returning redirect is never mistaken for a fresh visit.
   if (identity && window.location.pathname === "/connected") {
-    return <Connected onFinished={() => window.location.assign("/")} />;
+    return <Connected api={api} onFinished={() => window.location.assign("/")} />;
   }
-  if (!identity) return <SignIn error={error} />;
+  if (!identity) return <SignIn error={error} onSignIn={() => void session.signIn()} />;
 
   if (error) return <div className="page error">{error}</div>;
   if (!summary) return <div className="page loading">Loading…</div>;
@@ -154,7 +161,7 @@ export function App() {
             {identity.email}
             {" · "}
             <button
-              onClick={() => void signOut()}
+              onClick={() => void session.signOut()}
               style={{ background: "none", border: "none", padding: 0, font: "inherit", color: "var(--in)", cursor: "pointer" }}
             >
               sign out
@@ -280,7 +287,7 @@ export function App() {
         <CategoryBars data={summary.byCategory} />
       </div>
 
-      <ConnectBank />
+      <ConnectBank api={api} />
 
       <div className="card">
         <h2>Recent transactions</h2>

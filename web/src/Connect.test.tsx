@@ -4,7 +4,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const apiGet = vi.fn();
-vi.mock("./auth", () => ({ apiGet: (p: string) => apiGet(p) }));
+// Supplied as an object, not a replaced module.
+const api = { get: <T,>(p: string) => apiGet(p) as Promise<T> };
 
 const assign = vi.fn();
 
@@ -23,7 +24,7 @@ describe("ConnectBank", () => {
     // The provider list is an allow-list on the server too; a button here for
     // something the API refuses is a dead end.
     const { ConnectBank } = await import("./Connect");
-    render(<ConnectBank />);
+    render(<ConnectBank api={api} />);
     for (const label of ["First Direct", "American Express", "Another bank…"]) {
       expect(screen.getByRole("button", { name: label })).toBeDefined();
     }
@@ -32,7 +33,7 @@ describe("ConnectBank", () => {
   it("sends the browser to the consent URL the API returns", async () => {
     apiGet.mockResolvedValue({ url: "https://auth.truelayer.com/?providers=ob-amex" });
     const { ConnectBank } = await import("./Connect");
-    render(<ConnectBank />);
+    render(<ConnectBank api={api} />);
     await userEvent.click(screen.getByRole("button", { name: "American Express" }));
 
     await waitFor(() => expect(assign).toHaveBeenCalledWith("https://auth.truelayer.com/?providers=ob-amex"));
@@ -44,7 +45,7 @@ describe("ConnectBank", () => {
     // one the user abandons.
     apiGet.mockReturnValue(new Promise(() => {}));
     const { ConnectBank } = await import("./Connect");
-    render(<ConnectBank />);
+    render(<ConnectBank api={api} />);
     await userEvent.click(screen.getByRole("button", { name: "First Direct" }));
 
     await waitFor(() =>
@@ -55,7 +56,7 @@ describe("ConnectBank", () => {
   it("reports a failure to start instead of silently doing nothing", async () => {
     apiGet.mockRejectedValue(new Error("No household on this identity"));
     const { ConnectBank } = await import("./Connect");
-    render(<ConnectBank />);
+    render(<ConnectBank api={api} />);
     await userEvent.click(screen.getByRole("button", { name: "First Direct" }));
     expect(await screen.findByText("No household on this identity")).toBeDefined();
   });
@@ -73,7 +74,7 @@ describe("Connected", () => {
     withSearch("?code=abc123");
     apiGet.mockResolvedValue({ connectionId: "conn-1", consentExpiresAt: "2026-11-10T00:00:00.000Z" });
     const { Connected } = await import("./Connect");
-    render(<Connected onFinished={() => {}} />);
+    render(<Connected api={api} onFinished={() => {}} />);
 
     expect(await screen.findByText("Connected")).toBeDefined();
     expect(screen.getByText("2026-11-10")).toBeDefined();
@@ -85,7 +86,7 @@ describe("Connected", () => {
     // which sends you back to the bank for no reason.
     withSearch("");
     const { Connected } = await import("./Connect");
-    render(<Connected onFinished={() => {}} />);
+    render(<Connected api={api} onFinished={() => {}} />);
     expect(await screen.findByText(/code was already used/)).toBeDefined();
     expect(apiGet).not.toHaveBeenCalled();
   });
@@ -93,7 +94,7 @@ describe("Connected", () => {
   it("surfaces the provider's own error text when it refuses", async () => {
     withSearch("?error=access_denied&error_description=You+cancelled+at+the+bank");
     const { Connected } = await import("./Connect");
-    render(<Connected onFinished={() => {}} />);
+    render(<Connected api={api} onFinished={() => {}} />);
     expect(await screen.findByText("You cancelled at the bank")).toBeDefined();
     expect(apiGet).not.toHaveBeenCalled();
   });
@@ -102,7 +103,7 @@ describe("Connected", () => {
     withSearch("?code=abc123");
     apiGet.mockRejectedValue(new Error("Provider rejected the code (400)"));
     const { Connected } = await import("./Connect");
-    render(<Connected onFinished={() => {}} />);
+    render(<Connected api={api} onFinished={() => {}} />);
     expect(await screen.findByText("Provider rejected the code (400)")).toBeDefined();
   });
 
@@ -111,7 +112,7 @@ describe("Connected", () => {
     apiGet.mockResolvedValue({ connectionId: "c", consentExpiresAt: "2026-11-10T00:00:00.000Z" });
     const onFinished = vi.fn();
     const { Connected } = await import("./Connect");
-    render(<Connected onFinished={onFinished} />);
+    render(<Connected api={api} onFinished={onFinished} />);
     await userEvent.click(await screen.findByRole("button", { name: /back to the dashboard/i }));
     expect(onFinished).toHaveBeenCalled();
   });

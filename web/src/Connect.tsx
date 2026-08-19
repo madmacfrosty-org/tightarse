@@ -1,6 +1,6 @@
 import { pathFor } from "@tightarse/api-contract";
 import { useEffect, useState } from "react";
-import { apiGet } from "./auth";
+import type { Api } from "./ports";
 
 /**
  * Connecting a bank.
@@ -19,14 +19,14 @@ const PROVIDERS = [
   { id: "uk-ob-all uk-oauth-all", label: "Another bank…" },
 ] as const;
 
-export function ConnectBank() {
+export function ConnectBank({ api }: { api: Api }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const start = (provider: string) => {
     setBusy(provider);
     setError(null);
-    apiGet<{ url: string }>(`${pathFor("/connect/start")}?provider=${encodeURIComponent(provider)}`)
+    api.get<{ url: string }>(`${pathFor("/connect/start")}?provider=${encodeURIComponent(provider)}`)
       .then(({ url }) => window.location.assign(url))
       .catch((e: unknown) => {
         setError(e instanceof Error ? e.message : "Could not start");
@@ -62,7 +62,7 @@ type State = { phase: "working" } | { phase: "done"; expires: string } | { phase
  * a state machine — so this reports that the connection was made, not that the
  * data has arrived.
  */
-export function Connected({ onFinished }: { onFinished: () => void }) {
+export function Connected({ api, onFinished }: { api: Api; onFinished: () => void }) {
   const [state, setState] = useState<State>({ phase: "working" });
 
   useEffect(() => {
@@ -87,7 +87,7 @@ export function Connected({ onFinished }: { onFinished: () => void }) {
     // a provider rejection that looks like a real failure.
     window.history.replaceState({}, "", window.location.pathname);
 
-    apiGet<{ connectionId: string; consentExpiresAt: string }>(
+    api.get<{ connectionId: string; consentExpiresAt: string }>(
       `${pathFor("/connect/callback")}?code=${encodeURIComponent(code)}`,
     )
       .then((r) => setState({ phase: "done", expires: r.consentExpiresAt.slice(0, 10) }))
