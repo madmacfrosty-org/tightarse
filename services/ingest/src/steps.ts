@@ -8,14 +8,13 @@ import {
   PER_ITEM_ENDPOINTS,
   RESOURCES,
   MAX_HISTORY_MONTHS,
-  syncWindow,
-  type SyncWindow,
   historyFrom,
   itemDataset,
   listDataset,
   transactionsDataset,
   type Resource,
 } from "@tightarse/truelayer";
+import { syncWindow, type SyncWindow } from "./sync-window.js";
 import { rawObjectKey } from "@tightarse/schema";
 import { emit } from "@tightarse/metrics";
 import { Connections, daysUntilExpiry, type Connection } from "./connections.js";

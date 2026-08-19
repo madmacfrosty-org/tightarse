@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { TrueLayerClient, TrueLayerError, historyFrom, MAX_HISTORY_MONTHS, SANDBOX , syncWindow } from "./index.js";
+import { TrueLayerClient, TrueLayerError, historyFrom, LIVE, MAX_HISTORY_MONTHS, SANDBOX } from "./index.js";
 
 const creds = { clientId: "id", clientSecret: "secret" };
 
@@ -9,6 +9,22 @@ const mockFetch = (status: number, body: unknown) =>
     status,
     json: async () => body,
   })));
+
+/** Records what was actually requested, so the URL and headers can be asserted. */
+function recordingFetch(status: number, body: unknown) {
+  const calls: Array<{
+    url: string;
+    init: { method?: string; headers?: Record<string, string>; body?: unknown } | undefined;
+  }> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: never) => {
+      calls.push({ url, init });
+      return { ok: status >= 200 && status < 300, status, json: async () => body };
+    }),
+  );
+  return calls;
+}
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -71,70 +87,6 @@ describe("history window", () => {
   });
 });
 
-describe("syncWindow", () => {
-  const connectedAt = "2026-08-13T09:00:00.000Z";
-  const at = (minutes: number) => new Date(Date.parse(connectedAt) + minutes * 60_000);
-  const days = (w: { from: string; to: string }) =>
-    (Date.parse(w.to) - Date.parse(w.from)) / 86_400_000;
-
-  it("asks for everything the bank will give inside the exemption window", () => {
-    // The only moment deep history is available, and it does not come back.
-    const w = syncWindow({ connectedAt }, at(10));
-    expect(w.deepHistory).toBe(true);
-    expect(days(w) / 365.25).toBeGreaterThan(4.9);
-  });
-
-  it("stops short of the documented hour", () => {
-    // Asking a minute late costs the whole run rather than degrading.
-    expect(syncWindow({ connectedAt }, at(44)).deepHistory).toBe(true);
-    expect(syncWindow({ connectedAt }, at(46)).deepHistory).toBe(false);
-  });
-
-  it("never asks for more than 88 days once the window has closed", () => {
-    // 90 is the provider's limit and it refuses the whole call rather than
-    // truncating. The first attempt at this asked for three calendar months —
-    // 13 May to 13 August, 92 days — and was denied for being two days greedy.
-    const w = syncWindow({ connectedAt }, at(60 * 24 * 400));
-    expect(days(w)).toBeLessThanOrEqual(88);
-  });
-
-  it("asks for the widest allowed window when nothing has ever synced", () => {
-    // A connection that has never worked has the most to catch up on.
-    const w = syncWindow({ connectedAt }, at(60 * 24 * 5));
-    expect(days(w)).toBe(88);
-  });
-
-  it("asks for ten days on a healthy daily sync", () => {
-    // A day would do, but pending rows settle over several days and card
-    // transactions arrive dated earlier than they appear. The floor buys about
-    // a week of overlap for nothing.
-    const now = at(60 * 24 * 30);
-    const w = syncWindow(
-      { connectedAt, lastSyncedAt: new Date(now.getTime() - 86_400_000).toISOString() },
-      now,
-    );
-    expect(days(w)).toBe(10);
-  });
-
-  it("widens to cover a gap, plus overlap", () => {
-    const now = at(60 * 24 * 60);
-    const w = syncWindow(
-      { connectedAt, lastSyncedAt: new Date(now.getTime() - 20 * 86_400_000).toISOString() },
-      now,
-    );
-    expect(days(w)).toBe(23);
-  });
-
-  it("clamps a very long gap to what the provider will answer", () => {
-    const now = at(60 * 24 * 400);
-    const w = syncWindow(
-      { connectedAt, lastSyncedAt: new Date(now.getTime() - 300 * 86_400_000).toISOString() },
-      now,
-    );
-    expect(days(w)).toBe(88);
-  });
-});
-
 describe("call counting", () => {
   const client = () =>
     new TrueLayerClient({ clientId: "id", clientSecret: "secret" }, SANDBOX);
@@ -168,5 +120,103 @@ describe("call counting", () => {
     const c = client();
     await c.refresh("refresh-token");
     expect(c.calls).toBe(0);
+  });
+});
+
+describe("the data request itself", () => {
+  it("addresses the configured environment, not a hardcoded host", async () => {
+    // LIVE and SANDBOX exist so a test run cannot reach real accounts. A client
+    // that ignored its environment would send sandbox traffic to production.
+    const calls = recordingFetch(200, { results: [] });
+    await new TrueLayerClient(creds, SANDBOX).get("token", "/data/v1/accounts");
+    expect(calls[0]!.url).toBe(`${SANDBOX.api}/data/v1/accounts`);
+    expect(SANDBOX.api).not.toBe(LIVE.api);
+  });
+
+  it("sends the access token as a bearer credential", async () => {
+    // Without this the call is anonymous and returns 401, which the step reads
+    // as a lapsed consent and reports to a human who has nothing to fix.
+    const calls = recordingFetch(200, { results: [] });
+    await new TrueLayerClient(creds, SANDBOX).get("the-token", "/data/v1/cards");
+    expect(calls[0]!.init?.headers).toMatchObject({ authorization: "Bearer the-token" });
+  });
+
+  it("returns the status alongside the body", async () => {
+    // The caller distinguishes 200 from 204 — an account with no transactions is
+    // not the same as one we failed to read.
+    mockFetch(200, { results: [1, 2] });
+    const res = await new TrueLayerClient(creds, SANDBOX).get("t", "/data/v1/accounts");
+    expect(res).toEqual({ status: 200, body: { results: [1, 2] } });
+  });
+
+  it("carries the provider's error code out of a failed call", async () => {
+    // `isNotApplicable` and `isConsentExpired` are decided from status and code.
+    // Losing the code turns a skippable endpoint into a failed sync.
+    mockFetch(403, { error: "endpoint_not_supported" });
+    await expect(new TrueLayerClient(creds, SANDBOX).get("t", "/data/v1/direct_debits")).rejects.toMatchObject({
+      status: 403,
+      code: "endpoint_not_supported",
+    });
+  });
+
+  it("still fails cleanly when the error body is not JSON", async () => {
+    // A gateway timeout returns HTML. Letting the parse throw would replace a
+    // 504 anyone can act on with a SyntaxError nobody can.
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: false,
+      status: 504,
+      json: async () => {
+        throw new SyntaxError("Unexpected token <");
+      },
+    })));
+    await expect(new TrueLayerClient(creds, SANDBOX).get("t", "/data/v1/accounts")).rejects.toBeInstanceOf(
+      TrueLayerError,
+    );
+  });
+
+  it("counts a failed call against the allowance, exactly as the provider does", async () => {
+    // Unattended access is four calls per account, endpoint and consent per 24
+    // hours. Counting only successes is how a retry loop spends the allowance
+    // and reports having used none.
+    mockFetch(500, { error: "internal" });
+    const client = new TrueLayerClient(creds, SANDBOX);
+    await expect(client.get("t", "/data/v1/accounts")).rejects.toThrow();
+    expect(client.calls).toBe(1);
+  });
+});
+
+describe("exchanging an authorisation code", () => {
+  it("posts the code and redirect against the auth host, form encoded", async () => {
+    // A mismatch between the redirect_uri here and the one the bank was given
+    // fails the exchange, and the consent is spent — deep history with it.
+    const calls = recordingFetch(200, { access_token: "a", refresh_token: "r", expires_in: 3600 });
+    await new TrueLayerClient(creds, SANDBOX).exchangeCode("the-code", "https://app/callback");
+    expect(calls[0]!.url).toBe(`${SANDBOX.auth}/connect/token`);
+    expect(calls[0]!.init?.method).toBe("POST");
+    const sent = new URLSearchParams(String(calls[0]!.init?.body));
+    expect(Object.fromEntries(sent)).toMatchObject({
+      grant_type: "authorization_code",
+      code: "the-code",
+      redirect_uri: "https://app/callback",
+      client_id: "id",
+    });
+  });
+
+  it("asks for a refresh, not an exchange, when refreshing", async () => {
+    const calls = recordingFetch(200, { access_token: "a", refresh_token: "r", expires_in: 3600 });
+    await new TrueLayerClient(creds, SANDBOX).refresh("old-token");
+    const sent = new URLSearchParams(String(calls[0]!.init?.body));
+    expect(Object.fromEntries(sent)).toMatchObject({
+      grant_type: "refresh_token",
+      refresh_token: "old-token",
+    });
+  });
+
+  it("defaults the expiry when the provider omits expires_in", async () => {
+    // An absent expiry read as 0 would make every stored token instantly stale
+    // and trigger a refresh on every single call.
+    mockFetch(200, { access_token: "a", refresh_token: "r" });
+    const t = await new TrueLayerClient(creds, SANDBOX).refresh("r");
+    expect(Date.parse(t.expiresAt)).toBeGreaterThan(Date.now() + 3_000_000);
   });
 });

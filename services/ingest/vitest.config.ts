@@ -22,10 +22,15 @@ export default defineConfig({
         // AWS clients and cannot run in a unit test; steps-handler.ts has sat at 0%
         // for the same reason. To earn these numbers back, cover connect.ts (71.8%)
         // and steps.ts (88.2%), which are uncovered on their merits.
-        lines: 80.84,
-        functions: 73.07,
-        branches: 89.62,
-        statements: 80.84,
+        //
+        // Since raised by the sync-window policy arriving from @tightarse/truelayer
+        // with its tests, at 100%. The two movements are one effect in opposite
+        // directions: a percentage over a changing set of files says nothing about
+        // whether anything got better tested.
+        lines: 81.71,
+        functions: 74.07,
+        branches: 90.09,
+        statements: 81.71,
         autoUpdate,
       },
     },

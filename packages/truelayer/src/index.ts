@@ -63,19 +63,6 @@ export const MAX_HISTORY_MONTHS = 60;
 export const UNATTENDED_HISTORY_DAYS = 88;
 
 /**
- * The narrowest routine window.
- *
- * A daily sync only needs the last day, but pending rows settle over several
- * days and card transactions frequently arrive dated earlier than they appear.
- * A window that starts exactly where the last one ended loses those for ever,
- * so the floor buys about a week of overlap for nothing.
- */
-export const MIN_SYNC_DAYS = 10;
-
-/** Added to a measured gap, for the same late-arrival reason. */
-export const SYNC_OVERLAP_DAYS = 3;
-
-/**
  * How long the deep-history exemption lasts after consent.
  *
  * Documented as about an hour. Treated as slightly less, because asking for
@@ -83,47 +70,6 @@ export const SYNC_OVERLAP_DAYS = 3;
  * degrading to ninety days.
  */
 export const DEEP_HISTORY_WINDOW_MINUTES = 45;
-
-const DAY_MS = 86_400_000;
-
-export interface SyncWindow {
-  /** Inclusive start, YYYY-MM-DD. */
-  from: string;
-  /** Inclusive end, YYYY-MM-DD. */
-  to: string;
-  /** True while the SCA exemption still allows the full history. */
-  deepHistory: boolean;
-}
-
-/**
- * The date range to request for one connection.
- *
- * Inside the exemption window, everything the bank will give — this is the only
- * moment it is available and it does not come back. After that, enough to cover
- * the gap since the last SUCCESSFUL sync, plus overlap, bounded at both ends.
- *
- * `lastSyncedAt` absent means nothing has ever been fetched, so it asks for the
- * widest window allowed rather than the narrowest: a connection that has never
- * worked has the most to catch up on, not the least.
- */
-export function syncWindow(
-  connection: { connectedAt: string; lastSyncedAt?: string | undefined },
-  now = new Date(),
-): SyncWindow {
-  const to = now.toISOString().slice(0, 10);
-  const age = now.getTime() - Date.parse(connection.connectedAt);
-
-  if (age <= DEEP_HISTORY_WINDOW_MINUTES * 60_000) {
-    return { from: historyFrom(MAX_HISTORY_MONTHS, now), to, deepHistory: true };
-  }
-
-  const gapDays = connection.lastSyncedAt
-    ? (now.getTime() - Date.parse(connection.lastSyncedAt)) / DAY_MS + SYNC_OVERLAP_DAYS
-    : UNATTENDED_HISTORY_DAYS;
-
-  const days = Math.min(UNATTENDED_HISTORY_DAYS, Math.max(MIN_SYNC_DAYS, Math.ceil(gapDays)));
-  return { from: new Date(now.getTime() - days * DAY_MS).toISOString().slice(0, 10), to, deepHistory: false };
-}
 
 export class TrueLayerError extends Error {
   constructor(

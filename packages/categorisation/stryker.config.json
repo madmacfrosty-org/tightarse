@@ -5,8 +5,7 @@
   "mutate": [
     "src/**/*.ts",
     "!src/**/*.test.ts",
-    "!src/**/*-cli.ts",
-    "!src/run.ts"
+    "!src/index.ts"
   ],
   "reporters": [
     "clear-text",
@@ -18,7 +17,7 @@
   "thresholds": {
     "high": 90,
     "low": 70,
-    "break": 44.0
+    "break": 87.1
   },
   "tempDirName": ".stryker-tmp",
   "incremental": true,

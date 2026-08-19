@@ -14,7 +14,6 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@tightarse/schema": "*",
     "aws-cdk-lib": "^2.170.0",
     "constructs": "^10.4.0",
     "@tightarse/api-contract": "*"
