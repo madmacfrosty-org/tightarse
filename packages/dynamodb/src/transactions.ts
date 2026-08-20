@@ -49,6 +49,16 @@ import {
 import { TableAdapter } from "./table.js";
 
 /**
+ * Attributes describing the first time we saw a row, not its content.
+ *
+ * Written once and never overwritten, so a row is a function of the transaction
+ * and a replay is byte-identical. `ingestedAt` then genuinely means "first seen",
+ * which is what the reconciliation needs to tell when a transaction entered a
+ * balance.
+ */
+const FIRST_OBSERVATION = ["ingestedAt", "sourceObject"] as const;
+
+/**
  * A pending row expires on its own.
  *
  * Pending is a cache, not a ledger entry — a pending transaction changes amount
@@ -120,8 +130,25 @@ export class DynamoTransactions extends TableAdapter implements Transactions {
    * Upsert settled transactions.
    *
    * No read-before-write. A settled booking date is stable and the sort key
-   * embeds the dedup key, so a plain put is idempotent — replaying the entire
-   * raw landing zone converges on the same rows rather than duplicating them.
+   * embeds the dedup key, so replaying the entire raw landing zone converges on
+   * the same rows rather than duplicating them.
+   *
+   * Converges on the same *content*, not merely the same keys. A plain put
+   * replaced the whole row, so `ingestedAt` and `sourceObject` — which describe
+   * when we wrote, not what the transaction says — changed on every write. The
+   * rolling sync window refetches the last ten days daily, so recent rows were
+   * rewritten every morning with new values.
+   *
+   * That cost three separate things. The first replay comparison reported 9,790
+   * differences, all of them write-time attributes. The reconciliation could not
+   * tell when a transaction entered a balance, so four Amex transactions that
+   * settled after a reading was taken looked like £56.59 of missing money. And an
+   * earlier design lost a backlog marker the same way.
+   *
+   * So provenance is written once and preserved. The cost is that an update
+   * expression is one item per call where BatchWriteItem took 25; the daily path
+   * is tens of rows, and a full replay is slower in exchange for being
+   * reproducible, which is the entire point of a replay.
    */
   async putTransactions(
     txns: readonly Transaction[],
@@ -130,7 +157,7 @@ export class DynamoTransactions extends TableAdapter implements Transactions {
     const items = txns.map((t) =>
       transactionItem(t, opts.sourceObject ? { sourceObject: opts.sourceObject } : {}),
     );
-    await this.batchWrite(items.map((Item) => ({ PutRequest: { Item } })));
+    await this.upsertPreserving(items, FIRST_OBSERVATION);
     return { written: items.length };
   }
 

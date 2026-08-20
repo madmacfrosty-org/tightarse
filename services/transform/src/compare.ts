@@ -71,9 +71,16 @@ export function isTransformProduced(row: Row): boolean {
  * ignored 9790 differences" is itself information, and an unexplained exclusion
  * is how a comparison stops being trusted.
  *
- *   ingestedAt    when the transform wrote the row
+ *   ingestedAt    when the row was FIRST written
  *   expiresAt     TTL on a pending row, derived from write time
  *   lastSyncedAt  when an account was last successfully fetched
+ *
+ * `ingestedAt` is here only for rows written before it became write-once. It now
+ * records the first observation and is preserved across rewrites, so a replay of
+ * a table built after that change reproduces it exactly and this exclusion stops
+ * being needed. Until the live table has been rebuilt, its rows still carry the
+ * last-write value and would differ from a fresh replay. Removing it from this
+ * list is the check that the rebuild actually happened.
  */
 export const WRITE_TIME_ATTRIBUTES = ["ingestedAt", "expiresAt", "lastSyncedAt"] as const;
 

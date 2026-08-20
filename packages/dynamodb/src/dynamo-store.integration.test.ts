@@ -138,6 +138,41 @@ suite("DynamoStore (integration)", () => {
     expect(found.transactions).toHaveLength(1);
   });
 
+  it("converges on the same row, not merely on the same key", async () => {
+    // This test used to count rows and stop there, which is how three separate
+    // bugs got through: a plain put replaced the whole row, so every attribute
+    // recording when we wrote it changed on each write. The first replay
+    // comparison reported 9,790 differences, all of them exactly that, and the
+    // reconciliation could not tell when a transaction entered a balance.
+    //
+    // The rolling sync window refetches ten days daily, so this is the ordinary
+    // case and not an edge one.
+    const t = txn({ normalisedProviderTransactionId: "stable", timestamp: "2026-05-02T00:00:00Z" });
+    await ledger.putTransactions([t], { sourceObject: "raw/first.json.gz" });
+    const [before] = (await ledger.listRange(TENANT, { from: "2026-05-02", to: "2026-05-03" })).transactions;
+
+    // Far enough apart that a rewritten timestamp could not coincide.
+    await new Promise((r) => setTimeout(r, 1100));
+    await ledger.putTransactions([t], { sourceObject: "raw/second.json.gz" });
+    const [after] = (await ledger.listRange(TENANT, { from: "2026-05-02", to: "2026-05-03" })).transactions;
+
+    expect(after).toEqual(before);
+    // Named individually, so a failure says which half of the guarantee broke.
+    expect(after!["ingestedAt"]).toBe(before!["ingestedAt"]);
+    expect(after!["sourceObject"]).toBe("raw/first.json.gz");
+  });
+
+  it("still updates what the transaction itself says", async () => {
+    // Preserving provenance must not freeze the row. A settled amount can be
+    // corrected by the provider, and the correction has to land.
+    const t = txn({ normalisedProviderTransactionId: "amend", timestamp: "2026-05-03T00:00:00Z", amount: -1000 });
+    await ledger.putTransactions([t]);
+    await ledger.putTransactions([{ ...t, amount: -1250 }]);
+
+    const [row] = (await ledger.listRange(TENANT, { from: "2026-05-03", to: "2026-05-04" })).transactions;
+    expect(row!["amount"]).toBe(-1250);
+  });
+
   it("returns a transaction and its enrichment from one query, adjacent", async () => {
     const t = txn({ normalisedProviderTransactionId: "enr", timestamp: "2026-06-10T00:00:00Z" });
     await ledger.putTransactions([t]);
