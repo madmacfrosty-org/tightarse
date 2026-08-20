@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
-import { envSettings, config } from "../lib/config";
+import { envSettings, config, type EnvSettings } from "../lib/config";
 import { FoundationStack } from "../lib/foundation-stack";
 import { DataStack } from "../lib/data-stack";
 import { ApiStack } from "../lib/api-stack";
@@ -48,8 +48,21 @@ function ensureWebDist(): void {
   writeFileSync(path.join(dist, "index.html"), "<!doctype html><title>test</title>");
 }
 
+/**
+ * Build every stack for one environment.
+ *
+ * `override` exists so a test can synthesise a state no named environment is in.
+ * Both dev and prod now have a site, which left the "no site yet" branches —
+ * the Cognito callback list and the bank redirect — exercised by nothing. They
+ * had been covered incidentally, because prod happened to lack a domain, and the
+ * day prod got one they went quiet without any test failing to say so.
+ *
+ * An environment's incidental configuration is not a fixture. This makes the
+ * state explicit instead.
+ */
 export function buildApp(
   context: Record<string, unknown> = {},
+  override: Partial<EnvSettings> = {},
 ): Stacks {
   ensureWebDist();
   const app = new cdk.App({
@@ -59,7 +72,7 @@ export function buildApp(
       ...context,
     },
   });
-  const settings = envSettings(app);
+  const settings: EnvSettings = { ...envSettings(app), ...override };
   const env = { account: "111122223333", region: config.region };
 
   const foundation = new FoundationStack(app, `TightarseFoundation-${settings.name}`, {
@@ -101,8 +114,11 @@ export function buildApp(
   return { app, foundation, data, api, ingest, web };
 }
 
-export function templates(context: Record<string, unknown> = {}) {
-  const s = buildApp(context);
+export function templates(
+  context: Record<string, unknown> = {},
+  override: Partial<EnvSettings> = {},
+) {
+  const s = buildApp(context, override);
   return {
     stacks: s,
     foundation: Template.fromStack(s.foundation),

@@ -1,10 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { Match } from "aws-cdk-lib/assertions";
 import { templates, policyStatements } from "./harness";
+import { connectRedirectUri, envSettings } from "../lib/config";
+import * as cdk from "aws-cdk-lib";
 
 const { ingest } = templates();
 // prod has no distribution yet, so it exercises the fallback branch.
 const prod = templates({ env: "prod" });
+const devSettings = envSettings(new cdk.App());
 const statements = policyStatements(ingest);
 
 /** Statements mentioning a Secrets Manager action. */
@@ -366,11 +369,24 @@ describe("where the bank sends the browser back", () => {
   });
 
   it("falls back to the dev server when no site is deployed", () => {
-    // prod has no distribution yet, and a redirect pointing at a site that does
-    // not exist would fail at the bank rather than here.
-    const redirects = Object.values(prod.ingest.findResources("AWS::Lambda::Function"))
-      .map((f: any) => f.Properties.Environment?.Variables?.CONNECT_REDIRECT_URI)
-      .filter((v: unknown): v is string => typeof v === "string");
-    for (const r of redirects) expect(r).toBe("http://localhost:5173/connected");
+    // A redirect pointing at a site that does not exist fails at the bank rather
+    // than here, and a failed authorisation costs the consent it was spent on.
+    //
+    // Tested against the function rather than against whichever environment
+    // happens to lack a siteUrl. It used to read prod, which had none — then prod
+    // got a domain of its own and the fallback quietly stopped being exercised by
+    // anything. An environment's incidental configuration is not a fixture.
+    expect(connectRedirectUri({ ...devSettings, siteUrl: undefined })).toBe(
+      "http://localhost:5173/connected",
+    );
+  });
+
+  it("derives from siteUrl once there is one, whoever assigned it", () => {
+    // CloudFront's own domain in dev, ours in prod. The rule is the same and the
+    // path is appended rather than configured, because two fields that must agree
+    // are two things to get wrong.
+    expect(connectRedirectUri({ ...devSettings, siteUrl: "https://example.test" })).toBe(
+      "https://example.test/connected",
+    );
   });
 });

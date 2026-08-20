@@ -2,6 +2,7 @@ import * as cdk from "aws-cdk-lib";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
+import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import type { Identity } from "./data-stack.js";
 import { Construct } from "constructs";
@@ -102,6 +103,16 @@ export class WebStack extends cdk.Stack {
       // the cheaper price class is the honest choice.
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
       comment: `${config.appName}-${settings.name} dashboard`,
+      ...(settings.web
+        ? {
+            domainNames: [settings.web.domainName],
+            certificate: acm.Certificate.fromCertificateArn(
+              this,
+              "SiteCertificate",
+              settings.web.certificateArn,
+            ),
+          }
+        : {}),
     });
 
     new s3deploy.BucketDeployment(this, "Deploy", {

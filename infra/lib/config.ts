@@ -142,6 +142,26 @@ export interface EnvSettings {
    * deploy and is stable thereafter.
    */
   readonly siteUrl?: string;
+  /**
+   * A domain of our own for the dashboard, or undefined to use CloudFront's.
+   *
+   * One field holding both, because CloudFront rejects a domain without a
+   * certificate at deploy and a certificate without a domain does nothing. Two
+   * optional fields made "both or neither" a rule to be checked; one optional
+   * object makes the broken combinations unrepresentable.
+   *
+   * A subdomain rather than the apex: DNS forbids a CNAME at a zone apex, so an
+   * apex would need a Route 53 alias record and therefore the whole zone moved
+   * off its current registrar — a migration of a domain used for other things,
+   * to save one label in a URL.
+   *
+   * The certificate is an ARN rather than a Certificate construct, and must be in
+   * us-east-1: CloudFront reads certificates only from there whatever region it
+   * serves, and DNS validation blocks stack creation until someone adds a record
+   * at the registrar, so creating one here would leave a deploy hanging on a
+   * human.
+   */
+  readonly web?: { readonly domainName: string; readonly certificateArn: string };
   /** How long raw landing-zone objects are kept. See the retention notes on #15. */
   readonly rawRetentionDays: number;
   /**
@@ -179,6 +199,20 @@ const SETTINGS: Record<EnvName, EnvSettings> = {
     autoDeleteObjects: false,
     hostedUiPrefix: "tightarse-prod-312637",
     hostedUiPrefixV2: "tightarse-prod-312637-b",
+    web: {
+      domainName: "tightarse.madmacfrosty.co.uk",
+      certificateArn: "arn:aws:acm:us-east-1:960946312637:certificate/3b8eddc2-9d2c-45cd-8a72-3442a037ff51",
+    },
+    /**
+     * Known before the distribution exists, because the name is ours.
+     *
+     * dev had to deploy once, read CloudFront's assigned domain, write it here
+     * and deploy again — and everything derived from it (the bank redirect, the
+     * Cognito callback, the CSP) was wrong in between. A domain we control breaks
+     * that circularity: the address is decided first and the infrastructure is
+     * pointed at it.
+     */
+    siteUrl: "https://tightarse.madmacfrosty.co.uk",
     // Long enough to survive a transform rewrite, not indefinite.
     rawRetentionDays: 365,
     rawTransitionToIaDays: 30,
