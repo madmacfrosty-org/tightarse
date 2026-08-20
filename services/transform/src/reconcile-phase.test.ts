@@ -193,6 +193,43 @@ describe("grouping a scan for reconciliation", () => {
     ]);
   });
 
+  it("carries first-seen through, so a late settler can be told from a missing one", () => {
+    // A transaction we did not hold when a reading was taken cannot have been in
+    // that balance. Losing this in the grouping is what made four Amex
+    // transactions look like £56.59 of missing money.
+    const withProvenance = [
+      {
+        pk: "T#frost#TX",
+        sk: "2026-01-02T00:00:00Z#TX#n:a",
+        accountId: "acc-9",
+        timestamp: "2026-01-02T00:00:00Z",
+        amount: -50,
+        ingestedAt: "2026-01-04T05:00:00.000Z",
+      },
+    ];
+    expect(groupForReconciliation(withProvenance).movements.get("acc-9")).toEqual([
+      { timestamp: "2026-01-02T00:00:00Z", amount: -50, firstSeenAt: "2026-01-04T05:00:00.000Z" },
+    ]);
+  });
+
+  it("omits first-seen on a row written before provenance was kept", () => {
+    // Absent rather than guessed. The check reads absent as "we already had it",
+    // which is what it assumed before first-seen existed.
+    const legacy = [
+      {
+        pk: "T#frost#TX",
+        sk: "2026-01-02T00:00:00Z#TX#n:a",
+        accountId: "acc-9",
+        timestamp: "2026-01-02T00:00:00Z",
+        amount: -50,
+      },
+    ];
+    expect(groupForReconciliation(legacy).movements.get("acc-9")).toEqual([
+      { timestamp: "2026-01-02T00:00:00Z", amount: -50 },
+    ]);
+  });
+
+
   it("gives an account with no readings an empty list rather than undefined", () => {
     expect(groupForReconciliation(rows).readings.get("card-1")).toBeUndefined();
   });

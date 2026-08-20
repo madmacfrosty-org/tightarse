@@ -162,6 +162,18 @@ suite("DynamoStore (integration)", () => {
     expect(after!["sourceObject"]).toBe("raw/first.json.gz");
   });
 
+  it("drops an attribute that is explicitly undefined rather than failing", async () => {
+    // An optional field the provider did not send arrives as undefined once it
+    // has been through a mapper. DynamoDB rejects undefined outright, so writing
+    // it would fail the whole object and stall the ledger on one absent field.
+    const t = txn({ normalisedProviderTransactionId: "undef", timestamp: "2026-05-04T00:00:00Z" });
+    await ledger.putTransactions([{ ...t, merchantName: undefined }]);
+
+    const [row] = (await ledger.listRange(TENANT, { from: "2026-05-04", to: "2026-05-05" })).transactions;
+    expect(row).toBeDefined();
+    expect(row).not.toHaveProperty("merchantName");
+  });
+
   it("still updates what the transaction itself says", async () => {
     // Preserving provenance must not freeze the row. A settled amount can be
     // corrected by the provider, and the correction has to land.

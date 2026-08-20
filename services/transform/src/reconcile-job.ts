@@ -77,6 +77,10 @@ export function groupForReconciliation(rows: readonly Row[]): {
     movements: by("transaction", (r) => ({
       timestamp: String(r["timestamp"]),
       amount: Number(r["amount"]),
+      // Write-once since provenance stopped being overwritten, so this is when
+      // the row first appeared rather than when it was last touched. Absent on
+      // rows written before that, and read as "we already had it".
+      ...(typeof r["ingestedAt"] === "string" ? { firstSeenAt: r["ingestedAt"] } : {}),
     })),
   };
 }

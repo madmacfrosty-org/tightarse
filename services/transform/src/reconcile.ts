@@ -65,6 +65,20 @@ export interface Reading {
 export interface Movement {
   readonly timestamp: string;
   readonly amount: number;
+  /**
+   * When this transaction was first written, if known.
+   *
+   * A balance is a fact about what had settled when it was taken, and that is not
+   * recoverable afterwards. This is the nearest thing we hold: a transaction we
+   * first saw after a reading was taken cannot have been in that reading's
+   * balance, so it moved the balance between then and now even if its date says
+   * otherwise.
+   *
+   * Absent for rows written before provenance became write-once. Absent is read
+   * as "we already had it", which is what the check assumed before this existed —
+   * so legacy rows behave exactly as they did rather than being guessed at.
+   */
+  readonly firstSeenAt?: string | undefined;
 }
 
 export interface Break {
@@ -128,8 +142,25 @@ export function reconcileAccount(
     (m) => dayOf(m.timestamp) > dayOf(oldest.asOf) && dayOf(m.timestamp) <= dayOf(newest.asOf),
   );
 
+  // Transactions dated before the window that we did not have when it opened.
+  //
+  // A card transaction can take days to settle, and it keeps its original date
+  // when it does. Dated on the 15th, settled on the 18th: it moves the balance
+  // between two readings while sitting outside the window on date alone. That is
+  // not a discrepancy, and reading it as one held an alarm open for three days
+  // over £56.59 that was fully accounted for.
+  //
+  // Safe because the sync always requests at least ten days: a transaction that
+  // had settled would have been returned, so one we did not hold had not settled.
+  const late = movements.filter(
+    (m) =>
+      dayOf(m.timestamp) <= dayOf(oldest.asOf) &&
+      m.firstSeenAt !== undefined &&
+      m.firstSeenAt > oldest.fetchedAt,
+  );
+
   const reported = newest.balance - oldest.balance;
-  const observed = window.reduce((total, m) => total + m.amount, 0);
+  const observed = [...window, ...late].reduce((total, m) => total + m.amount, 0);
 
   if (reported === observed) return { checked: 1, breaks: [] };
 
@@ -144,7 +175,7 @@ export function reconcileAccount(
         reported,
         observed,
         discrepancy: reported - observed,
-        movements: window.length,
+        movements: window.length + late.length,
       },
     ],
   };

@@ -139,7 +139,6 @@ export abstract class TableAdapter {
         // transaction itself and is safe to overwrite with an identical value.
         sets.push(preserve.includes(attr) ? `${nk} = if_not_exists(${nk}, ${vk})` : `${nk} = ${vk}`);
       }
-      if (sets.length === 0) return;
       await this.doc.send(
         new UpdateCommand({
           TableName: this.table,

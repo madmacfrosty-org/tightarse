@@ -10,7 +10,7 @@
     "create-test-table": "tsx src/create-test-table.ts",
     "access": "tsx src/access.ts",
     "test:coverage": "vitest run --coverage",
-    "test:mutation": "stryker run"
+    "test:mutation": "node -e \"if(!process.env.LEDGER_TEST_TABLE){console.error('Refusing to run mutation without LEDGER_TEST_TABLE: the integration tests would skip, every mutant they cover would be recorded as survived, and Strykers incremental cache would carry that into later runs as a false failure.');process.exit(1)}\" && stryker run"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.700.0",

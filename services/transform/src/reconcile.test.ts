@@ -23,6 +23,13 @@ const reading = (asOf: string, balance: number, fetchedAt = asOf): Reading => ({
 
 const movement = (timestamp: string, amount: number): Movement => ({ timestamp, amount });
 
+/** A transaction dated `timestamp` that we did not hold until `firstSeenAt`. */
+const settledLate = (timestamp: string, amount: number, firstSeenAt: string): Movement => ({
+  timestamp,
+  amount,
+  firstSeenAt,
+});
+
 describe("balances that add up", () => {
   it("accepts a window where the transactions explain the movement", () => {
     // £100 on the 1st, £90 on the 3rd, and a £10 payment on the 2nd.
@@ -69,6 +76,74 @@ describe("balances that add up", () => {
       [movement("2026-01-02T00:00:00Z", -60_00)],
     );
     expect(result.breaks).toHaveLength(0);
+  });
+});
+
+describe("transactions that settle after a reading was taken", () => {
+  /**
+   * The real break, reduced.
+   *
+   * An Amex connected on 16 August: four transactions dated the 15th and 16th
+   * were absent from its settled feed that day and present by the 20th, £56.59,
+   * matching the discrepancy to the penny. They moved the balance between the two
+   * readings while their dates sat outside the window, and the alarm stayed open
+   * for three days over money that was fully accounted for.
+   */
+  it("counts one we did not hold when the window opened", () => {
+    const result = reconcileAccount(
+      "acc-1",
+      [reading("2026-01-01T16:22:00.000Z", -100_00), reading("2026-01-05T05:00:00.000Z", -156_59)],
+      [settledLate("2026-01-01T00:00:00Z", -56_59, "2026-01-03T05:00:00.000Z")],
+    );
+    expect(result.breaks).toHaveLength(0);
+    expect(result.checked).toBe(1);
+  });
+
+  it("still counts it toward the movements the break would report", () => {
+    // A break naming zero movements over a four-day window reads as "we hold
+    // nothing", which sends someone looking for the wrong problem.
+    const result = reconcileAccount(
+      "acc-1",
+      [reading("2026-01-01T16:22:00.000Z", -100_00), reading("2026-01-05T05:00:00.000Z", -200_00)],
+      [settledLate("2026-01-01T00:00:00Z", -56_59, "2026-01-03T05:00:00.000Z")],
+    );
+    expect(result.breaks[0]!.movements).toBe(1);
+  });
+
+  it("does not count one we already held, however it is dated", () => {
+    // First seen before the reading, so that balance included it. Counting it
+    // again would invent a discrepancy the other way.
+    const result = reconcileAccount(
+      "acc-1",
+      [reading("2026-01-03T05:00:00.000Z", -100_00), reading("2026-01-05T05:00:00.000Z", -100_00)],
+      [settledLate("2026-01-01T00:00:00Z", -56_59, "2026-01-02T05:00:00.000Z")],
+    );
+    expect(result.breaks).toHaveLength(0);
+  });
+
+  it("treats a row with no provenance as one we already had", () => {
+    // Rows written before provenance became write-once carry no first-seen. The
+    // safe reading is the one the check made before this existed: assume it was
+    // there. Guessing the other way would clear real breaks on old data.
+    const result = reconcileAccount(
+      "acc-1",
+      [reading("2026-01-01T16:22:00.000Z", -100_00), reading("2026-01-05T05:00:00.000Z", -156_59)],
+      [movement("2026-01-01T00:00:00Z", -56_59)],
+    );
+    expect(result.breaks).toHaveLength(1);
+    expect(result.breaks[0]!.discrepancy).toBe(-56_59);
+  });
+
+  it("still catches genuinely missing money on an account with late settlers", () => {
+    // The point of the whole check. One late settler explains £56.59; the balance
+    // moved by £96.59, so £40 is unaccounted for and must still be reported.
+    const result = reconcileAccount(
+      "acc-1",
+      [reading("2026-01-01T16:22:00.000Z", -100_00), reading("2026-01-05T05:00:00.000Z", -196_59)],
+      [settledLate("2026-01-01T00:00:00Z", -56_59, "2026-01-03T05:00:00.000Z")],
+    );
+    expect(result.breaks).toHaveLength(1);
+    expect(result.breaks[0]!.discrepancy).toBe(-40_00);
   });
 });
 
