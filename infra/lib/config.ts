@@ -110,8 +110,14 @@ export interface EnvSettings {
    * invalid, and `cdk synth` failed. CI has no credentials, so that would have
    * broken the build rather than a deploy.
    *
-   * The numeric suffix is an opaque uniqueness token: Cognito domain prefixes
-   * are globally unique across all AWS accounts.
+   * The numeric suffix is a uniqueness token — Cognito domain prefixes are
+   * globally unique across every AWS account — and by convention the last six
+   * digits of the account it belongs to.
+   *
+   * "Opaque" is what this said before, which is how prod came to carry dev's
+   * digits: nothing reads the suffix, so nothing broke, and a value that is
+   * wrong but harmless is one nobody checks. Matching the account makes it
+   * verifiable at a glance.
    */
   readonly hostedUiPrefix: string;
   /**
@@ -171,8 +177,8 @@ const SETTINGS: Record<EnvName, EnvSettings> = {
     deletionProtection: true,
     pointInTimeRecovery: true,
     autoDeleteObjects: false,
-    hostedUiPrefix: "tightarse-prod-068475",
-    hostedUiPrefixV2: "tightarse-prod-068475-b",
+    hostedUiPrefix: "tightarse-prod-312637",
+    hostedUiPrefixV2: "tightarse-prod-312637-b",
     // Long enough to survive a transform rewrite, not indefinite.
     rawRetentionDays: 365,
     rawTransitionToIaDays: 30,
