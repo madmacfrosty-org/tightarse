@@ -141,8 +141,8 @@ export class FoundationStack extends cdk.Stack {
           // trust policy gets written against; accepting both means this keeps
           // working whichever GitHub sends.
           "token.actions.githubusercontent.com:sub": [
-            `${config.githubSubjectPrefixImmutable}:environment:${config.githubEnvironment}`,
-            `repo:${config.githubRepo}:environment:${config.githubEnvironment}`,
+            `${config.githubSubjectPrefixImmutable}:environment:${settings.githubEnvironment}`,
+            `repo:${config.githubRepo}:environment:${settings.githubEnvironment}`,
           ],
         },
       }),

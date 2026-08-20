@@ -3,6 +3,7 @@ import { Match } from "aws-cdk-lib/assertions";
 import { templates, policyStatements } from "./harness";
 
 const { foundation } = templates();
+const prodFoundation = templates({ env: "prod" }).foundation;
 
 describe("data key", () => {
   it("is customer-managed and rotates", () => {
@@ -53,6 +54,31 @@ describe("GitHub deploy role", () => {
 
     expect(subs).toContain("repo:madmacfrosty/tightarse:environment:dev");
     expect(subs.some((s: string) => /^repo:[^@]+@\d+\/[^@]+@\d+:environment:dev$/.test(s))).toBe(true);
+  });
+
+  it("scopes each account's deploy role to its OWN GitHub environment", () => {
+    // This was one constant, "dev", used for both accounts. The prod deploy role
+    // would have trusted jobs declaring `environment: dev` — which is what every
+    // merge to main already declares, with no approval rule on it. Anything able
+    // to deploy dev could have deployed prod, in the one account where that
+    // separation is the whole point.
+    //
+    // Caught by reading a `cdk diff` before bootstrapping prod, not by a test,
+    // which is why this one exists.
+    const subsFor = (t: typeof foundation) =>
+      Object.values(t.findResources("AWS::IAM::Role"))
+        .flatMap((r: any) => r.Properties?.AssumeRolePolicyDocument?.Statement ?? [])
+        .map((st: any) => st.Condition?.StringEquals?.["token.actions.githubusercontent.com:sub"])
+        .filter(Boolean)
+        .flat()
+        .filter((sub: string) => sub.includes(":environment:"));
+
+    expect(subsFor(foundation).every((sub: string) => sub.endsWith(":environment:dev"))).toBe(true);
+    expect(subsFor(prodFoundation).every((sub: string) => sub.endsWith(":environment:prod"))).toBe(true);
+    // Stated the other way round too: the failure was prod trusting dev, and an
+    // "every ends with prod" assertion passes vacuously on an empty list.
+    expect(subsFor(prodFoundation).length).toBeGreaterThan(0);
+    expect(subsFor(prodFoundation)).not.toContain("repo:madmacfrosty/tightarse:environment:dev");
   });
 
   it("can do nothing but assume the CDK bootstrap roles", () => {

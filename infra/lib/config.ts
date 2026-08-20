@@ -13,16 +13,6 @@ export const config = {
   /** The only repository allowed to assume the deploy role. */
   githubRepo: "madmacfrosty/tightarse",
   /**
-   * The GitHub environment CI deploys through.
-   *
-   * Trust is scoped to the environment rather than to a branch, because an
-   * environment is what carries an approval rule. Add required reviewers in
-   * the repository settings and every deploy waits for a human; leave it bare
-   * and merges to main deploy straight through. The trust policy does not have
-   * to change either way.
-   */
-  githubEnvironment: "dev",
-  /**
    * The repository's OIDC subject prefix, including GitHub's immutable ids.
    *
    * GitHub has begun issuing subject claims of the form
@@ -79,6 +69,21 @@ export type EnvName = "dev" | "prod";
  */
 export interface EnvSettings {
   readonly name: EnvName;
+  /**
+   * The GitHub environment whose jobs may assume this account's deploy role.
+   *
+   * Per environment, and it has to be: this was one constant, "dev", used for
+   * both. A prod account bootstrapped from it would have trusted jobs declaring
+   * `environment: dev` — which is what every merge to main already declares, with
+   * no approval rule on it. The separation the environment scoping exists for
+   * would have been absent in exactly the account that needs it.
+   *
+   * Trust is scoped to the environment rather than to a branch because an
+   * environment is what carries an approval rule. Add required reviewers in the
+   * repository settings and every deploy waits for a human; leave it bare and
+   * merges deploy straight through. The trust policy does not change either way.
+   */
+  readonly githubEnvironment: string;
   readonly removalPolicy: cdk.RemovalPolicy;
   readonly deletionProtection: boolean;
   readonly pointInTimeRecovery: boolean;
@@ -146,6 +151,7 @@ export interface EnvSettings {
 const SETTINGS: Record<EnvName, EnvSettings> = {
   dev: {
     name: "dev",
+    githubEnvironment: "dev",
     removalPolicy: cdk.RemovalPolicy.DESTROY,
     deletionProtection: false,
     // Not worth paying for in an account we intend to wipe.
@@ -160,6 +166,7 @@ const SETTINGS: Record<EnvName, EnvSettings> = {
   },
   prod: {
     name: "prod",
+    githubEnvironment: "prod",
     removalPolicy: cdk.RemovalPolicy.RETAIN,
     deletionProtection: true,
     pointInTimeRecovery: true,
