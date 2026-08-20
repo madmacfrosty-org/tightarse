@@ -85,15 +85,18 @@ describe("transactions that settle after a reading was taken", () => {
    *
    * An Amex connected on 16 August: four transactions dated the 15th and 16th
    * were absent from its settled feed that day and present by the 20th, £56.59,
-   * matching the discrepancy to the penny. They moved the balance between the two
+   * matching the discrepancy to the penny. They moved the balance between two
    * readings while their dates sat outside the window, and the alarm stayed open
    * for three days over money that was fully accounted for.
+   *
+   * Dates here are after PROVENANCE_TRUSTED_FROM, because first-seen only means
+   * anything on rows written since it became write-once.
    */
   it("counts one we did not hold when the window opened", () => {
     const result = reconcileAccount(
       "acc-1",
-      [reading("2026-01-01T16:22:00.000Z", -100_00), reading("2026-01-05T05:00:00.000Z", -156_59)],
-      [settledLate("2026-01-01T00:00:00Z", -56_59, "2026-01-03T05:00:00.000Z")],
+      [reading("2026-09-01T16:22:00.000Z", -100_00), reading("2026-09-05T05:00:00.000Z", -156_59)],
+      [settledLate("2026-09-01T00:00:00Z", -56_59, "2026-09-03T05:00:00.000Z")],
     );
     expect(result.breaks).toHaveLength(0);
     expect(result.checked).toBe(1);
@@ -104,8 +107,8 @@ describe("transactions that settle after a reading was taken", () => {
     // nothing", which sends someone looking for the wrong problem.
     const result = reconcileAccount(
       "acc-1",
-      [reading("2026-01-01T16:22:00.000Z", -100_00), reading("2026-01-05T05:00:00.000Z", -200_00)],
-      [settledLate("2026-01-01T00:00:00Z", -56_59, "2026-01-03T05:00:00.000Z")],
+      [reading("2026-09-01T16:22:00.000Z", -100_00), reading("2026-09-05T05:00:00.000Z", -200_00)],
+      [settledLate("2026-09-01T00:00:00Z", -56_59, "2026-09-03T05:00:00.000Z")],
     );
     expect(result.breaks[0]!.movements).toBe(1);
   });
@@ -115,8 +118,8 @@ describe("transactions that settle after a reading was taken", () => {
     // again would invent a discrepancy the other way.
     const result = reconcileAccount(
       "acc-1",
-      [reading("2026-01-03T05:00:00.000Z", -100_00), reading("2026-01-05T05:00:00.000Z", -100_00)],
-      [settledLate("2026-01-01T00:00:00Z", -56_59, "2026-01-02T05:00:00.000Z")],
+      [reading("2026-09-03T05:00:00.000Z", -100_00), reading("2026-09-05T05:00:00.000Z", -100_00)],
+      [settledLate("2026-09-01T00:00:00Z", -56_59, "2026-09-02T05:00:00.000Z")],
     );
     expect(result.breaks).toHaveLength(0);
   });
@@ -127,8 +130,21 @@ describe("transactions that settle after a reading was taken", () => {
     // there. Guessing the other way would clear real breaks on old data.
     const result = reconcileAccount(
       "acc-1",
-      [reading("2026-01-01T16:22:00.000Z", -100_00), reading("2026-01-05T05:00:00.000Z", -156_59)],
-      [movement("2026-01-01T00:00:00Z", -56_59)],
+      [reading("2026-09-01T16:22:00.000Z", -100_00), reading("2026-09-05T05:00:00.000Z", -156_59)],
+      [movement("2026-09-01T00:00:00Z", -56_59)],
+    );
+    expect(result.breaks).toHaveLength(1);
+    expect(result.breaks[0]!.discrepancy).toBe(-56_59);
+  });
+
+  it("ignores a first-seen from before the value meant first seen", () => {
+    // The regression this cost: on the day it shipped, one break became six.
+    // Every row the rolling window had re-ingested carried a last-write timestamp
+    // days after it arrived, so the whole ledger looked like it had just settled.
+    const result = reconcileAccount(
+      "acc-1",
+      [reading("2026-08-16T16:22:00.000Z", -100_00), reading("2026-08-20T05:00:00.000Z", -156_59)],
+      [settledLate("2026-08-15T00:00:00Z", -56_59, "2026-08-18T05:00:00.000Z")],
     );
     expect(result.breaks).toHaveLength(1);
     expect(result.breaks[0]!.discrepancy).toBe(-56_59);
@@ -139,8 +155,8 @@ describe("transactions that settle after a reading was taken", () => {
     // moved by £96.59, so £40 is unaccounted for and must still be reported.
     const result = reconcileAccount(
       "acc-1",
-      [reading("2026-01-01T16:22:00.000Z", -100_00), reading("2026-01-05T05:00:00.000Z", -196_59)],
-      [settledLate("2026-01-01T00:00:00Z", -56_59, "2026-01-03T05:00:00.000Z")],
+      [reading("2026-09-01T16:22:00.000Z", -100_00), reading("2026-09-05T05:00:00.000Z", -196_59)],
+      [settledLate("2026-09-01T00:00:00Z", -56_59, "2026-09-03T05:00:00.000Z")],
     );
     expect(result.breaks).toHaveLength(1);
     expect(result.breaks[0]!.discrepancy).toBe(-40_00);
