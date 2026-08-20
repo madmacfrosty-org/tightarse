@@ -6,6 +6,8 @@ import * as sfn from "aws-cdk-lib/aws-stepfunctions";
 import * as tasks from "aws-cdk-lib/aws-stepfunctions-tasks";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as sns from "aws-cdk-lib/aws-sns";
+import * as sqs from "aws-cdk-lib/aws-sqs";
+import * as destinations from "aws-cdk-lib/aws-lambda-destinations";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
@@ -304,6 +306,44 @@ export class IngestStack extends cdk.Stack {
     dataKey.grantDecrypt(transform);
     table.grantReadWriteData(transform);
 
+    /**
+     * Where a raw object that could not be transformed goes.
+     *
+     * EventBridge retries a failed invocation and then drops it, silently. On the
+     * daily path that is survivable — the next sync re-lands the object and the
+     * transform runs again. It is not survivable on a one-time load, such as
+     * copying the raw zone into a new account, because there is no next sync: a
+     * dropped object is a permanently missing slice of the ledger that nothing
+     * reports.
+     *
+     * A destination rather than DeadLetterConfig, because a destination carries
+     * the error alongside the original event. The event alone tells you which
+     * object failed; the error tells you why, which is the difference between a
+     * lookup and an investigation.
+     *
+     * Fourteen days is SQS's maximum retention. The alarm below is what makes
+     * that a backstop rather than the mechanism — a queue nobody watches is not
+     * much better than no queue, which this repository has already proved once
+     * with an SNS subscription that was never confirmed.
+     */
+    const transformFailures = new sqs.Queue(this, "TransformFailures", {
+      queueName: `${config.appName}-${settings.name}-transform-failures`,
+      retentionPeriod: cdk.Duration.days(14),
+      // SQS-managed rather than the data key: the message is an S3 event and an
+      // error string, so it carries an object key and no financial data. Using
+      // the data key would mean granting Lambda kms:GenerateDataKey for no gain.
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+      removalPolicy: settings.removalPolicy,
+    });
+    transform.configureAsyncInvoke({
+      onFailure: new destinations.SqsDestination(transformFailures),
+      // Two retries then the destination. The default is two; stated because the
+      // number is the difference between a transient throttle being absorbed and
+      // an object needing a human.
+      retryAttempts: 2,
+    });
+
     // One event per object, so a failure isolates to a single response and a
     // replay can target one dataset.
     //
@@ -416,6 +456,36 @@ export class IngestStack extends cdk.Stack {
     // An item failing is unambiguous, so it is a threshold rather than a
     // pattern. Four items failed every day and only an execution's output said
     // so, which nobody reads.
+    /**
+     * A raw object the transform could not turn into ledger rows.
+     *
+     * The raw zone is intact — the object is still there and the transform is
+     * idempotent, so this is always recoverable by replaying it. What is not
+     * recoverable is not knowing: the ledger is short by whatever that object
+     * held, every balance derived after it is wrong, and the numbers stay
+     * plausible.
+     *
+     * One message is worth waking up for, so the threshold is zero rather than a
+     * rate. Anything above zero means a slice of the ledger is missing right now.
+     */
+    const transformFailed = new cloudwatch.Alarm(this, "TransformFailuresAlarm", {
+      alarmName: `tightarse-${settings.name}-transform-failures`,
+      alarmDescription:
+        "A raw object could not be transformed and has been parked. The raw zone still " +
+        "holds it and the transform is idempotent, so replay it once the cause is fixed.",
+      metric: transformFailures.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(5),
+        statistic: "Maximum",
+      }),
+      threshold: 0,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      evaluationPeriods: 1,
+      // An empty queue emits zero rather than nothing, so missing data here means
+      // the metric is not reporting at all, which is not a breach.
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    transformFailed.addAlarmAction(alarmAction);
+
     const itemsFailed = new cloudwatch.Alarm(this, "SyncItemsFailed", {
       alarmName: `tightarse-${settings.name}-sync-items-failed`,
       alarmDescription: "One or more accounts could not be fetched in a sync run.",
