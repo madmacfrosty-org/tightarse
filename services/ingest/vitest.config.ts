@@ -27,10 +27,10 @@ export default defineConfig({
         // with its tests, at 100%. The two movements are one effect in opposite
         // directions: a percentage over a changing set of files says nothing about
         // whether anything got better tested.
-        lines: 81.71,
-        functions: 74.07,
-        branches: 90.09,
-        statements: 81.71,
+        lines: 82.11,
+        functions: 75,
+        branches: 93.93,
+        statements: 82.11,
         autoUpdate,
       },
     },

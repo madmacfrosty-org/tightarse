@@ -1,19 +1,6 @@
 import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
-import {
-  TrueLayerClient,
-  TrueLayerError,
-  LIVE,
-  SANDBOX,
-  PER_ITEM_ENDPOINTS,
-  RESOURCES,
-  MAX_HISTORY_MONTHS,
-  historyFrom,
-  itemDataset,
-  listDataset,
-  transactionsDataset,
-  type Resource,
-} from "@tightarse/truelayer";
+import { LIVE, SANDBOX, TrueLayerBank } from "@tightarse/truelayer";
 import { syncWindow, type SyncWindow } from "./sync-window.js";
 import { rawObjectKey } from "@tightarse/schema";
 import { emit } from "@tightarse/metrics";
@@ -21,7 +8,8 @@ import { Connections, daysUntilExpiry, type Connection } from "./connections.js"
 import type { RawObjects } from "@tightarse/ports";
 import { S3RawObjects } from "@tightarse/aws";
 import { AwsSecrets, SnsNotifications } from "@tightarse/aws";
-import type { Notifications } from "@tightarse/ports";
+import type { BankData, BankItem, Notifications } from "@tightarse/ports";
+import { ConsentExpired } from "@tightarse/ports";
 
 /**
  * The sync, decomposed into steps a state machine can retry individually.
@@ -48,7 +36,7 @@ import type { Notifications } from "@tightarse/ports";
  * `steps-handler.ts` is the only place that constructs the real ones.
  */
 export interface StepDeps {
-  readonly truelayer: TrueLayerClient;
+  readonly bank: BankData;
   readonly connections: Connections;
   readonly raw: RawObjects;
   readonly rawBucket: string;
@@ -121,7 +109,7 @@ export async function realDeps(): Promise<StepDeps> {
   const sandbox = process.env["TL_ENV"] === "sandbox";
 
   return {
-    truelayer: new TrueLayerClient(creds, sandbox ? SANDBOX : LIVE),
+    bank: new TrueLayerBank(creds, sandbox ? SANDBOX : LIVE),
     connections: new Connections(required("CONNECTION_SECRET_PREFIX"), secrets),
     raw: new S3RawObjects({ bucket: required("RAW_BUCKET") }),
     rawBucket: required("RAW_BUCKET"),
@@ -179,7 +167,7 @@ export function selectConnections(
 export interface RefreshOutput {
   connection: Connection;
   accessToken: string;
-  items: Array<{ resource: Resource; itemId: string }>;
+  items: BankItem[];
   skipped: string[];
   consentExpired: boolean;
   daysUntilConsentExpiry: number;
@@ -209,15 +197,14 @@ export async function refreshAndList(
   input: { connection: Connection },
 ): Promise<RefreshOutput> {
   const startedAt = new Date().toISOString();
-  const tl = deps.truelayer;
   const conns = deps.connections;
   const { connection } = input;
 
   let tokens;
   try {
-    tokens = await tl.refresh(connection.refreshToken);
+    tokens = await deps.bank.refresh(connection.refreshToken);
   } catch (err) {
-    if (err instanceof TrueLayerError && err.isConsentExpired) {
+    if (err instanceof ConsentExpired) {
       return {
         connection,
         accessToken: "",
@@ -225,8 +212,8 @@ export async function refreshAndList(
         skipped: [],
         consentExpired: true,
         daysUntilConsentExpiry: daysUntilExpiry(connection),
-        window: syncWindow(connection),
-        providerCalls: deps.truelayer.calls,
+        window: syncWindow(connection, deps.bank.limits),
+        providerCalls: deps.bank.calls,
         startedAt,
       };
     }
@@ -238,26 +225,15 @@ export async function refreshAndList(
   const updated: Connection = { ...connection, refreshToken: tokens.refreshToken };
   await conns.update(updated);
 
-  const items: Array<{ resource: Resource; itemId: string }> = [];
-  const skipped: string[] = [];
-
-  for (const resource of RESOURCES) {
-    try {
-      const res = await tl.get(tokens.accessToken, `/data/v1/${resource}`);
-      await land(deps, connection.tenantId, listDataset(resource), null, res.body);
-      for (const a of (res.body as { results?: Array<{ account_id?: string }> }).results ?? []) {
-        if (a.account_id) items.push({ resource, itemId: a.account_id });
-      }
-    } catch (err) {
-      // A provider may offer only one of the two — Amex is cards-only, with no
-      // accounts scope at all. A missing resource is a shape, not a failure.
-      if (err instanceof TrueLayerError && err.isNotApplicable) {
-        skipped.push(resource);
-        continue;
-      }
-      throw err;
-    }
+  // The provider's endpoints, resource names and refusals are the adapter's
+  // business now. What comes back is payloads to land and a list of what this
+  // provider simply does not offer.
+  const listing = await deps.bank.listItems(tokens.accessToken);
+  for (const raw of listing.payloads) {
+    await land(deps, connection.tenantId, raw.dataset, raw.itemId, raw.body);
   }
+  const items = [...listing.items];
+  const skipped = [...listing.skipped];
 
   return {
     connection: updated,
@@ -268,8 +244,8 @@ export async function refreshAndList(
     daysUntilConsentExpiry: daysUntilExpiry(connection),
     // Computed from the connection as it was BEFORE this run, so a failure
     // leaves the next window wide enough to cover what this one missed.
-    window: syncWindow(connection),
-    providerCalls: deps.truelayer.calls,
+    window: syncWindow(connection, deps.bank.limits),
+    providerCalls: deps.bank.calls,
     startedAt,
   };
 }
@@ -279,7 +255,7 @@ export async function refreshAndList(
 export interface FetchInput {
   tenantId: string;
   accessToken: string;
-  resource: Resource;
+  resource: string;
   itemId: string;
   /** The range from refreshAndList. Absent falls back to the safe minimum. */
   from?: string;
@@ -297,54 +273,29 @@ export async function fetchItem(
   deps: StepDeps,
   input: FetchInput,
 ): Promise<{ objects: number; skipped: string[]; transactions: number; providerCalls: number }> {
-  const tl = deps.truelayer;
   const { tenantId, accessToken, resource, itemId } = input;
   const now = new Date();
   // Never widen a missing range into the full history: that is the request the
   // provider refuses outright once the exemption has lapsed.
-  const fallback = syncWindow({ connectedAt: new Date(0).toISOString() }, now);
+  const fallback = syncWindow({ connectedAt: new Date(0).toISOString() }, deps.bank.limits, now);
   const from = input.from ?? fallback.from;
   const to = input.to ?? fallback.to;
 
-  let objects = 0;
-  const skipped: string[] = [];
+  // One call per item, and the adapter decides which endpoints that means. What
+  // arrives is payloads to land verbatim, the endpoints this provider does not
+  // offer here, and the transaction count — which only it is in a position to see.
+  const fetched = await deps.bank.fetchItem(accessToken, { resource, itemId }, { from, to });
 
-  // Transactions first: they are the point of the exercise.
-  const txRes = await tl.get(
-    accessToken,
-    `/data/v1/${resource}/${itemId}/transactions?from=${from}&to=${to}`,
-  );
-  await land(deps, tenantId, transactionsDataset(resource), itemId, txRes.body, { from, to });
-  objects += 1;
-  // Counted here because this is the only place that sees the response. It is
-  // the number anomaly detection watches: a current account that does thirty a
-  // day going to zero is a signal, and nothing else in the run would show it.
-  const transactions = ((txRes.body as { results?: unknown[] }).results ?? []).length;
-
-  const detail = await tl.get(accessToken, `/data/v1/${resource}/${itemId}`);
-  await land(deps, tenantId, itemDataset(resource), itemId, detail.body);
-  objects += 1;
-
-  for (const spec of PER_ITEM_ENDPOINTS) {
-    if (!spec.resources.includes(resource)) continue;
-    const dataset = spec.dataset(resource);
-    try {
-      const res = await tl.get(accessToken, `/data/v1/${resource}/${itemId}/${spec.suffix}`);
-      await land(deps, tenantId, dataset, itemId, res.body);
-      objects += 1;
-    } catch (err) {
-      if (spec.optional && err instanceof TrueLayerError && err.isNotApplicable) {
-        // First Direct returns 501 for standing orders everywhere and 403 for
-        // direct debits on accounts that have none. Alarming on those trains
-        // everyone to ignore alarms.
-        skipped.push(`${dataset} ${itemId}`);
-        continue;
-      }
-      throw err;
-    }
+  for (const raw of fetched.payloads) {
+    await land(deps, tenantId, raw.dataset, raw.itemId, raw.body, raw.window ? { from: raw.window.from, to: raw.window.to } : {});
   }
 
-  return { objects, skipped, transactions, providerCalls: deps.truelayer.calls };
+  return {
+    objects: fetched.payloads.length,
+    skipped: [...fetched.skipped],
+    transactions: fetched.transactions,
+    providerCalls: deps.bank.calls,
+  };
 }
 
 // ------------------------------------------------------------------ outcome

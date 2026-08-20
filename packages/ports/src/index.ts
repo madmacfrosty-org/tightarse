@@ -547,3 +547,141 @@ export interface Reporting {
   accounts(tenantId: string): Promise<AccountsResult>;
   balances(tenantId: string, range: DateRange): Promise<BalancesResult>;
 }
+
+// -------------------------------------------------------------------- banking
+//
+// Talking to a bank, without naming which one.
+//
+// `packages/truelayer` was classified as a driven adapter because the clue was in
+// the name, but it implemented nothing: `services/ingest` typed `TrueLayerClient`
+// concretely, built `/data/v1/...` URLs itself, and classified that provider's
+// errors at three separate sites. Swapping provider meant rewriting the sync step
+// rather than writing an adapter, and the package header claimed otherwise.
+//
+// Two decisions shape what follows.
+//
+// **It yields raw payloads, not normalised records.** Every response is written
+// to the raw zone verbatim so the ledger can be rebuilt from it, and that zone is
+// deliberately provider-shaped — `mapTransaction` normalises later, in transform.
+// A port that normalised on the way in would put the one irreplaceable asset
+// behind a lossy conversion. So the dataset name travels with the body: it is how
+// the raw object is keyed and how a replay knows what it is reading.
+//
+// **It publishes the provider's limits.** How deep history goes, how long the
+// SCA exemption lasts and what unattended access may ask for are facts about a
+// provider, measured against it. The sync policy that consumes them — how much
+// overlap to request, what floor — belongs to the caller, and takes them as an
+// argument rather than importing a vendor's constants.
+
+/** What a provider hands back for a set of credentials. */
+export interface BankToken {
+  readonly accessToken: string;
+  /**
+   * May be a NEW token, with the old one invalidated. A caller that keeps the
+   * original has a connection that dies quietly a few days later.
+   */
+  readonly refreshToken: string;
+  /** Absolute, so a stored token can be judged later without knowing when it was issued. */
+  readonly expiresAt: string;
+}
+
+/**
+ * One provider response, ready to land in the raw zone unchanged.
+ *
+ * `dataset` is provider-shaped by design — it names the endpoint the body came
+ * from, keys the raw object, and is what a replay reads to know how to interpret
+ * it. Flattening it to something provider-neutral would make old raw objects
+ * unreadable, which defeats the point of keeping them.
+ */
+export interface BankPayload {
+  readonly dataset: string;
+  /** The account or card this belongs to; null for a listing. */
+  readonly itemId: string | null;
+  readonly body: unknown;
+  /** The window requested, when the endpoint takes one. Recorded with the object. */
+  readonly window?: DateRange | undefined;
+}
+
+/** An account or card the provider holds for a connection. */
+export interface BankItem {
+  /** The provider's own grouping, e.g. accounts or cards. Recorded, not interpreted. */
+  readonly resource: string;
+  readonly itemId: string;
+}
+
+/**
+ * Measured facts about one provider.
+ *
+ * Not configuration and not guesses: 60 months is where TrueLayer starts
+ * returning `invalid_date_range` instantly, and 88 days is the unattended cap
+ * less the margin providers under-deliver by.
+ */
+export interface BankLimits {
+  readonly maxHistoryMonths: number;
+  readonly unattendedHistoryDays: number;
+  /** How long the deep-history exemption lasts after a consent, in minutes. */
+  readonly exemptionMinutes: number;
+}
+
+/**
+ * A consent that can only be fixed by a person re-authorising.
+ *
+ * The one provider failure the application must tell apart, because retrying it
+ * is pointless and reporting it as a transient error hides work only a human can
+ * do. Everything else a provider refuses — an endpoint it does not offer, a
+ * resource it does not have — is the adapter's business and comes back as
+ * `skipped`.
+ */
+export class ConsentExpired extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConsentExpired";
+  }
+}
+
+export interface BankData {
+  /** Measured facts about this provider. See BankLimits. */
+  readonly limits: BankLimits;
+  /**
+   * Data calls made so far against the unattended cap.
+   *
+   * Four per account, endpoint and consent per 24 hours, so one call per resource
+   * per run leaves room for four runs a day and it is a retry loop that breaches
+   * it. Failed calls count, because the provider counts them. Token refreshes do
+   * not: they are not data calls.
+   */
+  readonly calls: number;
+
+  /** Exchange a refresh token. Throws ConsentExpired when only a person can fix it. */
+  refresh(refreshToken: string): Promise<BankToken>;
+
+  /**
+   * Every account and card, and the listings to land.
+   *
+   * `skipped` names resources this provider does not offer — Amex is cards-only,
+   * with no accounts scope at all. Treating that as a failure aborts an Amex sync
+   * before it fetches anything.
+   */
+  listItems(accessToken: string): Promise<{
+    items: readonly BankItem[];
+    payloads: readonly BankPayload[];
+    skipped: readonly string[];
+  }>;
+
+  /**
+   * Everything held about one item, over a window.
+   *
+   * `transactions` is counted here because this is the only place that sees the
+   * response, and it is what anomaly detection watches: a current account doing
+   * thirty a day dropping to zero is a signal nothing else in a run would show.
+   */
+  fetchItem(
+    accessToken: string,
+    item: BankItem,
+    window: DateRange,
+  ): Promise<{
+    payloads: readonly BankPayload[];
+    skipped: readonly string[];
+    transactions: number;
+  }>;
+}

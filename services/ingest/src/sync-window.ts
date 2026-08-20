@@ -1,9 +1,11 @@
 /**
  * How much history to ask for on one sync.
  *
- * This is ingest's policy, not the provider's. `@tightarse/truelayer` publishes
- * the limits — how far back the API will go, how long the exemption lasts, what
- * unattended access is allowed — and this decides what to request within them.
+ * This is ingest's policy, not the provider's. The limits arrive as an argument —
+ * how far back the API will go, how long the exemption lasts, what unattended
+ * access is allowed — and this decides what to request within them. Taking them
+ * rather than importing them is what keeps this function free of any particular
+ * bank, and testable without one.
  *
  * Here rather than in the provider package because `services/ingest` is the only
  * thing that has ever used it. It sat next to the TrueLayer client on the
@@ -13,12 +15,7 @@
  * actually arrive.
  */
 
-import {
-  DEEP_HISTORY_WINDOW_MINUTES,
-  MAX_HISTORY_MONTHS,
-  UNATTENDED_HISTORY_DAYS,
-  historyFrom,
-} from "@tightarse/truelayer";
+import type { BankLimits } from "@tightarse/ports";
 
 /**
  * The narrowest routine window.
@@ -34,6 +31,21 @@ export const MIN_SYNC_DAYS = 10;
 export const SYNC_OVERLAP_DAYS = 3;
 
 const DAY_MS = 86_400_000;
+
+/**
+ * The same day-of-month, `months` earlier, clamped to the end of the target month.
+ *
+ * `setMonth` alone turns "one month before 31 March" into 3 March, because 31
+ * February rolls forward — a silent three-day gap in a fetch window, and exactly
+ * the kind of date bug nobody notices until reconciliation disagrees.
+ */
+function monthsBefore(months: number, now: Date): string {
+  const day = now.getUTCDate();
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - months, 1));
+  const lastDayOfTarget = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  d.setUTCDate(Math.min(day, lastDayOfTarget));
+  return d.toISOString().slice(0, 10);
+}
 
 export interface SyncWindow {
   /** Inclusive start, YYYY-MM-DD. */
@@ -57,19 +69,20 @@ export interface SyncWindow {
  */
 export function syncWindow(
   connection: { connectedAt: string; lastSyncedAt?: string | undefined },
+  limits: BankLimits,
   now = new Date(),
 ): SyncWindow {
   const to = now.toISOString().slice(0, 10);
   const age = now.getTime() - Date.parse(connection.connectedAt);
 
-  if (age <= DEEP_HISTORY_WINDOW_MINUTES * 60_000) {
-    return { from: historyFrom(MAX_HISTORY_MONTHS, now), to, deepHistory: true };
+  if (age <= limits.exemptionMinutes * 60_000) {
+    return { from: monthsBefore(limits.maxHistoryMonths, now), to, deepHistory: true };
   }
 
   const gapDays = connection.lastSyncedAt
     ? (now.getTime() - Date.parse(connection.lastSyncedAt)) / DAY_MS + SYNC_OVERLAP_DAYS
-    : UNATTENDED_HISTORY_DAYS;
+    : limits.unattendedHistoryDays;
 
-  const days = Math.min(UNATTENDED_HISTORY_DAYS, Math.max(MIN_SYNC_DAYS, Math.ceil(gapDays)));
+  const days = Math.min(limits.unattendedHistoryDays, Math.max(MIN_SYNC_DAYS, Math.ceil(gapDays)));
   return { from: new Date(now.getTime() - days * DAY_MS).toISOString().slice(0, 10), to, deepHistory: false };
 }

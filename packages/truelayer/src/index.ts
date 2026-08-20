@@ -297,3 +297,4 @@ export function historyFrom(months: number, now = new Date()): string {
   d.setUTCDate(Math.min(day, lastDayOfTarget));
   return d.toISOString().slice(0, 10);
 }
+export { TrueLayerBank } from "./bank.js";

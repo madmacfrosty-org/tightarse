@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { TrueLayerError } from "@tightarse/truelayer";
+import { ConsentExpired } from "@tightarse/ports";
 import {
   listConnections,
   refreshAndList,
@@ -28,7 +28,7 @@ const connection = (over: Partial<Connection> = {}): Connection => ({
 
 interface Fakes {
   deps: StepDeps;
-  gets: string[];
+  fetched: Array<{ item: { resource: string; itemId: string }; window: { from: string; to: string } }>;
   puts: Array<Record<string, unknown>>;
   updated: Connection[];
   published: string[];
@@ -38,7 +38,8 @@ interface Fakes {
 function fakes(
   responses: (path: string) => unknown | Promise<unknown> = () => ({ results: [] }),
 ): Fakes {
-  const gets: string[] = [];
+  const fetched: Array<{ item: { resource: string; itemId: string }; window: { from: string; to: string } }> = [];
+  let calls = 0;
   const puts: Array<Record<string, unknown>> = [];
   const updated: Connection[] = [];
   const published: string[] = [];
@@ -64,16 +65,50 @@ function fakes(
 
   const deps = {
     ...config,
-    truelayer: {
-      // The real client counts data calls; the fake reports what it recorded.
+    // A BankData fake. Which URLs get called, and which endpoints exist for a
+    // card versus an account, is the adapter's business and is tested against the
+    // adapter in packages/truelayer. What matters here is what the sync does with
+    // what comes back.
+    bank: {
+      limits: { maxHistoryMonths: 60, unattendedHistoryDays: 88, exemptionMinutes: 45 },
       get calls() {
-        return gets.length;
+        return calls;
       },
-      refresh: vi.fn(async () => ({ accessToken: "access-new", refreshToken: "refresh-new" })),
-      get: vi.fn(async (_token: string, path: string) => {
-        gets.push(path);
-        return { body: await responses(path) };
+      refresh: vi.fn(async () => ({
+        accessToken: "access-new",
+        refreshToken: "refresh-new",
+        expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+      })),
+      listItems: vi.fn(async () => {
+        calls += 1;
+        const body = await responses("/data/v1/accounts");
+        const results = (body as { results?: Array<{ account_id?: string }> }).results ?? [];
+        return {
+          items: results.flatMap((r) => (r.account_id ? [{ resource: "accounts", itemId: r.account_id }] : [])),
+          payloads: [{ dataset: "truelayer.accounts", itemId: null, body }],
+          skipped: [] as string[],
+        };
       }),
+      fetchItem: vi.fn(
+        async (
+          _token: string,
+          item: { resource: string; itemId: string },
+          window: { from: string; to: string },
+        ) => {
+          calls += 1;
+          fetched.push({ item, window });
+          const body = await responses(`/data/v1/${item.resource}/${item.itemId}/transactions`);
+          const prefix = item.resource === "cards" ? "truelayer.card_" : "truelayer.";
+          return {
+            payloads: [
+              { dataset: `${prefix}transactions`, itemId: item.itemId, body, window },
+              { dataset: `truelayer.${item.resource}`, itemId: item.itemId, body: {} },
+            ],
+            skipped: [] as string[],
+            transactions: ((body as { results?: unknown[] }).results ?? []).length,
+          };
+        },
+      ),
     },
     connections: {
       list: vi.fn(async () => [connection(), connection({ connectionId: "conn-2" })]),
@@ -103,7 +138,7 @@ function fakes(
     notifications: { publish: async (_subject: string, message: string) => void published.push(message) },
   } as unknown as StepDeps;
 
-  return { deps, gets, puts, updated, published };
+  return { deps, fetched, puts, updated, published };
 }
 
 describe("listConnections", () => {
@@ -132,20 +167,33 @@ describe("refreshAndList", () => {
     // Only a human reconnecting at the bank can fix it, so a thrown error
     // would be retried by the state machine for no purpose.
     const { deps } = fakes();
-    (deps.truelayer.refresh as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new TrueLayerError("consent expired", 400, "invalid_grant"),
+    (deps.bank.refresh as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new ConsentExpired("consent expired"),
     );
     const out = await refreshAndList(deps, { connection: connection() });
     expect(out.consentExpired).toBe(true);
     expect(out.items).toEqual([]);
   });
 
+  it("lets a transient refresh failure through, so the state machine retries it", async () => {
+    // Only ConsentExpired means a person must act. A 500 from the token endpoint
+    // swallowed as a lapsed consent would send someone to re-authorise a
+    // connection that is working, and would mark the run finished when it was
+    // not.
+    const { deps } = fakes();
+    (deps.bank.refresh as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("token endpoint 500"));
+    await expect(refreshAndList(deps, { connection: connection() })).rejects.toThrow(/500/);
+  });
+
   it("skips a resource the provider does not offer", async () => {
-    // Amex is cards-only and has no accounts scope at all. A missing resource
-    // is a shape, not a failure.
-    const { deps } = fakes((path) => {
-      if (path.endsWith("/accounts")) throw new TrueLayerError("not offered", 403, "forbidden");
-      return { results: [{ account_id: "card-1" }] };
+    // Amex is cards-only and has no accounts scope at all. A missing resource is
+    // a shape, not a failure. Which status codes mean that is the adapter's to
+    // decide; the sync only has to carry the answer through.
+    const { deps } = fakes();
+    (deps.bank.listItems as ReturnType<typeof vi.fn>).mockResolvedValue({
+      items: [{ resource: "cards", itemId: "card-1" }],
+      payloads: [{ dataset: "truelayer.cards", itemId: null, body: {} }],
+      skipped: ["accounts"],
     });
     const out = await refreshAndList(deps, { connection: connection() });
     expect(out.skipped).toContain("accounts");
@@ -170,37 +218,37 @@ describe("fetchItem", () => {
     itemId: "acc-1",
   };
 
-  it("asks for transactions first, over the full history window", async () => {
-    const { deps, gets } = fakes();
-    await fetchItem(deps, input);
-    expect(gets[0]).toContain("/accounts/acc-1/transactions?from=");
+  it("asks the provider once for the item, and lands everything it returns", async () => {
+    // Which endpoints that means, and in what order, moved to the adapter with
+    // the URLs. What the sync is responsible for is that every payload reaches
+    // the raw zone and the count reflects it.
+    const { deps, fetched, puts } = fakes();
+    const out = await fetchItem(deps, input);
+    expect(fetched).toEqual([
+      { item: { resource: "accounts", itemId: "acc-1" }, window: { from: expect.any(String), to: expect.any(String) } },
+    ]);
+    expect(out.objects).toBe(2);
+    expect(puts).toHaveLength(2);
   });
 
-  it("never asks a card for direct debits or standing orders", async () => {
-    // They are account concepts. The card paths return 404, which failed the
-    // whole step, retried four times, and re-fetched transactions, detail and
-    // balance on every attempt — five times the necessary calls against a cap
-    // of four per 24 hours.
-    const { deps, gets } = fakes();
+  it("lands each payload under the dataset the provider named it with", async () => {
+    // The raw zone is keyed by dataset and a replay reads it back to know what
+    // it is looking at, so the adapter's name has to survive the journey.
+    const { deps, puts } = fakes();
     await fetchItem(deps, { ...input, resource: "cards", itemId: "card-1" });
-    expect(gets.some((g) => g.includes("direct_debits"))).toBe(false);
-    expect(gets.some((g) => g.includes("standing_orders"))).toBe(false);
+    const keys = puts.map((p) => String(p["key"]));
+    expect(keys.some((k) => k.includes("card_transactions"))).toBe(true);
   });
 
-  it("does ask an account for them", async () => {
-    const { deps, gets } = fakes();
-    await fetchItem(deps, input);
-    expect(gets.some((g) => g.includes("direct_debits"))).toBe(true);
-    expect(gets.some((g) => g.includes("standing_orders"))).toBe(true);
-  });
-
-  it("skips an optional endpoint the provider refuses, rather than failing", async () => {
-    // First Direct returns 501 for standing orders everywhere and 403 for
-    // direct debits on accounts that have none.
-    const { deps } = fakes((path) => {
-      if (path.includes("standing_orders")) throw new TrueLayerError("not implemented", 501, "not_implemented");
-      if (path.includes("direct_debits")) throw new TrueLayerError("not offered", 403, "forbidden");
-      return { results: [] };
+  it("carries through an endpoint the provider refuses, rather than failing", async () => {
+    // First Direct returns 501 for standing orders everywhere and 403 for direct
+    // debits on accounts that have none. Alarming on those trains everyone to
+    // ignore alarms.
+    const { deps } = fakes();
+    (deps.bank.fetchItem as ReturnType<typeof vi.fn>).mockResolvedValue({
+      payloads: [{ dataset: "truelayer.transactions", itemId: "acc-1", body: { results: [] } }],
+      skipped: ["truelayer.standing_orders acc-1", "truelayer.direct_debits acc-1"],
+      transactions: 0,
     });
     const out = await fetchItem(deps, input);
     expect(out.skipped).toHaveLength(2);
@@ -208,10 +256,8 @@ describe("fetchItem", () => {
   });
 
   it("still fails on a genuine error, so the state machine retries it", async () => {
-    const { deps } = fakes((path) => {
-      if (path.includes("/transactions?")) throw new TrueLayerError("boom", 500, "server_error");
-      return { results: [] };
-    });
+    const { deps } = fakes();
+    (deps.bank.fetchItem as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("boom"));
     await expect(fetchItem(deps, input)).rejects.toThrow();
   });
 });
@@ -282,8 +328,14 @@ describe("recordOutcome", () => {
 describe("sync window", () => {
   const spanDays = (from: string, to: string) => (Date.parse(to) - Date.parse(from)) / 86_400_000;
 
+  /** The window the sync actually asked the provider for. */
+  const asked = (fetched: Array<{ window: { from: string; to: string } }>) => {
+    const w = fetched[0]!.window;
+    return spanDays(w.from, w.to);
+  };
+
   it("asks for the full history while the exemption window is open", async () => {
-    const { deps, gets } = fakes(() => ({ results: [{ account_id: "a1" }] }));
+    const { deps, fetched } = fakes(() => ({ results: [{ account_id: "a1" }] }));
     const out = await refreshAndList(deps, {
       connection: connection({ connectedAt: new Date().toISOString() }),
     });
@@ -297,15 +349,13 @@ describe("sync window", () => {
       from: out.window.from,
       to: out.window.to,
     });
-    const call = gets.find((g) => g.includes("/transactions?from="))!;
-    const [, from, to] = call.match(/from=([0-9-]+)&to=([0-9-]+)/)!;
-    expect(spanDays(from!, to!) / 365.25).toBeGreaterThan(4.9);
+    expect(asked(fetched) / 365.25).toBeGreaterThan(4.9);
   });
 
   it("never asks for more than 88 days once it has closed", async () => {
     // 92 days was refused outright: the provider denies the whole call rather
     // than truncating, so every item failed and the ledger stopped moving.
-    const { deps, gets } = fakes(() => ({ results: [{ account_id: "a1" }] }));
+    const { deps, fetched } = fakes(() => ({ results: [{ account_id: "a1" }] }));
     const old = new Date(Date.now() - 40 * 86_400_000).toISOString();
     const out = await refreshAndList(deps, { connection: connection({ connectedAt: old }) });
 
@@ -317,19 +367,15 @@ describe("sync window", () => {
       from: out.window.from,
       to: out.window.to,
     });
-    const call = gets.find((g) => g.includes("/transactions?from="))!;
-    const [, from, to] = call.match(/from=([0-9-]+)&to=([0-9-]+)/)!;
-    expect(spanDays(from!, to!)).toBeLessThanOrEqual(88);
+    expect(asked(fetched)).toBeLessThanOrEqual(88);
   });
 
   it("falls back to a safe window rather than the full history", async () => {
     // A missing range must not widen into sixty months — that is exactly the
     // request the provider refuses.
-    const { deps, gets } = fakes();
+    const { deps, fetched } = fakes();
     await fetchItem(deps, { tenantId: "frost", accessToken: "a", resource: "accounts", itemId: "a1" });
-    const call = gets.find((g) => g.includes("/transactions?from="))!;
-    const [, from, to] = call.match(/from=([0-9-]+)&to=([0-9-]+)/)!;
-    expect(spanDays(from!, to!)).toBeLessThanOrEqual(88);
+    expect(asked(fetched)).toBeLessThanOrEqual(88);
   });
 });
 

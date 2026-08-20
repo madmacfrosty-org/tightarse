@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
+import type { BankLimits } from "@tightarse/ports";
 import { syncWindow } from "./sync-window.js";
+
+/**
+ * TrueLayer's, measured against it. Stated here rather than imported, because the
+ * point of the argument is that this function has no opinion about which provider
+ * it is planning for.
+ */
+const limits: BankLimits = { maxHistoryMonths: 60, unattendedHistoryDays: 88, exemptionMinutes: 45 };
 
 /**
  * How much history one sync asks for.
@@ -17,28 +25,28 @@ describe("syncWindow", () => {
 
   it("asks for everything the bank will give inside the exemption window", () => {
     // The only moment deep history is available, and it does not come back.
-    const w = syncWindow({ connectedAt }, at(10));
+    const w = syncWindow({ connectedAt }, limits, at(10));
     expect(w.deepHistory).toBe(true);
     expect(days(w) / 365.25).toBeGreaterThan(4.9);
   });
 
   it("stops short of the documented hour", () => {
     // Asking a minute late costs the whole run rather than degrading.
-    expect(syncWindow({ connectedAt }, at(44)).deepHistory).toBe(true);
-    expect(syncWindow({ connectedAt }, at(46)).deepHistory).toBe(false);
+    expect(syncWindow({ connectedAt }, limits, at(44)).deepHistory).toBe(true);
+    expect(syncWindow({ connectedAt }, limits, at(46)).deepHistory).toBe(false);
   });
 
   it("never asks for more than 88 days once the window has closed", () => {
     // 90 is the provider's limit and it refuses the whole call rather than
     // truncating. The first attempt at this asked for three calendar months —
     // 13 May to 13 August, 92 days — and was denied for being two days greedy.
-    const w = syncWindow({ connectedAt }, at(60 * 24 * 400));
+    const w = syncWindow({ connectedAt }, limits, at(60 * 24 * 400));
     expect(days(w)).toBeLessThanOrEqual(88);
   });
 
   it("asks for the widest allowed window when nothing has ever synced", () => {
     // A connection that has never worked has the most to catch up on.
-    const w = syncWindow({ connectedAt }, at(60 * 24 * 5));
+    const w = syncWindow({ connectedAt }, limits, at(60 * 24 * 5));
     expect(days(w)).toBe(88);
   });
 
@@ -49,6 +57,7 @@ describe("syncWindow", () => {
     const now = at(60 * 24 * 30);
     const w = syncWindow(
       { connectedAt, lastSyncedAt: new Date(now.getTime() - 86_400_000).toISOString() },
+      limits,
       now,
     );
     expect(days(w)).toBe(10);
@@ -58,6 +67,7 @@ describe("syncWindow", () => {
     const now = at(60 * 24 * 60);
     const w = syncWindow(
       { connectedAt, lastSyncedAt: new Date(now.getTime() - 20 * 86_400_000).toISOString() },
+      limits,
       now,
     );
     expect(days(w)).toBe(23);
@@ -67,6 +77,7 @@ describe("syncWindow", () => {
     const now = at(60 * 24 * 400);
     const w = syncWindow(
       { connectedAt, lastSyncedAt: new Date(now.getTime() - 300 * 86_400_000).toISOString() },
+      limits,
       now,
     );
     expect(days(w)).toBe(88);

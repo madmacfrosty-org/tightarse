@@ -9,22 +9,23 @@ export default defineConfig({
     coverage: {
       ...coverageBase,
       thresholds: {
-        // Above where it started, by a different route than expected.
+        // Nearly total, and it took becoming a real adapter to get here.
         //
-        // The sync-window policy left for services/ingest, taking its seven tests
-        // with it, and this fell 92.1 to 91.04 — not because anything became less
-        // tested, but because a percentage over a smaller set of files is measuring
-        // something else. Rather than re-baseline down, the gap it exposed got
-        // covered: TrueLayerClient's request methods now have HTTP doubles, and the
-        // number is higher than it was before the move.
+        // The sync-window policy left for services/ingest and this fell 92.1 to
+        // 91.04 — not because anything became less tested, but because a
+        // percentage over a smaller set of files measures something else. Covering
+        // TrueLayerClient's request methods with HTTP doubles took it to 95.52.
         //
-        // Functions stays low because the endpoint-spec predicates are data rather
-        // than behaviour. What matters is that `get` and `token` are exercised —
-        // the two that spend the rate-limit allowance and handle refresh tokens.
-        lines: 95.52,
-        functions: 61.11,
-        branches: 92.3,
-        statements: 95.52,
+        // Then the provider knowledge moved in: the URLs, the per-resource
+        // endpoints, the dataset names and the classification of what TrueLayer
+        // refuses, all of which services/ingest used to assert on through fake
+        // paths. Testing it where it lives took functions from 61 to 100 — the
+        // endpoint-spec predicates that were "data rather than behaviour" turn out
+        // to be behaviour once something exercises them.
+        lines: 99.08,
+        functions: 100,
+        branches: 92.53,
+        statements: 99.08,
         autoUpdate,
       },
     },
