@@ -74,15 +74,24 @@ describe("raw landing zone", () => {
 });
 
 describe("identity", () => {
-  it("configures federation only where a client id is supplied", () => {
-    // prod has none yet. Worth an explicit test so its absence is a recorded
-    // state rather than something noticed at sign-in.
-    //
-    // Two in dev, one per pool, while #36's changeover is in progress. Both
-    // pools need their own provider — an identity provider belongs to a pool
-    // and cannot be shared.
+  it("gives every pool its own provider where a client id is supplied", () => {
+    // Two per environment, one per pool, while #36's changeover is in progress.
+    // Both pools need their own — an identity provider belongs to a pool and
+    // cannot be shared.
     expect(Object.keys(dev.data.findResources("AWS::Cognito::UserPoolIdentityProvider"))).toHaveLength(2);
-    expect(Object.keys(prod.data.findResources("AWS::Cognito::UserPoolIdentityProvider"))).toHaveLength(0);
+    expect(Object.keys(prod.data.findResources("AWS::Cognito::UserPoolIdentityProvider"))).toHaveLength(2);
+  });
+
+  it("configures no federation where a client id is absent", () => {
+    // A deploy without one comes up with email and password only, and adding the
+    // provider afterwards means CloudFormation refusing to drop an export the
+    // stack still uses — which is #36 from the other direction.
+    //
+    // Tested against a synthesised environment rather than whichever one happens
+    // to lack a client id. It used to read prod, which had none; prod got one and
+    // this would have stopped testing anything without failing to say so.
+    const none = templates({}, { googleClientId: undefined });
+    expect(Object.keys(none.data.findResources("AWS::Cognito::UserPoolIdentityProvider"))).toHaveLength(0);
   });
 
   it("gives the replacement pool a mutable email, which is its entire purpose", () => {

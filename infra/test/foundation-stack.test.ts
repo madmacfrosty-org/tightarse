@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Match } from "aws-cdk-lib/assertions";
 import { templates, policyStatements } from "./harness";
+import { config } from "../lib/config";
 
 const { foundation } = templates();
 const prodFoundation = templates({ env: "prod" }).foundation;
@@ -42,9 +43,15 @@ describe("GitHub deploy role", () => {
   });
 
   it("accepts both the documented and the immutable subject form", () => {
-    // GitHub issues repo:owner@<id>/repo@<id>:environment:dev, not the
-    // documented repo:owner/repo form. A policy written from the docs matches
-    // nothing and fails as "Not authorized", which says nothing about why.
+    // GitHub issues repo:owner@<id>/repo@<id>:environment:dev, not the documented
+    // repo:owner/repo form. A policy written from the docs matches nothing and
+    // fails as "Not authorized", which says nothing about why.
+    //
+    // Derived from config rather than written out here. A literal would have gone
+    // on passing when this repository moved to an organisation and the owner id
+    // changed underneath it — the test would have been green while every deploy
+    // failed. Only CI can catch that, and config.ts says how to read the real
+    // subject back after a move.
     const roles = foundation.findResources("AWS::IAM::Role");
     const subs = Object.values(roles)
       .flatMap((r: any) => r.Properties?.AssumeRolePolicyDocument?.Statement ?? [])
@@ -52,7 +59,7 @@ describe("GitHub deploy role", () => {
       .filter(Boolean)
       .flat();
 
-    expect(subs).toContain("repo:madmacfrosty/tightarse:environment:dev");
+    expect(subs).toContain(`repo:${config.githubRepo}:environment:dev`);
     expect(subs.some((s: string) => /^repo:[^@]+@\d+\/[^@]+@\d+:environment:dev$/.test(s))).toBe(true);
   });
 
@@ -78,7 +85,7 @@ describe("GitHub deploy role", () => {
     // Stated the other way round too: the failure was prod trusting dev, and an
     // "every ends with prod" assertion passes vacuously on an empty list.
     expect(subsFor(prodFoundation).length).toBeGreaterThan(0);
-    expect(subsFor(prodFoundation)).not.toContain("repo:madmacfrosty/tightarse:environment:dev");
+    expect(subsFor(prodFoundation)).not.toContain(`repo:${config.githubRepo}:environment:dev`);
   });
 
   it("can do nothing but assume the CDK bootstrap roles", () => {
@@ -174,8 +181,8 @@ describe("CI integration-test role", () => {
       .filter(Boolean)
       .flat() as string[];
 
-    expect(subs).toContain("repo:madmacfrosty/tightarse:pull_request");
-    expect(subs).toContain("repo:madmacfrosty/tightarse:ref:refs/heads/main");
+    expect(subs).toContain(`repo:${config.githubRepo}:pull_request`);
+    expect(subs).toContain(`repo:${config.githubRepo}:ref:refs/heads/main`);
     expect(subs.some((s) => /^repo:[^@]+@\d+\/[^@]+@\d+:pull_request$/.test(s))).toBe(true);
     // No wildcards: a bare `repo:owner/repo:*` would accept a workflow_dispatch
     // from any branch anyone can push.
