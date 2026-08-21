@@ -19,9 +19,10 @@
  * real client, which needs a table and a region.
  */
 export type BatchLedger = Omit<CategoriserReads, "getSettings">;
-import { applyRules, compileCustom, RULES_VERSION } from "./rules.js";
-import type { Candidate, Classification } from "./categorise.js";
-import type { CategoriserReads } from "@tightarse/domain";
+import { applyRules, compileCustom, RULES_VERSION } from "./merchant-rules.js";
+import type { Candidate, Classification } from "./taxonomy.js";
+import type { DateRange } from "../ports/index.js";
+import type { CategoriserReads } from "../index.js";
 
 export interface Prepared {
   candidates: Candidate[];
@@ -33,16 +34,12 @@ export interface Prepared {
   customRuleCount: number;
 }
 
-export interface Range {
-  from: string;
-  to: string;
-}
 
 /** Read the backlog and apply rules to it. Writes nothing. */
 export async function prepare(
   ledger: BatchLedger,
   tenantId: string,
-  range: Range,
+  range: DateRange,
   limit?: number,
 ): Promise<Prepared> {
   const backlog = await ledger.listToEnrich(tenantId, range, limit);

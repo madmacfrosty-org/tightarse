@@ -17,7 +17,7 @@
  */
 import { DynamoStore } from "@tightarse/dynamodb";
 import { emit } from "@tightarse/metrics";
-import { enrichmentMetrics, prepare, writeRuleEnrichments, type BatchLedger } from "./batch.js";
+import { enrichmentMetrics, prepare, writeRuleEnrichments, type BatchLedger } from "@tightarse/domain";
 import type { CategoriserReads } from "@tightarse/domain";
 
 function required(name: string): string {

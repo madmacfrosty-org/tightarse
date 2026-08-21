@@ -1,26 +1,11 @@
 import { z } from "zod";
-import { CATEGORIES, FALLBACK_CATEGORY, isCategory, type Category } from "./taxonomy.js";
+import type { Candidate, Classification } from "@tightarse/domain";
+import { CATEGORIES, FALLBACK_CATEGORY, isCategory, type Category } from "@tightarse/domain";
 
 /**
  * Prompt construction and response parsing. Pure — no Bedrock, no network — so
  * the fiddly part is testable without spending tokens.
  */
-
-export interface Candidate {
-  dedupKey: string;
-  description: string;
-  /** Signed minor units. */
-  amount: number;
-  currency: string;
-  /** TrueLayer's coarse `transaction_category`: PURCHASE, DIRECT_DEBIT, ATM… */
-  providerCategory?: string;
-}
-
-export interface Classification {
-  dedupKey: string;
-  category: Category;
-  confidence: number;
-}
 
 /** What the model is asked to return, one entry per candidate. */
 export const ModelOutput = z.object({

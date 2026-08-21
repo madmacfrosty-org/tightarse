@@ -1,8 +1,8 @@
-import { enrichmentMetrics } from "../src/batch.js";
+import { enrichmentMetrics } from "../src/categorisation/categorising.js";
 import { describe, it, expect } from "vitest";
-import { applyRules, RULES } from "../src/rules.js";
-import { isCategory } from "../src/taxonomy.js";
-import type { Candidate } from "../src/categorise.js";
+import { applyRules, RULES } from "../src/categorisation/merchant-rules.js";
+import { isCategory } from "../src/categorisation/taxonomy.js";
+import type { Candidate } from "../src/categorisation/taxonomy.js";
 
 const cand = (description: string, over: Partial<Candidate> = {}): Candidate => ({
   dedupKey: `n:${description}`,

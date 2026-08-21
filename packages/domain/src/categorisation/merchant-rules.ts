@@ -1,6 +1,6 @@
-import type { CustomRule } from "@tightarse/domain";
+import type { CustomRule } from "../index.js";
 import { isCategory, type Category } from "./taxonomy.js";
-import type { Candidate, Classification } from "./categorise.js";
+import type { Candidate, Classification } from "./taxonomy.js";
 
 /**
  * Deterministic merchant rules, applied before any model call.
@@ -21,12 +21,20 @@ import type { Candidate, Classification } from "./categorise.js";
  * Private overrides belong outside the repo.
  */
 
-export interface Rule {
+/**
+ * A compiled merchant rule: a description pattern and the category it implies.
+ *
+ * Distinct from `Rule` in ./rules.ts, which is #39's authored, versioned model
+ * and is meant to replace this. Both exist while that changeover is unbuilt, and
+ * they were both called `Rule` in different packages — which only worked because
+ * nothing imported the two together.
+ */
+export interface MerchantRule {
   readonly pattern: RegExp;
   readonly category: Category;
 }
 
-export const RULES: readonly Rule[] = [
+export const RULES: readonly MerchantRule[] = [
   // Groceries
   { pattern: /\b(TESCO|SAINSBURY'?S?|ASDA|ALDI|LIDL|MORRISON'?S?|WAITROSE|CO-?OP|ICELAND|OCADO|BOOKER)\b/i, category: "Groceries" },
   { pattern: /\bM&?S\s*(SIMPLY\s*)?FOOD\b/i, category: "Groceries" },
@@ -98,8 +106,8 @@ export interface RuleResult {
  * throwing: these are entered by hand, and one typo should not stop a whole
  * categorisation run.
  */
-export function compileCustom(rules: readonly CustomRule[]): Rule[] {
-  const compiled: Rule[] = [];
+export function compileCustom(rules: readonly CustomRule[]): MerchantRule[] {
+  const compiled: MerchantRule[] = [];
   for (const r of rules) {
     if (!isCategory(r.category)) {
       console.warn(`skipping custom rule "${r.pattern}": unknown category "${r.category}"`);
@@ -116,7 +124,7 @@ export function compileCustom(rules: readonly CustomRule[]): Rule[] {
 
 export function applyRules(
   candidates: readonly Candidate[],
-  custom: readonly Rule[] = [],
+  custom: readonly MerchantRule[] = [],
 ): RuleResult {
   const classifications: Classification[] = [];
   const unmatched: Candidate[] = [];

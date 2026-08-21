@@ -3,8 +3,8 @@ import {
   ConverseCommand,
   type Tool,
 } from "@aws-sdk/client-bedrock-runtime";
-import { buildPrompt, parseResponse, SYSTEM_PROMPT, type Candidate, type Classification } from "./categorise.js";
-import { CATEGORIES } from "./taxonomy.js";
+import { buildPrompt, parseResponse, SYSTEM_PROMPT } from "./categorise.js";
+import { CATEGORIES, type Candidate, type Classification } from "@tightarse/domain";
 
 /**
  * Bedrock inference.

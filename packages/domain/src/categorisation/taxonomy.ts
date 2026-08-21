@@ -54,3 +54,27 @@ export function isCategory(value: string): value is Category {
  * spot than an uncategorised one.
  */
 export const FALLBACK_CATEGORY: Category = "Other";
+
+/**
+ * A transaction awaiting a category.
+ *
+ * The vocabulary both paths speak: rules match on `description`, and the model is
+ * shown the same fields. It lived in the model's prompt file, which made the
+ * deterministic path depend on the shape of one model's input.
+ */
+export interface Candidate {
+  dedupKey: string;
+  description: string;
+  /** Signed minor units. */
+  amount: number;
+  currency: string;
+  /** TrueLayer's coarse `transaction_category`: PURCHASE, DIRECT_DEBIT, ATM… */
+  providerCategory?: string;
+}
+
+/** A category applied to one candidate, by whichever path decided it. */
+export interface Classification {
+  dedupKey: string;
+  category: Category;
+  confidence: number;
+}
