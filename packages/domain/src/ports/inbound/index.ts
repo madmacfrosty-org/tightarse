@@ -15,6 +15,7 @@
  */
 
 import type { DateRange } from "../index.js";
+import type { AccountId } from "../../ledger/account.js";
 
 /** A category and what it came to over a range. */
 export interface CategoryTotal {
@@ -116,11 +117,13 @@ export interface BalancePoint {
   readonly net: number;
 }
 
+/** Every categorised transaction in a range, newest first. */
 export interface TransactionsResult {
   readonly range: DateRange;
   readonly transactions: readonly CategorisedTransaction[];
 }
 
+/** Every account the household holds, with its latest known state. */
 export interface AccountsResult {
   readonly accounts: readonly AccountState[];
   /**
@@ -134,6 +137,7 @@ export interface AccountsResult {
   readonly completeFrom?: string | undefined;
 }
 
+/** Balances over time: one series per account, plus the household's net position. */
 export interface BalancesResult {
   /**
    * The range actually served, which may be narrower than the one requested.
@@ -170,6 +174,13 @@ export interface SummaryOptions {
   readonly nettingTransfers?: boolean;
 }
 
+/**
+ * What the household can be shown.
+ *
+ * The read side in full. Every driver — the Lambda, the local HTTP server, the
+ * report CLI — goes through exactly these four, so a change in what a total
+ * means cannot reach one of them without reaching all three.
+ */
 export interface Reporting {
   summary(tenantId: string, range: DateRange, opts?: SummaryOptions): Promise<Summary>;
   transactions(tenantId: string, range: DateRange): Promise<TransactionsResult>;
@@ -178,22 +189,55 @@ export interface Reporting {
 }
 
 /**
- * What a reconciliation run found.
+ * What the check made of one account.
  *
- * Counts, never amounts: a discrepancy is a balance, and a balance is as
- * personal as a transaction. `lines` is one JSON object per account for a
- * caller to log — returned rather than written, so the domain needs no console.
+ * Counts, never amounts. A discrepancy is a balance, and a balance is as
+ * personal as a transaction — this output reaches CloudWatch.
+ *
+ * Nothing here says whether the account is a card. The caller read the accounts
+ * in the first place and already knows; carrying it would put a provider's
+ * product taxonomy into a domain result that makes no use of it.
+ */
+export interface AccountReconciliation {
+  /** How many balance readings this account had in the ledger. */
+  readonly readings: number;
+  /**
+   * 1 when there were enough readings to check, 0 otherwise.
+   *
+   * Zero is the normal state of a newly connected account and of every account
+   * until a second sync has run, and it is not a failure. It must stay
+   * distinguishable from zero breaks, or "nothing was checked" reads as
+   * "everything is healthy".
+   */
+  readonly checked: number;
+  /**
+   * 1 when the arithmetic did not come out, 0 otherwise.
+   *
+   * Never more than 1: the check compares the whole span from oldest reading to
+   * newest, not each consecutive pair, so an account either reconciles over its
+   * series or does not.
+   */
+  readonly breaks: number;
+}
+
+/**
+ * What a reconciliation run found, keyed by account.
+ *
+ * The totals are the same numbers summed, carried because every caller wants
+ * them and summing a record at four call sites invites four different answers.
+ * `breaks <= checked <= size of accounts` always holds.
  */
 export interface ReconciliationReport {
-  readonly accounts: number;
-  /** Accounts with enough readings to check. Zero checks is not zero breaks. */
+  /** Every account the run looked at, whether or not it could be checked. */
+  readonly accounts: Readonly<Record<AccountId, AccountReconciliation>>;
+  /** Accounts with enough readings to check. */
   readonly checked: number;
+  /** Accounts whose arithmetic did not come out. */
   readonly breaks: number;
-  readonly metrics: Readonly<Record<string, number>>;
-  readonly lines: readonly string[];
 }
 
 /** Check the ledger's arithmetic against the balances the banks reported. */
 export interface Reconciliation {
+  /** Check every account this household holds, and record what was found. */
   run(tenantId: string): Promise<ReconciliationReport>;
 }

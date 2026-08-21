@@ -3,6 +3,7 @@ import path from "node:path";
 import tseslint from "typescript-eslint";
 import importX from "eslint-plugin-import-x";
 import reactHooks from "eslint-plugin-react-hooks";
+import jsdoc from "eslint-plugin-jsdoc";
 
 /**
  * The architecture, as a check rather than a convention.
@@ -278,6 +279,25 @@ export default [
   // regression drives real mapTransaction output from @tightarse/transform
   // through the API's own aggregation, which is the point of the test — a fake
   // would not have caught the inverted card sign. Nothing here is deployed.
+  // The ports are the surface every other package consumes, so a type with no
+  // explanation costs whoever implements it.
+  //
+  // Declarations, not members. Requiring a comment on all 145 property and
+  // method signatures would mostly produce restatements of the signature, and
+  // the comments in this repo are worth reading precisely because they are not
+  // that. The 8 undocumented types this caught were a real gap; a per-member
+  // rule is a ratchet available later if the prose ever stops keeping up.
+  {
+    files: ["packages/domain/src/ports/**/*.ts"],
+    plugins: { jsdoc },
+    rules: {
+      "jsdoc/require-jsdoc": ["error", { contexts: ["TSInterfaceDeclaration", "TSTypeAliasDeclaration"] }],
+      // Tags carry what the types cannot — @throws, @defaultValue, @see. None is
+      // required, but a malformed one is silently swallowed by every doc
+      // generator, so the spelling is checked.
+      "jsdoc/check-tag-names": ["error", { typed: true }],
+    },
+  },
   {
     files: ["**/test/**"],
     rules: { "no-restricted-imports": "off" },

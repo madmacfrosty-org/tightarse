@@ -23,7 +23,7 @@ const reading = (accountId: string, asOf: string, balance: number, fetchedAt = a
 
 function deps(
   over: {
-    accounts?: () => Promise<readonly { accountId: string; isCard: boolean }[]>;
+    accounts?: () => Promise<readonly string[]>;
     readingsByAccount?: Record<string, Reading[]>;
     movementsByAccount?: Record<string, ReconciliationMovement[]>;
   } = {},
@@ -37,7 +37,7 @@ function deps(
     cleared,
     deps: {
       data: {
-        accounts: over.accounts ?? (async () => [{ accountId: "acc-1", isCard: false }]),
+        accounts: over.accounts ?? (async () => ["acc-1"]),
         readings: async (id: string) => readings[id] ?? [],
         movements: async (id: string) => movements[id] ?? [],
       },
@@ -109,49 +109,50 @@ describe("marking what did not add up", () => {
 });
 
 describe("running over a household", () => {
-  it("checks every account, cards included", async () => {
+  it("reports every account it looked at, keyed by id", async () => {
     // Cards are the reason this exists: they carry no running balance, so this
-    // is the only check that can see them at all.
+    // is the only check that can see them at all. The result says nothing about
+    // which is which — the caller read the accounts and already knows.
     const { deps: d } = deps({
-      accounts: async () => [
-        { accountId: "acc-1", isCard: false },
-        { accountId: "card-1", isCard: true },
-      ],
+      accounts: async () => ["acc-1", "card-1"],
       readingsByAccount: {
         "acc-1": [reading("acc-1", "2026-01-01T05:00:00.000Z", 100), reading("acc-1", "2026-01-03T05:00:00.000Z", 100)],
         "card-1": [reading("card-1", "2026-01-01T05:00:00.000Z", -500), reading("card-1", "2026-01-03T05:00:00.000Z", -700)],
       },
     });
     const result = await reconcile(d, TENANT);
-    expect(result.accounts).toBe(2);
+    expect(Object.keys(result.accounts)).toEqual(["acc-1", "card-1"]);
     expect(result.checked).toBe(2);
-    expect(result.metrics["ReconciliationBreaksCard"]).toBe(1);
-    expect(result.metrics["ReconciliationBreaksAccount"]).toBe(0);
+    expect(result.accounts["card-1"]).toEqual({ readings: 2, checked: 1, breaks: 1 });
+    expect(result.accounts["acc-1"]).toEqual({ readings: 2, checked: 1, breaks: 0 });
   });
 
   it("reports zero checks for a household whose accounts have one reading each", async () => {
     // Every account is in this state until a second sync has run. Zero breaks
-    // here means "nothing checked", not "everything healthy", and the metrics
-    // have to say which.
+    // here means "nothing checked", not "everything healthy", and the report
+    // has to say which.
     const { deps: d } = deps({
       readingsByAccount: { "acc-1": [reading("acc-1", "2026-01-01T05:00:00.000Z", 100)] },
     });
     const result = await reconcile(d, TENANT);
-    expect(result.metrics).toMatchObject({ ReconciliationsChecked: 0, ReconciliationBreaksAccount: 0 });
+    expect(result.checked).toBe(0);
+    expect(result.breaks).toBe(0);
+    expect(result.accounts["acc-1"]).toEqual({ readings: 1, checked: 0, breaks: 0 });
   });
 
-  it("logs counts only, never a balance", async () => {
-    // A balance is as personal as a transaction. This output goes to
-    // CloudWatch.
+  it("carries counts only, never a balance", async () => {
+    // A balance is as personal as a transaction, and everything downstream of
+    // this reaches CloudWatch.
     const { deps: d } = deps({
       readingsByAccount: {
         "acc-1": [reading("acc-1", "2026-01-01T05:00:00.000Z", 123_456), reading("acc-1", "2026-01-03T05:00:00.000Z", 99_999)],
       },
     });
-    const { lines } = await reconcile(d, TENANT);
-    expect(lines.join(" ")).not.toContain("123456");
-    expect(lines.join(" ")).not.toContain("99999");
-    expect(JSON.parse(lines[0]!)).toMatchObject({ accountId: "acc-1", readings: 2, checked: 1, breaks: 1 });
+    const result = await reconcile(d, TENANT);
+    const serialised = JSON.stringify(result);
+    expect(serialised).not.toContain("123456");
+    expect(serialised).not.toContain("99999");
+    expect(result.accounts["acc-1"]).toEqual({ readings: 2, checked: 1, breaks: 1 });
   });
 });
 

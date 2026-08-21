@@ -13,7 +13,7 @@ import { DynamoTableRows, DynamoStore } from "@tightarse/dynamodb";
 import { emit } from "@tightarse/metrics";
 import { reconcile } from "@tightarse/domain";
 import { scanAll, type Row } from "./compare.js";
-import { dataFrom } from "./reconcile-job.js";
+import { dataFrom, groupForReconciliation, reconciliationLines, reconciliationMetrics } from "./reconcile-job.js";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -41,11 +41,13 @@ async function main(): Promise<void> {
   // The same grouping the scheduled job uses. It was duplicated here, and the
   // copy left out `firstSeenAt` — so this reported breaks for late settlers that
   // the job correctly explained, on the same data.
+  const cards = new Set(groupForReconciliation(rows).accounts.filter((a) => a.isCard).map((a) => a.accountId));
+  const isCard = (id: string) => cards.has(id);
   const result = await reconcile({ data: dataFrom(rows), marks: ledger }, tenantId);
-  for (const line of result.lines) console.log(line);
+  for (const line of reconciliationLines(result, isCard)) console.log(line);
 
-  console.log(`\n${result.accounts} accounts, ${result.checked} checks, ${result.breaks} breaks`);
-  emit({ namespace: "Tightarse", environment, metrics: result.metrics, properties: { tenantId } });
+  console.log(`\n${Object.keys(result.accounts).length} accounts, ${result.checked} checks, ${result.breaks} breaks`);
+  emit({ namespace: "Tightarse", environment, metrics: reconciliationMetrics(result, isCard), properties: { tenantId } });
 
   if (result.breaks > 0) process.exitCode = 1;
 }

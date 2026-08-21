@@ -46,47 +46,46 @@
  * is marked dirty instead, and anything derived from it is dirty too.
  */
 
-/** A stored balance reading, as much of it as this needs. */
-export interface Reading {
-  readonly accountId: string;
-  /**
-   * When the balance was true: the provider's own timestamp where it gave one,
-   * ours otherwise. Everything here orders and windows on this rather than on
-   * `fetchedAt`, because a card balance can be served from data refreshed up to
-   * half an hour before we asked — measured, not assumed.
-   */
-  readonly asOf: string;
-  /** When we asked. Carried so a break can be written back to its own row. */
-  readonly fetchedAt: string;
-  readonly balance: number;
-}
+import type { BalanceReading } from "./balance.js";
+import type { Transaction } from "./transaction.js";
 
 /**
- * A stored transaction, as much of it as this needs.
+ * A stored balance reading, as much of it as this check needs.
  *
- * Named for its subject because `reporting/balances.ts` has its own `ReconciliationMovement`:
- * a different projection of the same row, carrying an account and a sort
- * tiebreak instead of provenance. Both are deliberately less than a ledger row,
- * and merging them would force each to carry what only the other needs.
+ * A `Pick` rather than a restatement so the two cannot drift: renaming a field
+ * on `BalanceReading` now breaks this at compile time instead of silently
+ * leaving the check reading a property that no longer exists.
+ *
+ * `asOf` is when the balance was true — the provider's own timestamp where it
+ * gave one, ours otherwise. Everything here orders and windows on it rather
+ * than on `fetchedAt`, because a card balance can be served from data refreshed
+ * up to half an hour before we asked; measured, not assumed. `fetchedAt` is
+ * carried because a break is written back to its own row, which is keyed on
+ * both.
  */
-export interface ReconciliationMovement {
-  readonly timestamp: string;
-  readonly amount: number;
-  /**
-   * When this transaction was first written, if known.
-   *
-   * A balance is a fact about what had settled when it was taken, and that is not
-   * recoverable afterwards. This is the nearest thing we hold: a transaction we
-   * first saw after a reading was taken cannot have been in that reading's
-   * balance, so it moved the balance between then and now even if its date says
-   * otherwise.
-   *
-   * Absent for rows written before provenance became write-once. Absent is read
-   * as "we already had it", which is what the check assumed before this existed —
-   * so legacy rows behave exactly as they did rather than being guessed at.
-   */
+export type Reading = Pick<BalanceReading, "accountId" | "asOf" | "fetchedAt" | "balance">;
+
+/**
+ * A stored transaction, as much of it as this check needs.
+ *
+ * Not a plain `Pick`, and the exception is the point. `timestamp` and `amount`
+ * come from `Transaction`; `firstSeenAt` does not exist there because it is not
+ * a fact about the transaction at all. It is storage provenance — when the row
+ * was first written — and it only became trustworthy when writes stopped
+ * overwriting it.
+ *
+ * A balance is a fact about what had settled when it was taken, and that is not
+ * recoverable afterwards. This is the nearest thing we hold: a transaction first
+ * seen after a reading was taken cannot have been in that reading's balance, so
+ * it moved the balance between then and now even if its date says otherwise.
+ *
+ * Absent for rows written before provenance became write-once. Absent is read as
+ * "we already had it", which is what the check assumed before this existed — so
+ * legacy rows behave exactly as they did rather than being guessed at.
+ */
+export type ReconciliationMovement = Pick<Transaction, "timestamp" | "amount"> & {
   readonly firstSeenAt?: string | undefined;
-}
+};
 
 export interface Break {
   readonly accountId: string;
@@ -203,25 +202,5 @@ export function reconcileAccount(
         movements: window.length + late.length,
       },
     ],
-  };
-}
-
-/** Counts to emit, split by card because cards cannot be compared to accounts. */
-export function reconciliationMetrics(
-  results: ReadonlyArray<{ result: ReconciliationResult; isCard: boolean }>,
-): Record<string, number> {
-  const sum = (predicate: (r: { isCard: boolean }) => boolean, pick: (r: ReconciliationResult) => number) =>
-    results.filter(predicate).reduce((total, r) => total + pick(r.result), 0);
-
-  return {
-    // Split because a single total would say something is wrong without saying
-    // where, and because an alarm that cannot tell a card from an account is
-    // how the permanently-firing alarm in 927c593 happened.
-    ReconciliationBreaksAccount: sum((r) => !r.isCard, (x) => x.breaks.length),
-    ReconciliationBreaksCard: sum((r) => r.isCard, (x) => x.breaks.length),
-    // Emitted so zero checks is distinguishable from zero breaks. An account
-    // with one reading has nothing to check yet, and that must not read as
-    // healthy.
-    ReconciliationsChecked: sum(() => true, (x) => x.checked),
   };
 }

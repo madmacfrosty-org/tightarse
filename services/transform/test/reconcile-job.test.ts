@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
-import { dataFrom, groupForReconciliation, reconcileConfig, reconcileFrom } from "../src/reconcile-job";
+import {
+  dataFrom,
+  groupForReconciliation,
+  reconcileConfig,
+  reconcileFrom,
+  reconciliationLines,
+  reconciliationMetrics,
+} from "../src/reconcile-job";
 import { reconcile } from "@tightarse/domain";
 import type { Reading } from "@tightarse/domain";
 
@@ -126,7 +133,7 @@ describe("wiring a scan to the use case", () => {
     // Crossing them would reconcile one account's balance against another's
     // spending — a confidently wrong answer the use case itself cannot catch.
     const result = await reconcile({ data: dataFrom(rows), marks: ledger }, "frost");
-    expect(result.accounts).toBe(2);
+    expect(Object.keys(result.accounts)).toEqual(["acc-1", "acc-2"]);
     expect(result.breaks).toBe(0);
     // acc-2 has no readings, so it is not checked rather than reported broken.
     expect(result.checked).toBe(1);
@@ -199,5 +206,54 @@ describe("reporting with no writer supplied", () => {
     expect(result.breaks).toBe(0);
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
+  });
+});
+
+describe("what gets emitted", () => {
+  /**
+   * Naming moved here with the metrics. The domain reports per account; which
+   * of those accounts is a card, and what the numbers are called, is this
+   * layer's knowledge — an alarm matches a metric name by exact spelling.
+   */
+  const report = {
+    accounts: {
+      "card-1": { readings: 2, checked: 1, breaks: 1 },
+      "acc-1": { readings: 2, checked: 1, breaks: 0 },
+    },
+    checked: 2,
+    breaks: 1,
+  };
+  const isCard = (id: string) => id.startsWith("card-");
+
+  it("splits breaks by card, so an alarm can tell where the problem is", () => {
+    // A single total would say something is wrong without saying where, and an
+    // alarm that cannot tell a card from an account is how the permanently
+    // firing alarm in 927c593 happened.
+    expect(reconciliationMetrics(report, isCard)).toMatchObject({
+      ReconciliationBreaksCard: 1,
+      ReconciliationBreaksAccount: 0,
+    });
+  });
+
+  it("counts how many checks ran, so no checks is not mistaken for no breaks", () => {
+    // An account with one reading has nothing to check yet. Emitting only
+    // breaks would make that indistinguishable from a healthy ledger.
+    expect(reconciliationMetrics(report, isCard)).toMatchObject({ ReconciliationsChecked: 2 });
+    expect(
+      reconciliationMetrics({ accounts: {}, checked: 0, breaks: 0 }, isCard),
+    ).toMatchObject({ ReconciliationsChecked: 0, ReconciliationBreaksCard: 0 });
+  });
+
+  it("logs counts only, never a balance", () => {
+    // A balance is as personal as a transaction. This output goes to CloudWatch.
+    const lines = reconciliationLines(report, isCard);
+    expect(lines).toHaveLength(2);
+    expect(JSON.parse(lines[0]!)).toEqual({
+      accountId: "card-1",
+      isCard: true,
+      readings: 2,
+      checked: 1,
+      breaks: 1,
+    });
   });
 });

@@ -18,12 +18,13 @@
  * correction would have to be retracted, and retractions accumulate.
  */
 
-import {
-  reconcileAccount,
-  reconciliationMetrics,
-  type ReconciliationResult,
-} from "../ledger/reconciliation.js";
-import type { Reconciliation, ReconciliationReport } from "../ports/inbound/index.js";
+import { reconcileAccount } from "../ledger/reconciliation.js";
+import type { AccountId } from "../ledger/account.js";
+import type {
+  AccountReconciliation,
+  Reconciliation,
+  ReconciliationReport,
+} from "../ports/inbound/index.js";
 import type { ReconciliationData, ReconciliationMarks } from "../ports/outbound/index.js";
 
 export interface ReconcileDeps {
@@ -34,56 +35,38 @@ export interface ReconcileDeps {
 }
 
 export async function reconcile(deps: ReconcileDeps, tenantId: string): Promise<ReconciliationReport> {
-  const accounts = await deps.data.accounts();
-  const results: Array<{ result: ReconciliationResult; isCard: boolean }> = [];
-  const lines: string[] = [];
+  const ids = await deps.data.accounts();
+  const accounts: Record<AccountId, AccountReconciliation> = {};
+  let checked = 0;
+  let breaks = 0;
 
-  for (const account of accounts) {
+  for (const accountId of ids) {
     const [readings, movements] = await Promise.all([
-      deps.data.readings(account.accountId),
-      deps.data.movements(account.accountId),
+      deps.data.readings(accountId),
+      deps.data.movements(accountId),
     ]);
-    const result = reconcileAccount(account.accountId, readings, movements);
-    results.push({ result, isCard: account.isCard });
+    const result = reconcileAccount(accountId, readings, movements);
 
     // Keyed on both halves, because that is what identifies the row.
     const broken = new Map(result.breaks.map((b) => [`${b.asOf}#${b.fetchedAt}`, b.discrepancy]));
     for (const r of readings) {
       const discrepancy = broken.get(`${r.asOf}#${r.fetchedAt}`);
       if (discrepancy !== undefined) {
-        await deps.marks.markBalanceReadingDirty(tenantId, account.accountId, r.asOf, r.fetchedAt, discrepancy);
+        await deps.marks.markBalanceReadingDirty(tenantId, accountId, r.asOf, r.fetchedAt, discrepancy);
       } else {
         // Cleared unconditionally rather than only where a mark exists: this
         // must be able to undo itself when a late transaction explains an
         // earlier break, and it does not track what it marked last time.
-        await deps.marks.clearBalanceReadingDirty(tenantId, account.accountId, r.asOf, r.fetchedAt);
+        await deps.marks.clearBalanceReadingDirty(tenantId, accountId, r.asOf, r.fetchedAt);
       }
     }
 
-    // Counts only. An amount here would be a balance, and a balance is as
-    // personal as a transaction.
-    //
-    // Returned rather than written. This used to default to `console.log`, which
-    // is a global reached for from inside the domain — the exact dependency this
-    // package exists to not have. The caller owns where a line goes.
-    lines.push(
-      JSON.stringify({
-        accountId: account.accountId,
-        isCard: account.isCard,
-        readings: readings.length,
-        checked: result.checked,
-        breaks: result.breaks.length,
-      }),
-    );
+    accounts[accountId] = { readings: readings.length, checked: result.checked, breaks: result.breaks.length };
+    checked += result.checked;
+    breaks += result.breaks.length;
   }
 
-  return {
-    accounts: accounts.length,
-    checked: results.reduce((n, r) => n + r.result.checked, 0),
-    breaks: results.reduce((n, r) => n + r.result.breaks.length, 0),
-    metrics: reconciliationMetrics(results),
-    lines,
-  };
+  return { accounts, checked, breaks };
 }
 
 /** The use case behind its inbound port, for a driver to call. */
