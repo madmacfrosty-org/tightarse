@@ -11,7 +11,7 @@ export const config = {
   region: "eu-west-1",
   appName: "tightarse",
   /** The only repository allowed to assume the deploy role. */
-  githubRepo: "madmacfrosty/tightarse",
+  githubRepo: "madmacfrosty-org/tightarse",
   /**
    * The repository's OIDC subject prefix, including GitHub's immutable ids.
    *
@@ -25,10 +25,19 @@ export const config = {
    * Read it back with:
    *   gh api /repos/<owner>/<repo>/actions/oidc/customization/sub
    *
-   * Both forms are trusted below. The immutable one is strictly better — a
-   * rename, or someone later claiming the abandoned name, cannot satisfy it.
+   * Both forms are trusted below. The immutable one survives a rename, and stops
+   * someone later claiming an abandoned name from satisfying it.
+   *
+   * It does NOT survive a transfer between accounts. Moving this repository from
+   * a personal account to an organisation kept the repo id and changed the owner
+   * id — 10167941 became 319502408 — so both forms stopped matching at once and
+   * every deploy failed with "Not authorized to perform
+   * sts:AssumeRoleWithWebIdentity", which names nothing that would lead you here.
+   *
+   * Read it back after any move:
+   *   gh api /repos/<owner>/<repo>/actions/oidc/customization/sub
    */
-  githubSubjectPrefixImmutable: "repo:madmacfrosty@10167941/tightarse@1328000897",
+  githubSubjectPrefixImmutable: "repo:madmacfrosty-org@319502408/tightarse@1328000897",
   /**
    * Region for integration tests that need a real DynamoDB.
    *
