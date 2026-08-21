@@ -197,6 +197,7 @@ const SETTINGS: Record<EnvName, EnvSettings> = {
     deletionProtection: true,
     pointInTimeRecovery: true,
     autoDeleteObjects: false,
+    googleClientId: "242040418333-ph17hhc226sb913d8968eg0qr2dod3u8.apps.googleusercontent.com",
     hostedUiPrefix: "tightarse-prod-312637",
     hostedUiPrefixV2: "tightarse-prod-312637-b",
     web: {
