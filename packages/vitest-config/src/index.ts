@@ -40,7 +40,6 @@ export const coverageBase = {
   all: true,
   include: ["src/**/*.ts"],
   exclude: [
-    "src/**/*.test.ts",
     // Creates the table the integration tests run against. Test infrastructure
     // cannot meaningfully test itself.
     "src/create-test-table.ts",

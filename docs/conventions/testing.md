@@ -54,12 +54,18 @@ new required field does not touch fifty tests.
 **Pin the clock.** A test that derives both "now" and an expiry from
 `Date.now()` passes until it doesn't.
 
-**Tests are typechecked, and that was not always true.** `tsconfig` excludes
-`src/**/*.test.ts` from the build, so for a long time nothing checked their
-types. A test once passed rows with no `dedupKey` into the transfer detector;
+**Tests are typechecked, and that was not always true.** Tests live in each
+workspace's `test/` directory and are excluded from the build, so for a long time
+nothing checked their types. A test once passed rows with no `dedupKey` into the transfer detector;
 they collided on `undefined` and the whole ledger was skipped as a single
 transfer. The types forbade it and nothing was looking. A `noEmit` project now
 covers test files — documenting that hazard was the weaker answer to it.
+
+That project's `include` globs are the thing to check when the layout moves. When
+tests were separated from `src`, web's own tsconfig still said `include: ["src"]`
+and its tests silently stopped being typechecked: the build stayed green, and
+four dynamic `import("./App")` calls left pointing at nothing were only found by
+putting `test` back in the include.
 
 **Integration tests share one harness.** `testLedger()` returns a configured
 client and a tenant unique to the run; suites do not build their own. Three

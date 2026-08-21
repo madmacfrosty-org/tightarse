@@ -4,7 +4,6 @@
   "coverageAnalysis": "perTest",
   "mutate": [
     "src/**/*.ts",
-    "!src/**/*.test.ts",
     "!src/**/*-cli.ts",
     "!src/run.ts",
     "!src/serve.ts",

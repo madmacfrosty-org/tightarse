@@ -1,5 +1,5 @@
 {
-  "//": "Typechecks the test files that the build excludes. Emits nothing \u2014 it exists so a wrong shape in a test is a compiler error rather than a passing test. A test once passed rows with no dedupKey into the transfer detector; they collided on undefined, the whole ledger was skipped as one transfer, and the types forbade it while nothing was looking. infra and web are checked under their own configs, which deliberately differ: infra relaxes exactOptionalPropertyTypes for CDK, and web already includes its tests.",
+  "//": "Typechecks the test files, which live in each workspace's test/ directory and are excluded from the build. Emits nothing \u2014 it exists so a wrong shape in a test is a compiler error rather than a passing test. A test once passed rows with no dedupKey into the transfer detector; they collided on undefined, the whole ledger was skipped as one transfer, and the types forbade it while nothing was looking. infra and web are checked under their own configs, which deliberately differ: infra relaxes exactOptionalPropertyTypes for CDK, and web already includes its tests.",
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
@@ -46,8 +46,8 @@
     "moduleResolution": "bundler"
   },
   "include": [
-    "packages/*/src/**/*.test.ts",
-    "services/*/src/**/*.test.ts",
-    "agents/*/src/**/*.test.ts"
+    "packages/*/test/**/*.test.ts",
+    "services/*/test/**/*.test.ts",
+    "agents/*/test/**/*.test.ts"
   ]
 }

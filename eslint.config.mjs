@@ -115,11 +115,18 @@ const INFRASTRUCTURE = [
   "@tightarse/truelayer",
 ];
 
-/** Files that legitimately reach for devDependencies. Not shipped, not bundled. */
+/**
+ * Files that legitimately reach for devDependencies. Not shipped, not bundled.
+ *
+ * A glob over each workspace's test directory, rather than a list of filename
+ * patterns: tests now live in their own directory, so "not shipped" is a place
+ * rather than a naming convention every new file has to remember to follow.
+ *
+ * Written without the literal glob, because a block comment containing one ends
+ * at the slash inside it and leaves the rest as code.
+ */
 const NOT_SHIPPED = [
-  "**/*.test.ts",
-  "**/*.test.tsx",
-  "**/*.integration.test.ts",
+  "**/test/**",
   "**/*.config.ts",
   "**/*.config.mts",
   "**/*.config.mjs",
@@ -269,7 +276,7 @@ export default [
   // through the API's own aggregation, which is the point of the test — a fake
   // would not have caught the inverted card sign. Nothing here is deployed.
   {
-    files: ["**/*.test.ts", "**/*.test.tsx"],
+    files: ["**/test/**"],
     rules: { "no-restricted-imports": "off" },
   },
 ];

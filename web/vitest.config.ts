@@ -30,15 +30,12 @@ export default defineConfig({
     // its logic without a DOM would mean testing something else.
     environment: "jsdom",
     globals: false,
-    setupFiles: ["src/test-setup.ts"],
+    setupFiles: ["test/test-setup.ts"],
     coverage: {
       provider: "v8",
       all: true,
       include: ["src/**/*.ts", "src/**/*.tsx"],
       exclude: [
-        "src/**/*.test.ts",
-        "src/**/*.test.tsx",
-        "src/test-setup.ts",
         "src/vite-env.d.ts",
         // Mounts the app into the page and nothing else.
         "src/main.tsx",

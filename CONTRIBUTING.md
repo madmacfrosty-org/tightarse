@@ -135,7 +135,7 @@ None of this is enforced by npm or by TypeScript. Every SDK is hoisted to the ro
 `node_modules` and every workspace is symlinked into `node_modules/@tightarse/`, so
 resolution finds anything from anywhere; project references order the build without
 restricting imports. `eslint.config.mjs` is the only gate, and its rules are tested
-against violating code in `packages/ports/src/architecture.test.ts` — a `files`
+against violating code in `packages/ports/test/architecture.test.ts` — a `files`
 glob matching nothing gives the same clean run as a clean codebase.
 
 ## The ledger is deterministic
