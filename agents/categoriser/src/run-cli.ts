@@ -12,9 +12,10 @@
 import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 import { DynamoStore } from "@tightarse/dynamodb";
 import { classifyBatch, DEFAULT_MODEL } from "./bedrock.js";
-import { RULES_VERSION } from "./rules.js";
-import { prepare } from "./batch.js";
-import type { Candidate } from "./categorise.js";
+import { RULES_VERSION } from "@tightarse/domain";
+import { prepare } from "@tightarse/domain";
+import type { Candidate } from "@tightarse/domain";
+
 
 const BATCH_SIZE = 40;
 

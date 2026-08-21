@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { buildPrompt, parseResponse, type Candidate } from "../src/categorise.js";
-import { CATEGORIES, isCategory } from "../src/taxonomy.js";
+import { buildPrompt, parseResponse } from "../src/categorise.js";
+import { CATEGORIES, isCategory, type Candidate } from "@tightarse/domain";
 
 /**
  * Overrides for a test-data builder.

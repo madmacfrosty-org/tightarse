@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { categorise, type CategoriseDeps } from "../src/handler.js";
+import { describe, it, expect, afterEach, vi, beforeEach } from "vitest";
+import { categorise, realDeps, type CategoriseDeps } from "../src/handler.js";
 
 /**
  * This runs on a schedule, unattended, and writes to the ledger. Until the
@@ -81,5 +81,60 @@ describe("the window it reads", () => {
     await categorise(deps({ tenantId: "someone-else" }));
     expect(getSettings).toHaveBeenCalledWith("someone-else");
     expect(listToEnrich).toHaveBeenCalledWith("someone-else", expect.anything(), undefined);
+  });
+});
+
+describe("wiring the scheduled run", () => {
+  const env = { ...process.env };
+  afterEach(() => {
+    process.env = { ...env };
+  });
+
+  it("builds a real store and reads its settings from the environment", () => {
+    // Only the entry point may run a constructor, so nothing else covers this.
+    process.env["TABLE_NAME"] = "some-table";
+    process.env["TENANT_ID"] = "frost";
+    process.env["BACKFILL_DAYS"] = "60";
+    process.env["ENVIRONMENT"] = "prod";
+    const deps = realDeps();
+    expect(deps.ledger).toHaveProperty("listToEnrich");
+    expect(deps).toMatchObject({ tenantId: "frost", defaultBackfillDays: 60, environment: "prod" });
+  });
+
+  it("defaults the household, the lookback and the metric dimension", () => {
+    // An undefined dimension emits under "undefined" and no alarm matches it,
+    // which is #31 in miniature.
+    //
+    // AWS_REGION is deleted deliberately. It is set in CI and in any shell that
+    // has run an aws command, so leaving it inherited means the fallback below is
+    // exercised or not depending on who ran the tests — this file scored 100%
+    // alone and 97.29% in a full sweep for exactly that reason.
+    process.env["TABLE_NAME"] = "some-table";
+    delete process.env["TENANT_ID"];
+    delete process.env["BACKFILL_DAYS"];
+    delete process.env["ENVIRONMENT"];
+    delete process.env["AWS_REGION"];
+    expect(realDeps()).toMatchObject({ tenantId: "frost", defaultBackfillDays: 45, environment: "dev" });
+  });
+
+  it("uses AWS_REGION when the environment sets one", () => {
+    // The other half of the same fallback, so neither side depends on the
+    // ambient environment of whoever is running the suite.
+    process.env["TABLE_NAME"] = "some-table";
+    process.env["AWS_REGION"] = "eu-west-2";
+    expect(() => realDeps()).not.toThrow();
+  });
+
+  it("refuses to start without a table rather than writing somewhere unnamed", () => {
+    delete process.env["TABLE_NAME"];
+    expect(() => realDeps()).toThrow(/Missing TABLE_NAME/);
+  });
+});
+
+describe("what the package exposes", () => {
+  it("exports the Lambda entry point from the package entry", async () => {
+    const pkg = await import("../src/index.js");
+    expect(typeof pkg.handler).toBe("function");
+    expect(typeof pkg.categorise).toBe("function");
   });
 });

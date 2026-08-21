@@ -8,7 +8,7 @@
   "scripts": {
     "build": "tsc --build",
     "test": "vitest run",
-    "run-batch": "node dist/run.js",
+    "run-batch": "node dist/run-cli.js",
     "rules": "tsx src/rules-cli.ts",
     "test:coverage": "vitest run --coverage",
     "test:mutation": "stryker run"

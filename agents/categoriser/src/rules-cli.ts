@@ -14,8 +14,8 @@
  */
 import { DynamoStore } from "@tightarse/dynamodb";
 import type { CustomRule } from "@tightarse/domain";
-import { CATEGORIES, isCategory } from "./taxonomy.js";
-import { compileCustom, RULES } from "./rules.js";
+import { CATEGORIES, isCategory } from "@tightarse/domain";
+import { compileCustom, RULES } from "@tightarse/domain";
 
 const usage = `usage:
   rules list
