@@ -1,7 +1,21 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "src", "outDir": "dist" },
-  "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts"],
-  "references": [{ "path": "../../packages/schema" }, { "path": "../../packages/dynamodb" }, { "path": "../../packages/ports" }]
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "src/**/*.test.ts"
+  ],
+  "references": [
+    {
+      "path": "../../packages/domain"
+    },
+    {
+      "path": "../../packages/dynamodb"
+    }
+  ]
 }

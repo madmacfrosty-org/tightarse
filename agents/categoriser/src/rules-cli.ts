@@ -13,7 +13,7 @@
  * careful never to hold.
  */
 import { DynamoStore } from "@tightarse/dynamodb";
-import type { CustomRule } from "@tightarse/schema";
+import type { CustomRule } from "@tightarse/domain";
 import { CATEGORIES, isCategory } from "./taxonomy.js";
 import { compileCustom, RULES } from "./rules.js";
 

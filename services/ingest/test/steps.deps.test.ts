@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { ConsentExpired } from "@tightarse/ports";
+import { ConsentExpired } from "@tightarse/domain";
 import {
   listConnections,
   refreshAndList,

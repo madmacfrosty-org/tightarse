@@ -7,7 +7,7 @@
  */
 
 import { PublishCommand, SNSClient } from "@aws-sdk/client-sns";
-import type { Notifications } from "@tightarse/ports";
+import type { Notifications } from "@tightarse/domain";
 
 export interface SnsNotificationsOptions {
   readonly topicArn: string;

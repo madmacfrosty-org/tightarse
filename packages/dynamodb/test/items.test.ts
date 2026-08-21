@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   type Transaction,
   type TransactionEnrichment,
-} from "@tightarse/schema";
+} from "@tightarse/domain";
 import { RowKind } from "../src/keys.js";
 import { categorisationItems, ruleSetItems, transactionItem, enrichmentItem, pendingItem } from "../src/items";
 

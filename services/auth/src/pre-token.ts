@@ -1,5 +1,5 @@
 import { DynamoStore } from "@tightarse/dynamodb";
-import type { MemberLookup } from "@tightarse/ports";
+import type { MemberLookup } from "@tightarse/domain";
 
 /**
  * Cognito pre-token-generation trigger.

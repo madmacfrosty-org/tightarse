@@ -13,7 +13,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
-import type { RawObjects } from "@tightarse/ports";
+import type { RawObjects } from "@tightarse/domain";
 
 export interface S3RawObjectsOptions {
   readonly bucket: string;

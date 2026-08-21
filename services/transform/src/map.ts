@@ -4,7 +4,7 @@ import {
   type Transaction,
   type TransactionStatus,
   type BalanceReading,
-} from "@tightarse/schema";
+} from "@tightarse/domain";
 
 /**
  * Provider response → domain objects. Pure: no S3, no DynamoDB, no clock.

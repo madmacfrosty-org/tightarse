@@ -14,8 +14,8 @@
  * fix it and no amount of retrying will.
  */
 
-import type { BankData, BankItem, BankLimits, BankPayload, BankToken, DateRange } from "@tightarse/ports";
-import { ConsentExpired } from "@tightarse/ports";
+import type { BankData, BankItem, BankLimits, BankPayload, BankToken, DateRange } from "@tightarse/domain";
+import { ConsentExpired } from "@tightarse/domain";
 import {
   DEEP_HISTORY_WINDOW_MINUTES,
   LIVE,

@@ -16,6 +16,6 @@
     "@tightarse/vitest-config": "*"
   },
   "dependencies": {
-    "@tightarse/ports": "*"
+    "@tightarse/domain": "*"
   }
 }

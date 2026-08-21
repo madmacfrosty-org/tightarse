@@ -85,7 +85,7 @@ version:
   A default here would hand an unknown identity somebody's ledger.
 
 - **Money is integer minor units.** Never floats. `Amount` in
-  `@tightarse/schema` enforces it, and conversion uses the currency's own
+  `@tightarse/domain` enforces it, and conversion uses the currency's own
   exponent rather than a hardcoded 100.
 
 - **Personal categorisation rules are data, not code.** The rules shipped in
@@ -108,10 +108,10 @@ version:
 | Path | What |
 |---|---|
 | `infra/` | CDK app — the only thing that deploys |
-| `packages/schema/` | Zod schemas: the shapes, and the single source of truth for them |
+
 | `packages/truelayer/` | Provider client, kept behind an interface |
-| `packages/ports/` | What the application asks of the outside — interfaces, no implementation |
-| `packages/categorisation/` | Categorisation domain: pure, no SDKs |
+| `packages/domain/` | The domain. `ports/` holds what the application offers and requires; business logic moves in behind them |
+
 | `packages/aws/` | S3, Secrets and SNS adapters, one class per port |
 | `packages/dynamodb/` | The DynamoDB adapter, plus the `access` admin command |
 | `packages/fixtures/` | Synthetic data generator — the only source of test data |

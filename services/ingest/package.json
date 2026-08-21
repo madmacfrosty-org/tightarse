@@ -13,13 +13,12 @@
   },
   "dependencies": {
     "@tightarse/aws": "*",
+    "@tightarse/domain": "*",
     "@tightarse/metrics": "*",
-    "@tightarse/ports": "*",
-    "@tightarse/schema": "*",
     "@tightarse/truelayer": "*"
   },
   "devDependencies": {
-    "vitest": "^2.1.0",
-    "@tightarse/vitest-config": "*"
+    "@tightarse/vitest-config": "*",
+    "vitest": "^2.1.0"
   }
 }

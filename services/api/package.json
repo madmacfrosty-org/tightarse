@@ -14,15 +14,14 @@
   },
   "dependencies": {
     "@tightarse/api-contract": "*",
-    "@tightarse/schema": "*",
-    "@tightarse/dynamodb": "*",
-    "@tightarse/ports": "*"
+    "@tightarse/domain": "*",
+    "@tightarse/dynamodb": "*"
   },
   "devDependencies": {
-    "vitest": "^2.1.0",
+    "@tightarse/domain": "*",
     "@tightarse/fixtures": "*",
     "@tightarse/transform": "*",
-    "@tightarse/schema": "*",
-    "@tightarse/vitest-config": "*"
+    "@tightarse/vitest-config": "*",
+    "vitest": "^2.1.0"
   }
 }

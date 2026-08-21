@@ -43,7 +43,7 @@
  */
 
 import { transformObject } from "./transform.js";
-import type { LedgerWrites, RawObjects } from "@tightarse/ports";
+import type { LedgerWrites, RawObjects } from "@tightarse/domain";
 
 export interface ReplayDeps {
   readonly raw: RawObjects;

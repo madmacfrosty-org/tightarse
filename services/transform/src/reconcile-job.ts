@@ -19,7 +19,7 @@ import type { DynamoStore } from "@tightarse/dynamodb";
 import { emit } from "@tightarse/metrics";
 import { runReconciliation, type ReconcilePhaseDeps, type ReconcilePhaseResult } from "./reconcile-phase.js";
 import { rowKind, scanAll, type Row } from "./compare.js";
-import type { ReconciliationMarks, TableRows } from "@tightarse/ports";
+import type { ReconciliationMarks, TableRows } from "@tightarse/domain";
 
 export interface ReconcileConfig {
   readonly tableName: string;

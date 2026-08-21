@@ -14,7 +14,7 @@ import {
   SecretsManagerClient,
   TagResourceCommand,
 } from "@aws-sdk/client-secrets-manager";
-import type { Secrets } from "@tightarse/ports";
+import type { Secrets } from "@tightarse/domain";
 
 export interface AwsSecretsOptions {
   readonly client?: SecretsManagerClient;

@@ -1,5 +1,5 @@
 import type { TokenSet } from "@tightarse/truelayer";
-import type { Secrets } from "@tightarse/ports";
+import type { Secrets } from "@tightarse/domain";
 
 /**
  * Where a household's bank connections live.

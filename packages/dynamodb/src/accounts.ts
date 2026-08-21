@@ -24,7 +24,7 @@ import {
   type TenantSettings,
   type Transaction,
   type TransactionEnrichment,
-} from "@tightarse/schema";
+} from "@tightarse/domain";
 import { keys, RowKind } from "./keys.js";
 import type {
   Accounts,
@@ -35,7 +35,7 @@ import type {
   Household,
   RuleSets,
   Transactions,
-} from "@tightarse/ports";
+} from "@tightarse/domain";
 import {
   accountItem,
   categorisationItems,

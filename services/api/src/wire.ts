@@ -1,7 +1,7 @@
 /**
  * Where a domain answer becomes an HTTP response.
  *
- * `@tightarse/ports` says what the application offers; `@tightarse/api-contract`
+ * `@tightarse/domain` says what the application offers; `@tightarse/api-contract`
  * says what installed clients were promised. Those change for different reasons —
  * a browser reloads, an iOS build on somebody's phone does not — so they are two
  * statements, and this is the one place they meet.
@@ -29,7 +29,7 @@ import type {
   SummaryResponse,
   TransactionsResponse,
 } from "@tightarse/api-contract";
-import type { AccountsResult, BalancesResult, Summary, TransactionsResult } from "@tightarse/ports";
+import type { AccountsResult, BalancesResult, Summary, TransactionsResult } from "@tightarse/domain";
 
 export const asSummary = (s: Summary): SummaryResponse => ({
   ...s,

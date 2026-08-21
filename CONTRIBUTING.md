@@ -84,12 +84,12 @@ is that test files are not typechecked.
 
 ## Money
 
-Integer minor units (pence). Never floats. `Amount` in `@tightarse/schema`
+Integer minor units (pence). Never floats. `Amount` in `@tightarse/domain`
 enforces this.
 
 ## Schemas
 
-If a shape is not in `@tightarse/schema` it does not belong in the table. That
+If a shape is not in `@tightarse/domain` it does not belong in the table. That
 package is the single source of truth for CDK, the handlers, the agents and the
 web app — the whole point of going all-TypeScript was to have exactly one
 definition rather than a hand-maintained pair that drifts.
@@ -98,8 +98,8 @@ definition rather than a hand-maintained pair that drifts.
 
 Three kinds of workspace, and `npm run lint` fails the build on a crossing.
 
-**The domain model is `ports` and `schema`.** `schema` says what a thing is;
-`ports` says what may be done with it — both what the application requires
+**The domain model is `domain` and `schema`.** `schema` says what a thing is;
+`domain` says what may be done with it, under a `ports` namespace — both what the application requires
 outward (`LedgerReads`, `RawObjects`, `Secrets`) and what it offers inward
 (`Reporting`). `categorisation` and `truelayer` are domain logic over that
 vocabulary, and `metrics` is a pure formatter. No AWS SDK, no `aws-cdk-lib`, no
@@ -135,7 +135,7 @@ None of this is enforced by npm or by TypeScript. Every SDK is hoisted to the ro
 `node_modules` and every workspace is symlinked into `node_modules/@tightarse/`, so
 resolution finds anything from anywhere; project references order the build without
 restricting imports. `eslint.config.mjs` is the only gate, and its rules are tested
-against violating code in `packages/ports/test/architecture.test.ts` — a `files`
+against violating code in `packages/domain/test/architecture.test.ts` — a `files`
 glob matching nothing gives the same clean run as a clean codebase.
 
 ## The ledger is deterministic

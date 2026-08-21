@@ -21,7 +21,7 @@
 export type BatchLedger = Omit<CategoriserReads, "getSettings">;
 import { applyRules, compileCustom, RULES_VERSION } from "./rules.js";
 import type { Candidate, Classification } from "./categorise.js";
-import type { CategoriserReads } from "@tightarse/ports";
+import type { CategoriserReads } from "@tightarse/domain";
 
 export interface Prepared {
   candidates: Candidate[];

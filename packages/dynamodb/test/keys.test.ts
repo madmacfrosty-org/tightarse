@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { BalanceReading } from "@tightarse/schema";
+import { BalanceReading } from "@tightarse/domain";
 import { keys, RowKind } from "../src/keys";
 
 /**
  * Key construction, tested where it now lives.
  *
- * These moved with the code from `@tightarse/schema`. A partition key is a fact
+ * These moved with the code from `@tightarse/domain`. A partition key is a fact
  * about how this store lays a household's finances out, not a fact about the
  * finances, so the tests belong beside the adapter that builds them.
  */

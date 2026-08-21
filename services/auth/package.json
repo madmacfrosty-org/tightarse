@@ -12,12 +12,11 @@
     "test:mutation": "stryker run"
   },
   "dependencies": {
-    "@tightarse/schema": "*",
-    "@tightarse/dynamodb": "*",
-    "@tightarse/ports": "*"
+    "@tightarse/domain": "*",
+    "@tightarse/dynamodb": "*"
   },
   "devDependencies": {
-    "vitest": "^2.1.0",
-    "@tightarse/vitest-config": "*"
+    "@tightarse/vitest-config": "*",
+    "vitest": "^2.1.0"
   }
 }

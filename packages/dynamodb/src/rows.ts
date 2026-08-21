@@ -7,7 +7,7 @@
  */
 
 import { ScanCommand } from "@aws-sdk/lib-dynamodb";
-import type { TableRows } from "@tightarse/ports";
+import type { TableRows } from "@tightarse/domain";
 import { TableAdapter } from "./table.js";
 
 export class DynamoTableRows extends TableAdapter implements TableRows {

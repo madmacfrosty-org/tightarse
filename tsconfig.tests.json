@@ -19,20 +19,17 @@
       "@tightarse/api-contract": [
         "./packages/api-contract/src/index.ts"
       ],
-      "@tightarse/fixtures": [
-        "./packages/fixtures/src/index.ts"
-      ],
-      "@tightarse/ports": [
-        "./packages/ports/src/index.ts"
+      "@tightarse/domain": [
+        "./packages/domain/src/index.ts"
       ],
       "@tightarse/dynamodb": [
         "./packages/dynamodb/src/index.ts"
       ],
+      "@tightarse/fixtures": [
+        "./packages/fixtures/src/index.ts"
+      ],
       "@tightarse/metrics": [
         "./packages/metrics/src/index.ts"
-      ],
-      "@tightarse/schema": [
-        "./packages/schema/src/index.ts"
       ],
       "@tightarse/transform": [
         "./services/transform/src/index.ts"

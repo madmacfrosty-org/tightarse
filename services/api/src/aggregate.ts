@@ -4,12 +4,12 @@ import type {
   CategoryTotal,
   MonthTotal,
   Summary,
-} from "@tightarse/ports";
-import { assertSingleCurrency } from "@tightarse/schema";
+} from "@tightarse/domain";
+import { assertSingleCurrency } from "@tightarse/domain";
 import { detectTransfers, type TransferOptions } from "./transfers.js";
 
 /**
- * The result shapes come from `@tightarse/ports`, not from here and not from the
+ * The result shapes come from `@tightarse/domain`, not from here and not from the
  * wire contract.
  *
  * They were interfaces in this file once, and the dashboard kept its own copy of
