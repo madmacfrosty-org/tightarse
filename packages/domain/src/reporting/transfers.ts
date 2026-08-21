@@ -1,4 +1,4 @@
-import type { LedgerRow } from "./aggregate.js";
+import type { LedgerRow } from "./summary.js";
 
 /**
  * Internal transfer detection.

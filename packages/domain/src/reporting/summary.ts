@@ -4,8 +4,8 @@ import type {
   CategoryTotal,
   MonthTotal,
   Summary,
-} from "@tightarse/domain";
-import { assertSingleCurrency } from "@tightarse/domain";
+} from "../index.js";
+import { assertSingleCurrency } from "../index.js";
 import { detectTransfers, type TransferOptions } from "./transfers.js";
 
 /**
@@ -22,7 +22,10 @@ import { detectTransfers, type TransferOptions } from "./transfers.js";
  * `LedgerRow` and `EnrichmentRow` stay below: they describe what comes back from
  * the ledger, which is an input to this file rather than a result.
  */
-export type { AccountState, CategorisedTransaction, CategoryTotal, MonthTotal, Summary };
+// No re-export: these are declared in ports/inbound and reach consumers through
+// the package index. Passing them through here was for the API's convenience when
+// this file lived in that service, and inside one package it is a second export
+// of the same name.
 
 /** Mutable while accumulating. See `summarise`. */
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };

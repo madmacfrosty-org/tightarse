@@ -21,8 +21,8 @@ import type {
   SummaryOptions,
   Summary,
   TransactionsResult,
-} from "@tightarse/domain";
-import { mergeEnrichments, summarise, toAccountState, type EnrichmentRow, type LedgerRow } from "./aggregate.js";
+} from "../index.js";
+import { mergeEnrichments, summarise, toAccountState, type EnrichmentRow, type LedgerRow } from "./summary.js";
 import { daysBetween, netPositionSeries, type AccountFacts, type Movement } from "./balances.js";
 import { clampToCoverage, completeFrom, coverageOf, type AccountCoverage } from "./coverage.js";
 

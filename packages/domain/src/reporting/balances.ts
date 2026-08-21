@@ -55,12 +55,8 @@ export interface AccountFacts {
   readonly balanceAsOf?: string | undefined;
 }
 
-export interface BalancePoint {
-  /** YYYY-MM-DD. */
-  readonly date: string;
-  /** Cash less card debt, in minor units, in the household's sign convention. */
-  readonly net: number;
-}
+
+import type { BalancePoint } from "../ports/inbound/index.js";
 
 const DAY = 86_400_000;
 

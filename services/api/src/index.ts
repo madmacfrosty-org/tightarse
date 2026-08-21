@@ -1,2 +1,1 @@
-export { handler } from "./handler.js";
-export * from "./aggregate.js";
+export { handler, route, type ApiDeps } from "./handler.js";

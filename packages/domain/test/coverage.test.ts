@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { clampToCoverage, completeFrom, coverageOf, openingBalance } from "../src/coverage";
-import type { AccountFacts, Movement } from "../src/balances";
+import { clampToCoverage, completeFrom, coverageOf, openingBalance } from "../src/reporting/coverage.js";
+import type { AccountFacts, Movement } from "../src/reporting/balances.js";
 
 // Distinct and ascending, mirroring the ledger's tiebreak within a timestamp.
 let cardKey = 0;
@@ -168,5 +168,22 @@ describe("clamping a requested range", () => {
       from: "2022-01-01",
       to: "2022-01-01",
     });
+  });
+});
+
+describe("ordering within a single instant", () => {
+  it("breaks a tie on the dedup key, so the opening balance is deterministic", () => {
+    // Every transaction is stamped midnight, so a timestamp orders nothing within
+    // a day. The first transaction of the earliest day decides a current
+    // account's opening balance, so "first" has to mean the same thing on every
+    // run or the completeness verdict flickers.
+    const rows = [
+      { accountId: "cur", timestamp: "2025-01-10T00:00:00Z", amount: -20_00, dedupKey: "b", runningBalance: 80_00 },
+      { accountId: "cur", timestamp: "2025-01-10T00:00:00Z", amount: -30_00, dedupKey: "a", runningBalance: 110_00 },
+    ];
+    const forwards = openingBalance(current, rows);
+    const backwards = openingBalance(current, [...rows].reverse());
+    expect(forwards).toBe(backwards);
+    expect(forwards).toBe(140_00);
   });
 });

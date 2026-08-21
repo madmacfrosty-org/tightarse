@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { summarise, mergeEnrichments, toAccountState, type LedgerRow, type EnrichmentRow } from "../src/aggregate.js";
+import { summarise, mergeEnrichments, toAccountState, type LedgerRow, type EnrichmentRow } from "../src/reporting/summary.js";
 
 /**
  * Overrides for a test-data builder.

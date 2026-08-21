@@ -8,7 +8,7 @@
   "scripts": {
     "build": "tsc --build",
     "test": "vitest run",
-    "report": "node dist/report.js",
+    "report": "node dist/report-cli.js",
     "test:coverage": "vitest run --coverage",
     "test:mutation": "stryker run"
   },

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { accountSeries, daysBetween, netPositionSeries, type AccountFacts, type Movement } from "../src/balances";
+import { accountSeries, daysBetween, netPositionSeries, type AccountFacts, type Movement } from "../src/reporting/balances.js";
 
 // Distinct and ascending, mirroring the ledger's tiebreak within a timestamp.
 let cardKey = 0;
@@ -205,5 +205,47 @@ describe("the household's net position", () => {
     const series = netPositionSeries(accounts, movements, days("2026-03-01", "2026-03-10"));
     expect(series).toHaveLength(10);
     expect(series.every((p) => p.net === 100_00)).toBe(true);
+  });
+});
+
+describe("accounts with nothing in them", () => {
+  it("reports nothing for every day when an account has no movements at all", () => {
+    // Distinct from zero. A newly connected account with no data yet must not
+    // draw a flat line at nought, which reads as an emptied account.
+    const account: AccountFacts = { accountId: "empty", isCard: false };
+    expect(accountSeries(account, [], daysBetween("2026-03-01", "2026-03-03"))).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("reports nothing for a card before its first transaction", () => {
+    // The card series unwinds backwards from today's balance, so days before the
+    // earliest transaction are outside what can be derived.
+    const card: AccountFacts = { accountId: "card", isCard: true, currentBalance: 50_00 };
+    const rows = [
+      { accountId: "card", timestamp: "2026-03-03T00:00:00Z", amount: -50_00, dedupKey: "c9" },
+    ];
+    expect(accountSeries(card, rows, daysBetween("2026-03-01", "2026-03-03"))).toEqual([
+      undefined,
+      undefined,
+      50_00,
+    ]);
+  });
+
+  it("contributes nothing from an account with no movements in the household total", () => {
+    // Safe only because the range is clamped to complete coverage first — see
+    // coverage.ts. Without the clamp this would understate the household.
+    const accounts: AccountFacts[] = [
+      { accountId: "has", isCard: false },
+      { accountId: "none", isCard: false },
+    ];
+    const movements: Movement[] = [
+      { accountId: "has", dedupKey: "h1", timestamp: "2026-03-01T00:00:00Z", amount: -10_00, runningBalance: 100_00 },
+    ];
+    expect(netPositionSeries(accounts, movements, daysBetween("2026-03-01", "2026-03-01"))).toEqual([
+      { date: "2026-03-01", net: 100_00 },
+    ]);
   });
 });

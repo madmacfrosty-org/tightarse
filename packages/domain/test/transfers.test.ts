@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { detectTransfers } from "../src/transfers.js";
-import { summarise } from "../src/aggregate.js";
-import type { LedgerRow } from "../src/aggregate.js";
+import { detectTransfers } from "../src/reporting/transfers.js";
+import { summarise } from "../src/reporting/summary.js";
+import type { LedgerRow } from "../src/reporting/summary.js";
 
 const row = (over: Partial<LedgerRow> & { dedupKey: string }): LedgerRow => ({
   timestamp: "2026-03-15T00:00:00Z",
