@@ -20,7 +20,7 @@
 import { createServer } from "node:http";
 import { DynamoStore } from "@tightarse/dynamodb";
 import { route, type ApiDeps } from "./handler.js";
-import { reporting } from "./use-cases.js";
+import { reporting } from "@tightarse/domain";
 
 const PORT = Number(process.env["PORT"] ?? 8787);
 const HOST = "127.0.0.1";

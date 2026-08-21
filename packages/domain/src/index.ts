@@ -9,6 +9,7 @@
  *   ledger/          transactions, accounts, balances
  *   categorisation/  rules as values, and what applying one produces
  *   household/       members, settings, bank consents
+ *   reporting/       what the household spent, and what it is worth
  *   raw/             how the landing zone is laid out
  *   ports/           the edges, inbound and outbound
  *
@@ -31,4 +32,9 @@ export * from "./household/member.js";
 export * from "./household/settings.js";
 export * from "./household/consent.js";
 export * from "./raw/keys.js";
+export * from "./reporting/summary.js";
+export * from "./reporting/balances.js";
+export * from "./reporting/coverage.js";
+export * from "./reporting/transfers.js";
+export * from "./reporting/reporting.js";
 export * from "./ports/index.js";

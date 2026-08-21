@@ -2,8 +2,7 @@ import { describe, it, expect } from "vitest";
 import { generateHousehold } from "@tightarse/fixtures";
 import { mapTransaction } from "@tightarse/transform";
 import { dedupKey } from "@tightarse/domain";
-import { detectTransfers } from "../src/transfers.js";
-import { summarise, type LedgerRow } from "../src/aggregate.js";
+import { detectTransfers, summarise, type LedgerRow } from "@tightarse/domain";
 
 /**
  * The regression test for the most expensive bug this project has had.

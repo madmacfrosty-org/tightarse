@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { handler, ledgerConfig, route, realDeps, type ApiDeps } from "../src/handler.js";
-import { reporting } from "../src/use-cases.js";
+import { reporting } from "@tightarse/domain";
 import type { Reporting } from "@tightarse/domain";
 
 /**
@@ -438,5 +438,42 @@ describe("routing, against the application rather than through it", () => {
     const res = await route(boom, event({ rawPath: "/v1/summary" }));
     expect(res.statusCode).toBe(500);
     expect(res.body).not.toContain("tightarse-prod");
+  });
+});
+
+describe("events that are not shaped as expected", () => {
+  it("treats a missing path as the root, and 404s it", () => {
+    // API Gateway always sends rawPath, but a direct invocation or a payload
+    // version change may not. Reading undefined as a route would match nothing
+    // and throw inside the matcher rather than answering.
+    return route(deps, { requestContext: { authorizer: { jwt: { claims: { "custom:tenant": "frost" } } } } } as never)
+      .then((res) => expect(res.statusCode).toBe(404));
+  });
+
+  it("reports a non-Error failure without leaking its shape", async () => {
+    // A thrown string or object has no .message. Interpolating it into the body
+    // is how a stack trace or a table name reaches a client.
+    const throwing = {
+      reporting: {
+        summary: async () => { throw "a bare string"; },
+        transactions: async () => ({ range: { from: "", to: "" }, transactions: [] }),
+        accounts: async () => ({ accounts: [] }),
+        balances: async () => ({ range: { from: "", to: "" }, points: [] }),
+      },
+    };
+    const res = await route(throwing as never, event({ rawPath: "/v1/summary" }));
+    expect(res.statusCode).toBe(500);
+    expect(JSON.parse(res.body)).toEqual({ error: "Internal error" });
+  });
+});
+
+describe("what the package exposes", () => {
+  it("exports the Lambda entry point from the package entry", async () => {
+    // package.json points `main` here. CDK bundles handler.ts by path rather
+    // than through this barrel, so a broken export would not fail a deploy — it
+    // would fail whoever imported the package next, which is worse.
+    const pkg = await import("../src/index.js");
+    expect(typeof pkg.handler).toBe("function");
+    expect(typeof pkg.route).toBe("function");
   });
 });

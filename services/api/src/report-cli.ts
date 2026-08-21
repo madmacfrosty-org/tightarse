@@ -8,7 +8,7 @@
  */
 
 import { DynamoStore } from "@tightarse/dynamodb";
-import { reporting } from "./use-cases.js";
+import { reporting } from "@tightarse/domain";
 
 const money = (minor: number, currency: string | null): string => {
   const sign = minor < 0 ? "-" : "";
