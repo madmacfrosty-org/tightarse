@@ -6,14 +6,14 @@ import {
   type TransactionEnrichment,
   type RuleSet,
   type Categorisation,
-} from "@tightarse/schema";
+} from "@tightarse/domain";
 import { keys, RowKind } from "./keys.js";
 
 /**
  * Item construction. Pure — no I/O, no SDK — so the shape of every row is
  * testable without a database.
  *
- * Key strings are never built here; they come from @tightarse/schema, which is
+ * Key strings are never built here; they come from @tightarse/domain, which is
  * the single place they exist.
  */
 

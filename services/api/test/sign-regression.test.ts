@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { generateHousehold } from "@tightarse/fixtures";
 import { mapTransaction } from "@tightarse/transform";
-import { dedupKey } from "@tightarse/schema";
+import { dedupKey } from "@tightarse/domain";
 import { detectTransfers } from "../src/transfers.js";
 import { summarise, type LedgerRow } from "../src/aggregate.js";
 

@@ -15,11 +15,10 @@
     "test:mutation": "stryker run"
   },
   "dependencies": {
-    "@tightarse/metrics": "*",
-    "@tightarse/schema": "*",
+    "@tightarse/aws": "*",
+    "@tightarse/domain": "*",
     "@tightarse/dynamodb": "*",
-    "@tightarse/ports": "*",
-    "@tightarse/aws": "*"
+    "@tightarse/metrics": "*"
   },
   "devDependencies": {
     "@tightarse/vitest-config": "*",

@@ -22,7 +22,7 @@ import { readFile } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import { createHash } from "node:crypto";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import { datasetForEndpoint, rawObjectKey } from "@tightarse/schema";
+import { datasetForEndpoint, rawObjectKey } from "@tightarse/domain";
 
 interface RawRecord {
   endpoint: string;

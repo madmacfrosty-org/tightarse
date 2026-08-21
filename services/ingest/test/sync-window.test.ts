@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { BankLimits } from "@tightarse/ports";
+import type { BankLimits } from "@tightarse/domain";
 import { syncWindow } from "../src/sync-window.js";
 
 /**

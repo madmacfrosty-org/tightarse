@@ -21,7 +21,7 @@ import type {
   SummaryOptions,
   Summary,
   TransactionsResult,
-} from "@tightarse/ports";
+} from "@tightarse/domain";
 import { mergeEnrichments, summarise, toAccountState, type EnrichmentRow, type LedgerRow } from "./aggregate.js";
 import { daysBetween, netPositionSeries, type AccountFacts, type Movement } from "./balances.js";
 import { clampToCoverage, completeFrom, coverageOf, type AccountCoverage } from "./coverage.js";
@@ -30,7 +30,7 @@ import { clampToCoverage, completeFrom, coverageOf, type AccountCoverage } from 
  * The port's own vocabulary, re-exported under the name this module used.
  *
  * It was a separate declaration of the same two fields. A range of dates is
- * domain vocabulary and `@tightarse/ports` already owns it — a second copy is
+ * domain vocabulary and `@tightarse/domain` already owns it — a second copy is
  * how two things that must agree stop agreeing.
  */
 export type Range = DateRange;

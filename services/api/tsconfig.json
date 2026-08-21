@@ -15,7 +15,7 @@
       "path": "../../packages/api-contract"
     },
     {
-      "path": "../../packages/schema"
+      "path": "../../packages/domain"
     },
     {
       "path": "../../packages/dynamodb"

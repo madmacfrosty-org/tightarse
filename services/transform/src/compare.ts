@@ -19,7 +19,7 @@
  * quietly stops meaning anything.
  */
 
-import type { TableRows } from "@tightarse/ports";
+import type { TableRows } from "@tightarse/domain";
 
 export type Row = Readonly<Record<string, unknown>>;
 

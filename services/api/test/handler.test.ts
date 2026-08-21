@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { handler, ledgerConfig, route, realDeps, type ApiDeps } from "../src/handler.js";
 import { reporting } from "../src/use-cases.js";
-import type { Reporting } from "@tightarse/ports";
+import type { Reporting } from "@tightarse/domain";
 
 /**
  * The routing was unreachable until the ledger client became an argument: it

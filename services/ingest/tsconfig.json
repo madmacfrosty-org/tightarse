@@ -12,16 +12,13 @@
   ],
   "references": [
     {
-      "path": "../../packages/schema"
+      "path": "../../packages/domain"
     },
     {
       "path": "../../packages/truelayer"
     },
     {
       "path": "../../packages/metrics"
-    },
-    {
-      "path": "../../packages/ports"
     },
     {
       "path": "../../packages/aws"

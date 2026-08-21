@@ -1,5 +1,5 @@
 import { gunzipSync } from "node:zlib";
-import { parseRawKey } from "@tightarse/schema";
+import { parseRawKey } from "@tightarse/domain";
 import {
   handlerFor,
   mapAccount,
@@ -12,7 +12,7 @@ import {
   type RawBalance,
   type RawTransaction,
 } from "./map.js";
-import type { LedgerWrites, RawObjects } from "@tightarse/ports";
+import type { LedgerWrites, RawObjects } from "@tightarse/domain";
 
 /** The envelope the uploader and fetcher write around every response. */
 interface RawEnvelope {

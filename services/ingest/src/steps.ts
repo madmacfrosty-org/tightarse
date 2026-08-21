@@ -2,14 +2,14 @@ import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import { LIVE, SANDBOX, TrueLayerBank } from "@tightarse/truelayer";
 import { syncWindow, type SyncWindow } from "./sync-window.js";
-import { rawObjectKey } from "@tightarse/schema";
+import { rawObjectKey } from "@tightarse/domain";
 import { emit } from "@tightarse/metrics";
 import { Connections, daysUntilExpiry, type Connection } from "./connections.js";
-import type { RawObjects } from "@tightarse/ports";
+import type { RawObjects } from "@tightarse/domain";
 import { S3RawObjects } from "@tightarse/aws";
 import { AwsSecrets, SnsNotifications } from "@tightarse/aws";
-import type { BankData, BankItem, Notifications } from "@tightarse/ports";
-import { ConsentExpired } from "@tightarse/ports";
+import type { BankData, BankItem, Notifications } from "@tightarse/domain";
+import { ConsentExpired } from "@tightarse/domain";
 
 /**
  * The sync, decomposed into steps a state machine can retry individually.

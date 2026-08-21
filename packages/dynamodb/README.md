@@ -1,10 +1,10 @@
 # @tightarse/dynamodb
 
-The DynamoDB adapter. It implements the ports declared in `@tightarse/ports`;
+The DynamoDB adapter. It implements the ports declared in `@tightarse/domain`;
 nothing in the application depends on this package except the composition roots
 that construct it.
 
-DynamoDB access. Key construction comes from `@tightarse/schema` — no `T#…`
+DynamoDB access. Key construction comes from `@tightarse/domain` — no `T#…`
 strings are built here.
 
 ## Layout

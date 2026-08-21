@@ -1,4 +1,4 @@
-import type { CustomRule } from "@tightarse/schema";
+import type { CustomRule } from "@tightarse/domain";
 import { isCategory, type Category } from "./taxonomy.js";
 import type { Candidate, Classification } from "./categorise.js";
 

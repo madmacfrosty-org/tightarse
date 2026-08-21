@@ -1,7 +1,7 @@
 /**
  * What the API promises its clients.
  *
- * Separate from `@tightarse/schema`, which is what is in the table. The two look
+ * Separate from `@tightarse/domain`, which is what is in the table. The two look
  * alike and are not: changing a stored shape is a migration under our own
  * control, whereas changing a shape on the wire is a promise to something
  * already installed. A browser reloads; an iOS build on somebody's phone does

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Secrets } from "@tightarse/ports";
+import type { Secrets } from "@tightarse/domain";
 import { Connections, type Connection } from "../src/connections.js";
 
 /**

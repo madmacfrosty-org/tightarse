@@ -19,7 +19,7 @@ import type {
   Household,
   RuleSets,
   Transactions,
-} from "@tightarse/ports";
+} from "@tightarse/domain";
 import { DynamoAccounts } from "./accounts.js";
 import { DynamoBalances } from "./balances.js";
 import { DynamoCategorisations } from "./categorisations.js";

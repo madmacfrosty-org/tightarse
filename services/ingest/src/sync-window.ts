@@ -15,7 +15,7 @@
  * actually arrive.
  */
 
-import type { BankLimits } from "@tightarse/ports";
+import type { BankLimits } from "@tightarse/domain";
 
 /**
  * The narrowest routine window.

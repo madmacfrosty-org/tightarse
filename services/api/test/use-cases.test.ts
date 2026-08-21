@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { LedgerReads } from "@tightarse/ports";
+import type { LedgerReads } from "@tightarse/domain";
 import { accounts, balances, summary, transactions } from "../src/use-cases";
 
 /**

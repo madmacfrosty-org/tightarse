@@ -1,7 +1,7 @@
 /**
  * DynamoDB keys and row kinds.
  *
- * These lived in `@tightarse/schema` alongside the domain shapes, which meant
+ * These lived in `@tightarse/domain` alongside the domain shapes, which meant
  * every package that wanted a `Transaction` type also learned what a partition
  * key is. A partition key is not a fact about a household's finances; it is a
  * fact about how one store happens to lay them out.

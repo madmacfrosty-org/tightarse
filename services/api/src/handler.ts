@@ -1,5 +1,5 @@
 import { DynamoStore } from "@tightarse/dynamodb";
-import type { Reporting } from "@tightarse/ports";
+import type { Reporting } from "@tightarse/domain";
 import { reporting, type Deps } from "./use-cases.js";
 import { asAccounts, asBalances, asSummary, asTransactions } from "./wire.js";
 

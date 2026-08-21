@@ -4,7 +4,7 @@ import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import {
   dedupKey,
   type Transaction,
-} from "@tightarse/schema";
+} from "@tightarse/domain";
 import { DynamoStore } from "../src/dynamo-store";
 import { resolveTestTarget } from "../src/test-table";
 

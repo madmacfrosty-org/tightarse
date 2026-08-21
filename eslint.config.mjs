@@ -11,7 +11,7 @@ import reactHooks from "eslint-plugin-react-hooks";
  * enforced by nothing. npm workspace manifests do not gate imports: every SDK is
  * hoisted to the root `node_modules` and every workspace is symlinked into
  * `node_modules/@tightarse/`, so Node's upward resolution finds all of them from
- * anywhere. `packages/categorisation` declares one dependency and can still
+ * anywhere. `packages/domain` declares one dependency and can still
  * resolve both the S3 SDK and the ledger store. TypeScript project references
  * order the build and do not restrict resolution either — an import landing on a
  * built `.d.ts` is an error in neither case.
@@ -61,9 +61,17 @@ const DRIVERS = DIRS.filter((d) => /^(services|agents|spike)\//.test(d) || d ===
 /**
  * The domain model.
  *
- * `ports` and `schema` are it: what the application offers and requires, and the
- * shapes it keeps. `categorisation` is pure domain logic over that vocabulary;
- * `metrics` is a pure formatter with no dependencies.
+ * `domain` is it. It was three packages — `ports`, `schema` and `categorisation`
+ * — one naming the edges, one naming a shape without a subject, and one naming a
+ * concept it shared with entities that lived elsewhere. They are now namespaces
+ * inside a single package, grouped by what the code is about.
+ *
+ * `metrics` is here because it must not reach infrastructure, not because it is
+ * domain: it formats CloudWatch's Embedded Metric Format and contains no domain
+ * concept at all. The list restricts; it does not classify.
+ *
+ * The business logic still living in services and agents moves in behind these
+ * names, one area at a time. See #43.
  *
  * `truelayer` is NOT here. The clue is the name: a package named after a vendor
  * is a driven adapter, exactly as `aws` and `dynamodb` are. It holds an HTTP
@@ -78,15 +86,10 @@ const DRIVERS = DIRS.filter((d) => /^(services|agents|spike)\//.test(d) || d ===
  *
  * Deliberately a deny list of what they may not reach rather than an allow list
  * of what they may, because the failure being prevented is specific — a
- * `DynamoDBClient` inside `packages/categorisation`, or a `fetch` where a port
+ * `DynamoDBClient` inside `packages/domain`, or a `fetch` where a port
  * belongs — and an allow list would need editing for every ordinary addition.
  */
-const DOMAIN = [
-  "packages/categorisation",
-  "packages/metrics",
-  "packages/ports",
-  "packages/schema",
-];
+const DOMAIN = ["packages/domain", "packages/metrics"];
 
 /**
  * Tooling. Not the domain model, and the domain may not import it.
@@ -220,7 +223,7 @@ export default [
             {
               group: INFRASTRUCTURE,
               message:
-                "This package is domain code: schemas, ports, pure logic or fixtures. An SDK or a store adapter belongs behind a port in packages/ports, implemented in packages/aws or packages/dynamodb and injected by a composition root. See #40.",
+                "This package is domain code. An SDK or a store adapter belongs behind a port in packages/domain, implemented in packages/aws or packages/dynamodb and injected by a composition root. See #40.",
             },
             {
               group: DRIVERS.map(nameOf),
