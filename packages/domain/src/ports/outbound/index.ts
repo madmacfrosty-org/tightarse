@@ -20,6 +20,7 @@
 import type { Account } from "../../ledger/account.js";
 import type { Transaction } from "../../ledger/transaction.js";
 import type { BalanceReading } from "../../ledger/balance.js";
+import type { ReconciliationMovement, Reading } from "../../ledger/reconciliation.js";
 import type { Categorisation } from "../../categorisation/categorisation.js";
 import type { RuleSet } from "../../categorisation/rules.js";
 import type { CustomRule, TransactionEnrichment } from "../../categorisation/enrichment.js";
@@ -302,6 +303,31 @@ export interface LedgerWrites {
  * job that could also write the balances it checks against would be marking its
  * own homework.
  */
+/** An account reconciliation can check, and whether it is a card. */
+export interface ReconcilableAccount {
+  readonly accountId: string;
+  /** Cards carry no running balance, so they are counted and alarmed separately. */
+  readonly isCard: boolean;
+}
+
+/**
+ * What reconciliation reads: the accounts, and the two series behind each one.
+ *
+ * Three calls rather than one bulk read because the adapter is free to satisfy
+ * them from a single consistent scan — which is what it does, and must: reading
+ * one account's balances against another's transactions would produce a
+ * confident wrong answer that nothing downstream could catch.
+ *
+ * The rows themselves never appear here. Grouping a stored row into these is
+ * storage's job, and this package must not learn that a reading has a partition
+ * key.
+ */
+export interface ReconciliationData {
+  accounts(): Promise<readonly ReconcilableAccount[]>;
+  readings(accountId: string): Promise<readonly Reading[]>;
+  movements(accountId: string): Promise<readonly ReconciliationMovement[]>;
+}
+
 export interface ReconciliationMarks {
   markBalanceReadingDirty(
     tenantId: string,

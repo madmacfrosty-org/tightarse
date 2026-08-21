@@ -17,9 +17,16 @@
 
 import type { DynamoStore } from "@tightarse/dynamodb";
 import { emit } from "@tightarse/metrics";
-import { runReconciliation, type ReconcilePhaseDeps, type ReconcilePhaseResult } from "./reconcile-phase.js";
 import { rowKind, scanAll, type Row } from "./compare.js";
-import type { ReconciliationMarks, TableRows } from "@tightarse/domain";
+import { reconcile, type ReconciliationReport } from "@tightarse/domain";
+import type {
+  ReconciliationMovement,
+  ReconcilableAccount,
+  Reading,
+  ReconciliationData,
+  ReconciliationMarks,
+  TableRows,
+} from "@tightarse/domain";
 
 export interface ReconcileConfig {
   readonly tableName: string;
@@ -50,9 +57,14 @@ export function reconcileConfig(env: NodeJS.ProcessEnv): ReconcileConfig {
  * avoids reconciling one account's balances against another's transactions.
  */
 export function groupForReconciliation(rows: readonly Row[]): {
-  accounts: Array<{ accountId: string; isCard: boolean }>;
-  readings: Map<string, Array<{ accountId: string; asOf: string; fetchedAt: string; balance: number }>>;
-  movements: Map<string, Array<{ timestamp: string; amount: number }>>;
+  accounts: ReconcilableAccount[];
+  readings: Map<string, Reading[]>;
+  // Typed as `ReconciliationMovement`, which carries `firstSeenAt`. The previous declaration
+  // listed only timestamp and amount while the literal below spread the third
+  // field in conditionally: it flowed at runtime and was invisible to the type
+  // system, so dropping the field that distinguishes a late settler from a
+  // missing transaction would have compiled cleanly.
+  movements: Map<string, ReconciliationMovement[]>;
 } {
   const by = <T>(kind: string, pick: (r: Row) => T): Map<string, T[]> => {
     const out = new Map<string, T[]>();
@@ -86,25 +98,18 @@ export function groupForReconciliation(rows: readonly Row[]): {
 }
 
 /**
- * Turn a scan and a ledger into the phase's dependencies.
+ * Serve the reconciliation's reads from one scan.
  *
  * Separate from the entry point so the wiring is testable: reading an account's
  * readings against another account's transactions would produce a confident
- * wrong answer, and nothing about the phase itself would catch it.
+ * wrong answer, and nothing about the use case itself could catch it.
  */
-export function phaseDepsFrom(
-  rows: readonly Row[],
-  ledger: ReconciliationMarks,
-  tenantId: string,
-): ReconcilePhaseDeps {
+export function dataFrom(rows: readonly Row[]): ReconciliationData {
   const { accounts, readings, movements } = groupForReconciliation(rows);
   return {
     accounts: async () => accounts,
     readings: async (id) => readings.get(id) ?? [],
     movements: async (id) => movements.get(id) ?? [],
-    markDirty: (id, asOf, fetchedAt, discrepancy) =>
-      ledger.markBalanceReadingDirty(tenantId, id, asOf, fetchedAt, discrepancy),
-    clearDirty: (id, asOf, fetchedAt) => ledger.clearBalanceReadingDirty(tenantId, id, asOf, fetchedAt),
   };
 }
 
@@ -119,12 +124,13 @@ export async function reconcileFrom(
   ledger: ReconciliationMarks,
   config: ReconcileConfig,
   write?: (line: string) => void,
-): Promise<ReconcilePhaseResult> {
+): Promise<ReconciliationReport> {
   const rows = [...(await scanAll(tableRows))];
-  const result = await runReconciliation({
-    ...phaseDepsFrom(rows, ledger, config.tenantId),
-    ...(write ? { log: write } : {}),
-  });
+  const result = await reconcile({ data: dataFrom(rows), marks: ledger }, config.tenantId);
+
+  // The per-account lines come back rather than being written from inside the
+  // domain, so this is where they reach a log.
+  for (const line of result.lines) (write ?? console.log)(line);
 
   emit(
     {

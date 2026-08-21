@@ -61,8 +61,15 @@ export interface Reading {
   readonly balance: number;
 }
 
-/** A stored transaction, as much of it as this needs. */
-export interface Movement {
+/**
+ * A stored transaction, as much of it as this needs.
+ *
+ * Named for its subject because `reporting/balances.ts` has its own `ReconciliationMovement`:
+ * a different projection of the same row, carrying an account and a sort
+ * tiebreak instead of provenance. Both are deliberately less than a ledger row,
+ * and merging them would force each to carry what only the other needs.
+ */
+export interface ReconciliationMovement {
   readonly timestamp: string;
   readonly amount: number;
   /**
@@ -139,7 +146,7 @@ const dayOf = (timestamp: string): string => timestamp.slice(0, 10);
 export function reconcileAccount(
   accountId: string,
   readings: readonly Reading[],
-  movements: readonly Movement[],
+  movements: readonly ReconciliationMovement[],
 ): ReconciliationResult {
   const ordered = [...readings].sort((a, b) => a.asOf.localeCompare(b.asOf));
   const oldest = ordered[0];

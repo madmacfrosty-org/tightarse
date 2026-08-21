@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { reconcileAccount, reconciliationMetrics, type Movement, type Reading } from "../src/reconcile";
+import { reconcileAccount, reconciliationMetrics, type ReconciliationMovement, type Reading } from "../src/ledger/reconciliation.js";
 
 /**
  * The check that catches a missing transaction.
@@ -21,10 +21,10 @@ const reading = (asOf: string, balance: number, fetchedAt = asOf): Reading => ({
   balance,
 });
 
-const movement = (timestamp: string, amount: number): Movement => ({ timestamp, amount });
+const movement = (timestamp: string, amount: number): ReconciliationMovement => ({ timestamp, amount });
 
 /** A transaction dated `timestamp` that we did not hold until `firstSeenAt`. */
-const settledLate = (timestamp: string, amount: number, firstSeenAt: string): Movement => ({
+const settledLate = (timestamp: string, amount: number, firstSeenAt: string): ReconciliationMovement => ({
   timestamp,
   amount,
   firstSeenAt,

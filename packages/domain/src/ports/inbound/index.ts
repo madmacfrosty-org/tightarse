@@ -176,3 +176,24 @@ export interface Reporting {
   accounts(tenantId: string): Promise<AccountsResult>;
   balances(tenantId: string, range: DateRange): Promise<BalancesResult>;
 }
+
+/**
+ * What a reconciliation run found.
+ *
+ * Counts, never amounts: a discrepancy is a balance, and a balance is as
+ * personal as a transaction. `lines` is one JSON object per account for a
+ * caller to log — returned rather than written, so the domain needs no console.
+ */
+export interface ReconciliationReport {
+  readonly accounts: number;
+  /** Accounts with enough readings to check. Zero checks is not zero breaks. */
+  readonly checked: number;
+  readonly breaks: number;
+  readonly metrics: Readonly<Record<string, number>>;
+  readonly lines: readonly string[];
+}
+
+/** Check the ledger's arithmetic against the balances the banks reported. */
+export interface Reconciliation {
+  run(tenantId: string): Promise<ReconciliationReport>;
+}

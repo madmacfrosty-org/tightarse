@@ -11,6 +11,7 @@
  *   household/       members, settings, bank consents
  *   reporting/       what the household spent, and what it is worth
  *   raw/             how the landing zone is laid out
+ *   application/     the use cases, orchestrating the above through ports
  *   ports/           the edges, inbound and outbound
  *
  * It was `@tightarse/ports` and `@tightarse/domain` — one naming the edges and
@@ -23,6 +24,7 @@ export * from "./money.js";
 export * from "./ledger/transaction.js";
 export * from "./ledger/account.js";
 export * from "./ledger/balance.js";
+export * from "./ledger/reconciliation.js";
 export * from "./categorisation/rules.js";
 export * from "./categorisation/taxonomy.js";
 export * from "./categorisation/merchant-rules.js";
@@ -40,4 +42,5 @@ export * from "./reporting/balances.js";
 export * from "./reporting/coverage.js";
 export * from "./reporting/transfers.js";
 export * from "./reporting/reporting.js";
+export * from "./application/reconcile.js";
 export * from "./ports/index.js";

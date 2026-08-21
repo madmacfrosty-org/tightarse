@@ -1,14 +1,16 @@
 import { describe, it, expect, vi } from "vitest";
-import { runReconciliation, type ReconcilePhaseDeps } from "../src/reconcile-phase";
-import { groupForReconciliation, phaseDepsFrom, reconcileConfig, reconcileFrom } from "../src/reconcile-job";
-import type { Movement, Reading } from "../src/reconcile";
+import { dataFrom, groupForReconciliation, reconcileConfig, reconcileFrom } from "../src/reconcile-job";
+import { reconcile } from "@tightarse/domain";
+import type { Reading } from "@tightarse/domain";
 
 /**
- * The phase around the check.
+ * The adapter half: turning stored rows into what the use case reads, and the
+ * scheduled run around it.
  *
- * What matters here is not the arithmetic — that is tested in reconcile.test.ts
- * — but what it does with the answer: marking a reading dirty, and being able to
- * take the mark back when a late transaction explains the break.
+ * The check itself lives in @tightarse/domain. What is testable only here is
+ * the grouping — an account's readings must never be served against another
+ * account's transactions — and that first-seen survives the trip out of the
+ * table, because that field is what tells a late settler from a missing one.
  */
 
 const reading = (accountId: string, asOf: string, balance: number, fetchedAt = asOf): Reading => ({
@@ -16,133 +18,6 @@ const reading = (accountId: string, asOf: string, balance: number, fetchedAt = a
   asOf,
   fetchedAt,
   balance,
-});
-
-function deps(
-  over: Partial<ReconcilePhaseDeps> & {
-    readingsByAccount?: Record<string, Reading[]>;
-    movementsByAccount?: Record<string, Movement[]>;
-  } = {},
-): { deps: ReconcilePhaseDeps; marked: string[]; cleared: string[] } {
-  const marked: string[] = [];
-  const cleared: string[] = [];
-  const readings = over.readingsByAccount ?? {};
-  const movements = over.movementsByAccount ?? {};
-  return {
-    marked,
-    cleared,
-    deps: {
-      accounts: async () => [{ accountId: "acc-1", isCard: false }],
-      readings: async (id: string) => readings[id] ?? [],
-      movements: async (id: string) => movements[id] ?? [],
-      markDirty: async (id: string, asOf: string, _fetchedAt: string, discrepancy: number) => {
-        marked.push(`${id}|${asOf}|${discrepancy}`);
-      },
-      clearDirty: async (id: string, asOf: string) => {
-        cleared.push(`${id}|${asOf}`);
-      },
-      log: () => {},
-      ...over,
-    },
-  };
-}
-
-describe("marking what did not add up", () => {
-  it("marks the later reading of a broken pair, with the discrepancy", () => {
-    // The later one, because that is where the arithmetic failed: everything up
-    // to the earlier reading still reconciled.
-    const { deps: d, marked } = deps({
-      readingsByAccount: {
-        "acc-1": [reading("acc-1", "2026-01-01T05:00:00.000Z", 100_00), reading("acc-1", "2026-01-03T05:00:00.000Z", 70_00)],
-      },
-      movementsByAccount: { "acc-1": [{ timestamp: "2026-01-02T00:00:00Z", amount: -10_00 }] },
-    });
-    return runReconciliation(d).then((result) => {
-      expect(result.breaks).toBe(1);
-      expect(marked).toEqual(["acc-1|2026-01-03T05:00:00.000Z|-2000"]);
-    });
-  });
-
-  it("leaves the earlier reading alone, which still reconciles", async () => {
-    const { deps: d, marked, cleared } = deps({
-      readingsByAccount: {
-        "acc-1": [reading("acc-1", "2026-01-01T05:00:00.000Z", 100_00), reading("acc-1", "2026-01-03T05:00:00.000Z", 70_00)],
-      },
-    });
-    await runReconciliation(d);
-    expect(marked.some((m) => m.includes("2026-01-01"))).toBe(false);
-    expect(cleared.some((c) => c.includes("2026-01-01"))).toBe(true);
-  });
-
-  it("clears the mark when a late transaction explains the break", async () => {
-    // The reason nothing appends a correcting row. This phase recomputes from
-    // scratch every run, so a break that is later explained simply stops being
-    // one — no retraction, and no corrections stacked on corrections.
-    const readings = [
-      reading("acc-1", "2026-01-01T05:00:00.000Z", 100_00),
-      reading("acc-1", "2026-01-03T05:00:00.000Z", 70_00),
-    ];
-    const before = deps({ readingsByAccount: { "acc-1": readings } });
-    await runReconciliation(before.deps);
-    expect(before.marked).toHaveLength(1);
-
-    const after = deps({
-      readingsByAccount: { "acc-1": readings },
-      movementsByAccount: { "acc-1": [{ timestamp: "2026-01-02T00:00:00Z", amount: -30_00 }] },
-    });
-    await runReconciliation(after.deps);
-    expect(after.marked).toHaveLength(0);
-    expect(after.cleared).toContain("acc-1|2026-01-03T05:00:00.000Z");
-  });
-});
-
-describe("running over a household", () => {
-  it("checks every account, cards included", async () => {
-    // Cards are the reason this exists: they carry no running balance, so this
-    // is the only check that can see them at all.
-    const { deps: d } = deps({
-      accounts: async () => [
-        { accountId: "acc-1", isCard: false },
-        { accountId: "card-1", isCard: true },
-      ],
-      readingsByAccount: {
-        "acc-1": [reading("acc-1", "2026-01-01T05:00:00.000Z", 100), reading("acc-1", "2026-01-03T05:00:00.000Z", 100)],
-        "card-1": [reading("card-1", "2026-01-01T05:00:00.000Z", -500), reading("card-1", "2026-01-03T05:00:00.000Z", -700)],
-      },
-    });
-    const result = await runReconciliation(d);
-    expect(result.accounts).toBe(2);
-    expect(result.checked).toBe(2);
-    expect(result.metrics["ReconciliationBreaksCard"]).toBe(1);
-    expect(result.metrics["ReconciliationBreaksAccount"]).toBe(0);
-  });
-
-  it("reports zero checks for a household whose accounts have one reading each", async () => {
-    // Every account is in this state until a second sync has run. Zero breaks
-    // here means "nothing checked", not "everything healthy", and the metrics
-    // have to say which.
-    const { deps: d } = deps({
-      readingsByAccount: { "acc-1": [reading("acc-1", "2026-01-01T05:00:00.000Z", 100)] },
-    });
-    const result = await runReconciliation(d);
-    expect(result.metrics).toMatchObject({ ReconciliationsChecked: 0, ReconciliationBreaksAccount: 0 });
-  });
-
-  it("logs counts only, never a balance", async () => {
-    // A balance is as personal as a transaction. This output goes to
-    // CloudWatch.
-    const lines: string[] = [];
-    const { deps: d } = deps({
-      log: (l: string) => lines.push(l),
-      readingsByAccount: {
-        "acc-1": [reading("acc-1", "2026-01-01T05:00:00.000Z", 123_456), reading("acc-1", "2026-01-03T05:00:00.000Z", 99_999)],
-      },
-    });
-    await runReconciliation(d);
-    expect(lines.join(" ")).not.toContain("123456");
-    expect(lines.join(" ")).not.toContain("99999");
-    expect(JSON.parse(lines[0]!)).toMatchObject({ accountId: "acc-1", readings: 2, checked: 1, breaks: 1 });
-  });
 });
 
 describe("what the scheduled run reads from the environment", () => {
@@ -235,7 +110,7 @@ describe("grouping a scan for reconciliation", () => {
   });
 });
 
-describe("wiring a scan to the phase", () => {
+describe("wiring a scan to the use case", () => {
   const rows = [
     { pk: "T#frost", sk: "ACCOUNT#acc-1", accountId: "acc-1", isCard: false },
     { pk: "T#frost", sk: "ACCOUNT#acc-2", accountId: "acc-2", isCard: false },
@@ -249,8 +124,8 @@ describe("wiring a scan to the phase", () => {
 
   it("gives each account only its own readings and transactions", async () => {
     // Crossing them would reconcile one account's balance against another's
-    // spending — a confidently wrong answer that the phase itself cannot catch.
-    const result = await runReconciliation({ ...phaseDepsFrom(rows, ledger, "frost"), log: () => {} });
+    // spending — a confidently wrong answer the use case itself cannot catch.
+    const result = await reconcile({ data: dataFrom(rows), marks: ledger }, "frost");
     expect(result.accounts).toBe(2);
     expect(result.breaks).toBe(0);
     // acc-2 has no readings, so it is not checked rather than reported broken.
@@ -259,7 +134,7 @@ describe("wiring a scan to the phase", () => {
 
   it("passes the tenant through to the marking, not the account id", async () => {
     const broken = rows.map((r) => (r["sk"] === "b" ? { ...r, balance: 50_00 } : r));
-    await runReconciliation({ ...phaseDepsFrom(broken, ledger, "frost"), log: () => {} });
+    await reconcile({ data: dataFrom(broken), marks: ledger }, "frost");
     expect(ledger.markBalanceReadingDirty).toHaveBeenCalledWith(
       "frost", "acc-1", "2026-01-03T05:00:00.000Z", "2026-01-03T05:00:00.000Z", -40_00,
     );
