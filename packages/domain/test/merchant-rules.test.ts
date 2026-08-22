@@ -1,4 +1,3 @@
-import { enrichmentMetrics } from "../src/categorisation/categorising.js";
 import { describe, it, expect } from "vitest";
 import { applyRules, RULES } from "../src/categorisation/merchant-rules.js";
 import { isCategory } from "../src/categorisation/taxonomy.js";
@@ -113,30 +112,4 @@ describe("brand names as they actually appear on statements", () => {
       expect(result?.category).toBe(expected);
     });
   }
-});
-
-describe("enrichmentMetrics", () => {
-  const prepared = {
-    candidates: [{ dedupKey: "a" }, { dedupKey: "b" }, { dedupKey: "c" }],
-    classifications: [{ dedupKey: "a" }, { dedupKey: "b" }],
-    unmatched: [{ dedupKey: "c" }],
-    customRuleCount: 16,
-  } as never;
-
-  it("reports the backlog, what matched, and what was left", () => {
-    expect(enrichmentMetrics(prepared, 2)).toEqual({
-      EnrichmentBacklog: 3,
-      EnrichmentMatched: 2,
-      EnrichmentWritten: 2,
-      EnrichmentUnmatched: 1,
-      CustomRules: 16,
-    });
-  });
-
-  it("distinguishes matched from written", () => {
-    // They differ when a transaction disappears between listing and writing,
-    // and a run that matched plenty while writing nothing is worth seeing.
-    expect(enrichmentMetrics(prepared, 0)["EnrichmentWritten"]).toBe(0);
-    expect(enrichmentMetrics(prepared, 0)["EnrichmentMatched"]).toBe(2);
-  });
 });

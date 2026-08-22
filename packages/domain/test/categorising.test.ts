@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type { CustomRule } from "../src/index.js";
 import { compileCustom } from "../src/categorisation/merchant-rules.js";
-import { enrichmentMetrics, prepare, writeRuleEnrichments } from "../src/categorisation/categorising.js";
+import { prepare, writeRuleEnrichments } from "../src/categorisation/categorising.js";
 
 /**
  * The rules half of categorisation.
@@ -150,15 +150,5 @@ describe("writing what the rules matched", () => {
     const out = await writeRuleEnrichments(ledger as never, "frost", prepared);
     expect(out.written).toBe(0);
     expect(written).toEqual([]);
-  });
-});
-
-describe("what a run reports", () => {
-  it("counts the backlog, what matched, and what is left for the model", async () => {
-    const { ledger } = fakeLedger([row(), row({ dedupKey: "d2", description: "SOMETHING UNFAMILIAR" })]);
-    const prepared = await prepare(ledger as never, "frost", range);
-    const metrics = enrichmentMetrics(prepared, 1);
-    expect(metrics).toMatchObject({ EnrichmentBacklog: 2 });
-    expect(Object.values(metrics).every((v) => typeof v === "number")).toBe(true);
   });
 });

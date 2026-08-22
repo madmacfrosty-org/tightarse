@@ -25,6 +25,7 @@ import type { AccountId } from "../../ledger/account.js";
 import type { Categorisation } from "../../categorisation/categorisation.js";
 import type { RuleSet } from "../../categorisation/rules.js";
 import type { CustomRule, TransactionEnrichment } from "../../categorisation/enrichment.js";
+import type { Candidate, Classification } from "../../categorisation/taxonomy.js";
 import type { Member } from "../../household/member.js";
 import type { TenantSettings } from "../../household/settings.js";
 import type { Consent } from "../../household/consent.js";
@@ -348,6 +349,36 @@ export interface ReconciliationMarks {
     asOf: string,
     fetchedAt: string,
   ): Promise<void>;
+}
+
+/** What one call to a classifier came back with. */
+export interface ClassifierResult {
+  /** Answers inside the taxonomy, ready to write. */
+  readonly classifications: readonly Classification[];
+  /** Answers outside the taxonomy. Recorded, not written — they become Other. */
+  readonly rejected: number;
+  /** Candidates that got no answer at all, and stay in the backlog. */
+  readonly missing: number;
+  /** Tokens billed for the request. */
+  readonly inputTokens: number;
+  /** Tokens billed for the response. */
+  readonly outputTokens: number;
+}
+
+/**
+ * Whatever classifies what the rules could not.
+ *
+ * A port because the model is a bought service with a per-call cost, and the
+ * domain should be able to say what it wants classified without knowing that a
+ * prompt, a token budget or a region exists. The one thing it does need back is
+ * `producedBy`: an enrichment records what produced it, and "a model" is not
+ * specific enough to reproduce or re-run later.
+ */
+export interface Classifier {
+  /** How answers from this classifier are attributed, e.g. `categoriser@<model>`. */
+  readonly producedBy: string;
+  /** Classify one batch. Batching is the caller's, so a failure costs one batch. */
+  classify(candidates: readonly Candidate[]): Promise<ClassifierResult>;
 }
 
 /**
