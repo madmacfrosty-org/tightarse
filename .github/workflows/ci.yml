@@ -153,10 +153,22 @@ jobs:
       - name: Create the ephemeral ledger table
         run: npm run create-test-table -w @tightarse/dynamodb
 
-      # Every package, each against its own pinned floor. The floors are what the
-      # suite achieves today, so this fails when tests stop checking something
-      # rather than when a package misses an arbitrary target. Raise them, never
-      # lower them.
+      # Every package, each against its own pinned floor.
+      #
+      # Three of the floors are pinned to a WORST case rather than to what the
+      # suite achieves: domain, dynamodb and fixtures contain mutants whose
+      # outcome depends on machine speed. Stryker scores a timeout as a kill, and
+      # a mutant that hangs a fast machine can run to completion on a slow one
+      # and survive — the domain scored 89.82 here and 82.15 on a runner, on
+      # identical code. There is no timeout setting that removes this: the budget
+      # scales with the machine in one direction and the mutant runtime in the
+      # other.
+      #
+      # So those three are pinned as if every timing-dependent mutant survived,
+      # which is true anywhere. It makes their gate looser than the others, and
+      # #55 is about reducing the population rather than living with it — 35 of
+      # the domain's 105 are Stryker rewriting a merchant regex into something
+      # that backtracks catastrophically, which is worth excluding outright.
       - name: Mutation testing
         run: npm run test:mutation
 

@@ -19,7 +19,7 @@
   "thresholds": {
     "high": 90,
     "low": 70,
-    "break": 83.5
+    "break": 82.5
   },
   "tempDirName": ".stryker-tmp",
   "vitest": {
