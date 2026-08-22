@@ -26,6 +26,7 @@ export * from "./ledger/account.js";
 export * from "./ledger/balance.js";
 export * from "./ledger/reconciliation.js";
 export * from "./categorisation/rules.js";
+export * from "./categorisation/evaluate.js";
 export * from "./categorisation/taxonomy.js";
 export * from "./categorisation/category.js";
 export * from "./categorisation/seed.js";
