@@ -56,11 +56,23 @@ export default defineConfig({
       // past. So it is a check now — see the guard above the config.
       //
       // Only `branches` moves; the other three are the same either way.
+      //
+      // `branches` went DOWN from 90.37 to 90.33, which the ratchet forbids and
+      // autoUpdate cannot do — it only ever raises. Recorded deliberately here,
+      // because the cause is the opposite of the usual one: nothing became less
+      // tested. loadConfig now reads config.json before the environment instead
+      // of after, which deleted three branches that were fully covered, and
+      // config.ts still measures 100%. The global figure fell because a
+      // well-covered file shrank, 218/241 to 215/238.
+      //
+      // Lowering it for any other reason is how a ratchet stops being one. If
+      // this drops again, check whether the numerator moved or only the
+      // denominator did before touching this number.
       thresholds: {
-        lines: 88.86,
+        lines: 88.88,
         functions: 69.81,
-        branches: 90.37,
-        statements: 88.86,
+        branches: 90.33,
+        statements: 88.88,
         autoUpdate,
       },
     },
