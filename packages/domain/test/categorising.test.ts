@@ -45,7 +45,7 @@ describe("reading the backlog", () => {
   it("matches a known merchant without reaching a model", async () => {
     const { ledger } = fakeLedger([row()]);
     const out = await prepare(ledger as never, "frost", range);
-    expect(out.classifications).toEqual([{ dedupKey: "d1", category: "Groceries", confidence: 1 }]);
+    expect(out.classifications).toEqual([{ dedupKey: "d1", category: "Groceries" }]);
     expect(out.unmatched).toEqual([]);
   });
 

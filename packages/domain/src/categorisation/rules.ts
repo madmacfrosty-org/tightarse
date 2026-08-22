@@ -18,15 +18,21 @@ export type Matcher = z.infer<typeof Matcher>;
 /**
  * What a matching rule contributes to the fold.
  *
- * `assert` puts a category on the table, `refine` changes one already there,
- * `tag` attaches an attribute without touching the category. Three kinds is
- * enough for every case met so far; arbitrary transforms would produce rule sets
- * nobody can reason about.
+ * `assert` puts a category on the table; `refine` changes one already there and
+ * cannot fire without it. Two kinds, and arbitrary transforms would produce rule
+ * sets nobody can reason about.
+ *
+ * There was a third, `tag`, for attaching an attribute without touching the
+ * category. It was declared and never used: nothing consumed it, no entity held
+ * one, and no case was recorded for it. A closed algebra earns its
+ * expressiveness by being small, so an unused member is not free — it is
+ * something to test, document and migrate on behalf of nobody. If a real need
+ * appears it comes back as a feature with a case behind it, which costs almost
+ * nothing precisely because the algebra is closed.
  */
 export const Contribution = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("assert"), category: z.string().min(1) }),
   z.object({ kind: z.literal("refine"), category: z.string().min(1) }),
-  z.object({ kind: z.literal("tag"), tag: z.string().min(1) }),
 ]);
 export type Contribution = z.infer<typeof Contribution>;
 

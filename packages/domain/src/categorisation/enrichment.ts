@@ -20,7 +20,6 @@ export const TransactionEnrichment = z.object({
    *  without reading it back. */
   timestamp: z.string().datetime(),
   category: z.string(),
-  confidence: z.number().min(0).max(1),
   /** Which agent/model produced this, so it can be invalidated wholesale. */
   producedBy: z.string(),
   producedAt: z.string().datetime(),

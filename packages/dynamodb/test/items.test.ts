@@ -57,7 +57,6 @@ describe("enrichmentItem", () => {
       dedupKey: "n:stable-id",
       timestamp: "2026-08-08T00:00:00Z",
       category: "Groceries",
-      confidence: 0.9,
       producedBy: "test",
       producedAt: "2026-08-09T00:00:00Z",
     };

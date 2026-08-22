@@ -112,7 +112,6 @@ export async function writeEnrichments(
       dedupKey: c.dedupKey,
       timestamp,
       category: c.category,
-      confidence: c.confidence,
       producedBy,
       producedAt,
     });

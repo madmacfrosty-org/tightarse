@@ -25,7 +25,6 @@ export const Categorisation = z.object({
   version: z.number().int().positive(),
   status: z.enum(["effective", "proposed", "superseded"]),
   tags: z.array(z.string()).default([]),
-  confidence: z.number().min(0).max(1).optional(),
   appliedAt: z.string(),
   appliedBy: z.string().optional(),
 });

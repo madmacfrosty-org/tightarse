@@ -42,7 +42,6 @@ describe("applyRules", () => {
     // If a rule is wrong the rule should be fixed, not hedged with a lower
     // number that quietly downweights it everywhere.
     const r = applyRules([cand("ALDI 998")]);
-    expect(r.classifications[0]!.confidence).toBe(1);
   });
 
   it("does not confuse Uber Eats with Uber", () => {
