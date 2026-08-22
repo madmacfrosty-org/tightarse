@@ -17,9 +17,17 @@
 
 import type { DynamoStore } from "@tightarse/dynamodb";
 import { emit } from "@tightarse/metrics";
-import { runReconciliation, type ReconcilePhaseDeps, type ReconcilePhaseResult } from "./reconcile-phase.js";
 import { rowKind, scanAll, type Row } from "./compare.js";
-import type { ReconciliationMarks, TableRows } from "@tightarse/domain";
+import { reconcile } from "@tightarse/domain";
+import type {
+  AccountId,
+  ReconciliationMovement,
+  Reading,
+  ReconciliationData,
+  ReconciliationMarks,
+  ReconciliationReport,
+  TableRows,
+} from "@tightarse/domain";
 
 export interface ReconcileConfig {
   readonly tableName: string;
@@ -50,9 +58,14 @@ export function reconcileConfig(env: NodeJS.ProcessEnv): ReconcileConfig {
  * avoids reconciling one account's balances against another's transactions.
  */
 export function groupForReconciliation(rows: readonly Row[]): {
-  accounts: Array<{ accountId: string; isCard: boolean }>;
-  readings: Map<string, Array<{ accountId: string; asOf: string; fetchedAt: string; balance: number }>>;
-  movements: Map<string, Array<{ timestamp: string; amount: number }>>;
+  accounts: Array<{ accountId: AccountId; isCard: boolean }>;
+  readings: Map<string, Reading[]>;
+  // Typed as `ReconciliationMovement`, which carries `firstSeenAt`. The previous declaration
+  // listed only timestamp and amount while the literal below spread the third
+  // field in conditionally: it flowed at runtime and was invisible to the type
+  // system, so dropping the field that distinguishes a late settler from a
+  // missing transaction would have compiled cleanly.
+  movements: Map<string, ReconciliationMovement[]>;
 } {
   const by = <T>(kind: string, pick: (r: Row) => T): Map<string, T[]> => {
     const out = new Map<string, T[]>();
@@ -86,26 +99,66 @@ export function groupForReconciliation(rows: readonly Row[]): {
 }
 
 /**
- * Turn a scan and a ledger into the phase's dependencies.
+ * Serve the reconciliation's reads from one scan.
  *
  * Separate from the entry point so the wiring is testable: reading an account's
  * readings against another account's transactions would produce a confident
- * wrong answer, and nothing about the phase itself would catch it.
+ * wrong answer, and nothing about the use case itself could catch it.
  */
-export function phaseDepsFrom(
-  rows: readonly Row[],
-  ledger: ReconciliationMarks,
-  tenantId: string,
-): ReconcilePhaseDeps {
+export function dataFrom(rows: readonly Row[]): ReconciliationData {
   const { accounts, readings, movements } = groupForReconciliation(rows);
   return {
-    accounts: async () => accounts,
+    accounts: async () => accounts.map((a) => a.accountId),
     readings: async (id) => readings.get(id) ?? [],
     movements: async (id) => movements.get(id) ?? [],
-    markDirty: (id, asOf, fetchedAt, discrepancy) =>
-      ledger.markBalanceReadingDirty(tenantId, id, asOf, fetchedAt, discrepancy),
-    clearDirty: (id, asOf, fetchedAt) => ledger.clearBalanceReadingDirty(tenantId, id, asOf, fetchedAt),
   };
+}
+
+/**
+ * Counts to emit, split by card because cards cannot be compared to accounts.
+ *
+ * Here rather than in the domain because these are CloudWatch metric names, and
+ * an alarm matches them by exact spelling. The split itself is the domain's
+ * decision — the report carries per-account results — but what the numbers are
+ * called is this layer's business, and only this layer knows which accounts are
+ * cards.
+ */
+export function reconciliationMetrics(
+  report: ReconciliationReport,
+  isCard: (accountId: AccountId) => boolean,
+): Record<string, number> {
+  const sum = (want: boolean, pick: (a: { checked: number; breaks: number }) => number) =>
+    Object.entries(report.accounts)
+      .filter(([id]) => isCard(id) === want)
+      .reduce((total, [, a]) => total + pick(a), 0);
+
+  return {
+    // Split because a single total would say something is wrong without saying
+    // where, and because an alarm that cannot tell a card from an account is
+    // how the permanently-firing alarm in 927c593 happened.
+    ReconciliationBreaksAccount: sum(false, (a) => a.breaks),
+    ReconciliationBreaksCard: sum(true, (a) => a.breaks),
+    // Emitted so zero checks is distinguishable from zero breaks. An account
+    // with one reading has nothing to check yet, and that must not read as
+    // healthy.
+    ReconciliationsChecked: report.checked,
+  };
+}
+
+/**
+ * One JSON object per account, for a log.
+ *
+ * Counts only. An amount here would be a balance, and a balance is as personal
+ * as a transaction. Formatting lives here because a serialised log line is not a
+ * domain concept — the report carries the facts and this decides how they read.
+ */
+export function reconciliationLines(
+  report: ReconciliationReport,
+  isCard: (accountId: AccountId) => boolean,
+): string[] {
+  return Object.entries(report.accounts).map(([accountId, a]) =>
+    JSON.stringify({ accountId, isCard: isCard(accountId), ...a }),
+  );
 }
 
 /**
@@ -119,12 +172,16 @@ export async function reconcileFrom(
   ledger: ReconciliationMarks,
   config: ReconcileConfig,
   write?: (line: string) => void,
-): Promise<ReconcilePhaseResult> {
+): Promise<ReconciliationReport> {
   const rows = [...(await scanAll(tableRows))];
-  const result = await runReconciliation({
-    ...phaseDepsFrom(rows, ledger, config.tenantId),
-    ...(write ? { log: write } : {}),
-  });
+  const cards = new Set(groupForReconciliation(rows).accounts.filter((a) => a.isCard).map((a) => a.accountId));
+  const isCard = (id: AccountId) => cards.has(id);
+
+  const result = await reconcile({ data: dataFrom(rows), marks: ledger }, config.tenantId);
+
+  // Naming and formatting are this layer's, so both happen here rather than
+  // arriving pre-rendered from the domain.
+  for (const line of reconciliationLines(result, isCard)) (write ?? console.log)(line);
 
   emit(
     {
@@ -132,7 +189,7 @@ export async function reconcileFrom(
       // The deployment, not the TrueLayer environment. A metric emitted under
       // "live" is invisible to an alarm watching "dev", which is #31.
       environment: config.environment,
-      metrics: result.metrics,
+      metrics: reconciliationMetrics(result, isCard),
       properties: { tenantId: config.tenantId },
     },
     ...(write ? [write] : []),

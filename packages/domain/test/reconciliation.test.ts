@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { reconcileAccount, reconciliationMetrics, type Movement, type Reading } from "../src/reconcile";
+import { reconcileAccount, type ReconciliationMovement, type Reading } from "../src/ledger/reconciliation.js";
 
 /**
  * The check that catches a missing transaction.
@@ -21,10 +21,10 @@ const reading = (asOf: string, balance: number, fetchedAt = asOf): Reading => ({
   balance,
 });
 
-const movement = (timestamp: string, amount: number): Movement => ({ timestamp, amount });
+const movement = (timestamp: string, amount: number): ReconciliationMovement => ({ timestamp, amount });
 
 /** A transaction dated `timestamp` that we did not hold until `firstSeenAt`. */
-const settledLate = (timestamp: string, amount: number, firstSeenAt: string): Movement => ({
+const settledLate = (timestamp: string, amount: number, firstSeenAt: string): ReconciliationMovement => ({
   timestamp,
   amount,
   firstSeenAt,
@@ -373,37 +373,94 @@ describe("what it does with awkward input", () => {
   });
 });
 
-describe("what gets emitted", () => {
-  const broken = reconcileAccount(
-    "x",
-    [reading("2026-01-01T05:00:00.000Z", 100_00), reading("2026-01-03T05:00:00.000Z", 50_00)],
-    [],
-  );
-  const clean = reconcileAccount(
-    "y",
-    [reading("2026-01-01T05:00:00.000Z", 100_00), reading("2026-01-03T05:00:00.000Z", 100_00)],
-    [],
-  );
+/**
+ * The exact boundaries of the late-settler rule.
+ *
+ * Every one of these was a mutant that survived: the rule was written, the
+ * behaviour was right, and nothing in the suite would have noticed if a `>` had
+ * become a `>=`. That matters more here than anywhere else in the codebase,
+ * because getting this rule wrong took the live break count from 1 to 6, and
+ * the tests were green while it did.
+ */
+describe("the edges of first-seen", () => {
+  const PROVENANCE_TRUSTED_FROM = "2026-08-20T07:13:00.000Z";
+  const readings = [
+    reading("2026-08-25T05:00:00.000Z", 100_00, "2026-08-25T06:00:00.000Z"),
+    reading("2026-08-27T05:00:00.000Z", 90_00, "2026-08-27T06:00:00.000Z"),
+  ];
 
-  it("splits breaks by card, so an alarm can tell where the problem is", () => {
-    // A single total would say something is wrong without saying where, and an
-    // alarm that cannot tell a card from an account is how the permanently
-    // firing alarm in 927c593 happened.
-    expect(
-      reconciliationMetrics([
-        { result: broken, isCard: true },
-        { result: clean, isCard: false },
-      ]),
-    ).toMatchObject({ ReconciliationBreaksCard: 1, ReconciliationBreaksAccount: 0 });
+  // Fetched BEFORE the provenance instant, so that `firstSeenAt > fetchedAt`
+  // is satisfied either way and the only thing under test is the provenance
+  // comparison itself.
+  const fetchedBeforeProvenance = [
+    reading("2026-08-19T05:00:00.000Z", 100_00, "2026-08-19T06:00:00.000Z"),
+    reading("2026-08-21T05:00:00.000Z", 90_00, "2026-08-21T06:00:00.000Z"),
+  ];
+
+  it("counts a transaction first seen at the very instant provenance became trustworthy", () => {
+    // `>=`, not `>`. The first write after that instant is write-once and
+    // therefore true; excluding it would discard the earliest row the rule can
+    // legitimately use.
+    const result = reconcileAccount(
+      "acc-1",
+      fetchedBeforeProvenance,
+      [settledLate("2026-08-18T00:00:00Z", -10_00, PROVENANCE_TRUSTED_FROM)],
+    );
+    expect(result.breaks).toHaveLength(0);
   });
 
-  it("counts how many checks ran, so no checks is not mistaken for no breaks", () => {
-    // An account with one reading has nothing to check yet. Emitting only
-    // breaks would make that indistinguishable from a healthy ledger.
-    expect(reconciliationMetrics([{ result: clean, isCard: false }])).toMatchObject({
-      ReconciliationsChecked: 1,
-      ReconciliationBreaksAccount: 0,
-    });
-    expect(reconciliationMetrics([])).toMatchObject({ ReconciliationsChecked: 0 });
+  it("ignores a transaction first seen one millisecond before it", () => {
+    // Below the instant the value records the LAST write, not the first, and
+    // the rolling ten-day refetch makes most recent rows look newly settled.
+    // Trusting those is exactly what took one break to six.
+    const result = reconcileAccount(
+      "acc-1",
+      fetchedBeforeProvenance,
+      [settledLate("2026-08-18T00:00:00Z", -10_00, "2026-08-20T07:12:59.999Z")],
+    );
+    expect(result.breaks).toHaveLength(1);
+  });
+
+  it("ignores a transaction first seen at the exact moment the older reading was fetched", () => {
+    // `>`, not `>=`. Held at the instant the balance was taken means it was in
+    // that balance, so counting it again would double it.
+    const result = reconcileAccount(
+      "acc-1",
+      readings,
+      [settledLate("2026-08-24T00:00:00Z", -10_00, "2026-08-25T06:00:00.000Z")],
+    );
+    expect(result.breaks).toHaveLength(1);
+  });
+
+  it("does not treat a transaction inside the window as a late settler as well", () => {
+    // Dated after the older reading, so the window already has it. Counting it
+    // twice would turn a reconciled account into a break for the full amount.
+    const result = reconcileAccount(
+      "acc-1",
+      readings,
+      [settledLate("2026-08-26T00:00:00Z", -10_00, "2026-08-27T05:30:00.000Z")],
+    );
+    expect(result.breaks).toHaveLength(0);
+  });
+
+  it("reads a legacy row with no first-seen as one we already had", () => {
+    // Absent must mean "already held", not "just arrived" — otherwise every row
+    // written before provenance was kept becomes a late settler.
+    const result = reconcileAccount("acc-1", readings, [movement("2026-08-24T00:00:00Z", -10_00)]);
+    expect(result.breaks).toHaveLength(1);
+  });
+});
+
+describe("when there is nothing to check", () => {
+  it("checks nothing for an account with no readings at all", () => {
+    // A connected account that has never synced. Not a failure, and it must not
+    // report as checked.
+    expect(reconcileAccount("acc-1", [], [])).toEqual({ checked: 0, breaks: [] });
+  });
+
+  it("checks nothing for an account with exactly one reading", () => {
+    // The normal state of every account until a second sync has run.
+    const result = reconcileAccount("acc-1", [reading("2026-08-25T05:00:00.000Z", 100_00)], []);
+    expect(result).toEqual({ checked: 0, breaks: [] });
   });
 });

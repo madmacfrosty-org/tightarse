@@ -1,6 +1,6 @@
 /**
- * Run the reconciliation over a household. Wiring only — the work is in
- * `reconcile.ts` and `reconcile-phase.ts`.
+ * Run the reconciliation over a household. Wiring only — the work is the
+ * `reconcile` use case in @tightarse/domain.
  *
  *   TENANT=frost TABLE=<name> npm run reconcile -w @tightarse/transform
  *
@@ -11,8 +11,9 @@
 
 import { DynamoTableRows, DynamoStore } from "@tightarse/dynamodb";
 import { emit } from "@tightarse/metrics";
-import { runReconciliation } from "./reconcile-phase.js";
-import { rowKind, scanAll, type Row } from "./compare.js";
+import { reconcile } from "@tightarse/domain";
+import { scanAll, type Row } from "./compare.js";
+import { dataFrom, groupForReconciliation, reconciliationLines, reconciliationMetrics } from "./reconcile-job.js";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -33,42 +34,20 @@ async function main(): Promise<void> {
   const ledger = new DynamoStore({ tableName, region, ...(endpoint ? { endpoint } : {}) });
   // One scan, then everything is grouped in memory. This ledger is small enough
   // that a query per account per kind would be more calls for no benefit.
-  const rows: Row[] = [...(await scanAll(new DynamoTableRows({ tableName, region, ...(endpoint ? { endpoint } : {}) })))];
-  const byAccount = <T>(kind: string, pick: (r: Row) => T): Map<string, T[]> => {
-    const out = new Map<string, T[]>();
-    for (const r of rows) {
-      if (rowKind(r) !== kind) continue;
-      const id = String(r["accountId"]);
-      out.set(id, [...(out.get(id) ?? []), pick(r)]);
-    }
-    return out;
-  };
+  const rows: Row[] = [
+    ...(await scanAll(new DynamoTableRows({ tableName, region, ...(endpoint ? { endpoint } : {}) }))),
+  ];
 
-  const readings = byAccount("balanceReading", (r) => ({
-    accountId: String(r["accountId"]),
-    asOf: String(r["asOf"]),
-    fetchedAt: String(r["fetchedAt"]),
-    balance: Number(r["balance"]),
-  }));
-  const movements = byAccount("transaction", (r) => ({
-    timestamp: String(r["timestamp"]),
-    amount: Number(r["amount"]),
-  }));
-  const accounts = rows
-    .filter((r) => rowKind(r) === "account")
-    .map((r) => ({ accountId: String(r["accountId"]), isCard: r["isCard"] === true }));
+  // The same grouping the scheduled job uses. It was duplicated here, and the
+  // copy left out `firstSeenAt` — so this reported breaks for late settlers that
+  // the job correctly explained, on the same data.
+  const cards = new Set(groupForReconciliation(rows).accounts.filter((a) => a.isCard).map((a) => a.accountId));
+  const isCard = (id: string) => cards.has(id);
+  const result = await reconcile({ data: dataFrom(rows), marks: ledger }, tenantId);
+  for (const line of reconciliationLines(result, isCard)) console.log(line);
 
-  const result = await runReconciliation({
-    accounts: async () => accounts,
-    readings: async (id) => readings.get(id) ?? [],
-    movements: async (id) => movements.get(id) ?? [],
-    markDirty: (id, asOf, fetchedAt, discrepancy) =>
-      ledger.markBalanceReadingDirty(tenantId, id, asOf, fetchedAt, discrepancy),
-    clearDirty: (id, asOf, fetchedAt) => ledger.clearBalanceReadingDirty(tenantId, id, asOf, fetchedAt),
-  });
-
-  console.log(`\n${result.accounts} accounts, ${result.checked} checks, ${result.breaks} breaks`);
-  emit({ namespace: "Tightarse", environment, metrics: result.metrics, properties: { tenantId } });
+  console.log(`\n${Object.keys(result.accounts).length} accounts, ${result.checked} checks, ${result.breaks} breaks`);
+  emit({ namespace: "Tightarse", environment, metrics: reconciliationMetrics(result, isCard), properties: { tenantId } });
 
   if (result.breaks > 0) process.exitCode = 1;
 }
