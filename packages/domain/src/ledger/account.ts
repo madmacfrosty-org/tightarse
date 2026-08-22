@@ -12,6 +12,15 @@ import { TenantId } from "../household/member.js";
  * netting a movement between two family members' accounts requires seeing both
  * sides. Multi-tenant from commit one; retrofitting it is a table migration.
  */
+/**
+ * An account's identifier.
+ *
+ * A string, and named only so that a `Record<AccountId, ...>` says what it is
+ * keyed by. There is no branding: the ledger's ids come from the provider and
+ * validating them beyond non-empty would be inventing a rule we do not have.
+ */
+export type AccountId = string;
+
 export const Account = z.object({
   tenantId: TenantId,
   accountId: z.string().min(1),
