@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { applyRules, RULES } from "../src/categorisation/merchant-rules.js";
-import { isCategory } from "../src/categorisation/taxonomy.js";
+import { isCategoryLabel } from "../src/categorisation/taxonomy.js";
 import type { Candidate } from "../src/categorisation/taxonomy.js";
 
 const cand = (description: string, over: Partial<Candidate> = {}): Candidate => ({
@@ -54,7 +54,7 @@ describe("applyRules", () => {
 
   it("only ever produces categories from the taxonomy", () => {
     for (const rule of RULES) {
-      expect(isCategory(rule.category)).toBe(true);
+      expect(isCategoryLabel(rule.category)).toBe(true);
     }
   });
 

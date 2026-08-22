@@ -1,11 +1,15 @@
 /**
- * The categories the model is allowed to choose from.
+ * The category labels in use.
  *
  * Fixed and closed on purpose. Free-form categories are useless for
  * aggregation — "Tesco", "Groceries", "Supermarket" and "Food shopping" would
  * all appear as separate lines in a spending breakdown, and the totals would be
- * meaningless. A closed list also makes the output verifiable: anything outside
- * it is a rejected response rather than a new category.
+ * meaningless.
+ *
+ * These are LABELS, not identities. `./category.ts` holds the entity, and
+ * `SEED_CATEGORIES` derives one per label so that renaming a label stops being
+ * a migration across every stored row. This list stays because the rules still
+ * in service name categories by label; it goes when they name ids instead.
  *
  * Shaped for UK household spending, which is what the ledger contains.
  */
@@ -38,29 +42,28 @@ export const CATEGORIES = [
   "Other",
 ] as const;
 
-export type Category = (typeof CATEGORIES)[number];
+export type CategoryLabel = (typeof CATEGORIES)[number];
 
 const CATEGORY_SET: ReadonlySet<string> = new Set(CATEGORIES);
 
-export function isCategory(value: string): value is Category {
+export function isCategoryLabel(value: string): value is CategoryLabel {
   return CATEGORY_SET.has(value);
 }
 
 /**
  * "Other" is a real answer, not a failure.
  *
- * A model pushed to avoid it will invent a confident-looking wrong category,
- * which is worse than an honest admission — a misfiled transaction is harder to
- * spot than an uncategorised one.
+ * Where no rule places a transaction, saying so plainly beats stretching a rule
+ * to cover it: a misfiled transaction is far harder to spot than an
+ * uncategorised one.
  */
-export const FALLBACK_CATEGORY: Category = "Other";
+export const FALLBACK_CATEGORY: CategoryLabel = "Other";
 
 /**
  * A transaction awaiting a category.
  *
- * The vocabulary both paths speak: rules match on `description`, and the model is
- * shown the same fields. It lived in the model's prompt file, which made the
- * deterministic path depend on the shape of one model's input.
+ * What a matcher is given to decide on. Deliberately less than a ledger row:
+ * a rule may see what the transaction says about itself, and nothing else.
  */
 export interface Candidate {
   dedupKey: string;
@@ -72,9 +75,9 @@ export interface Candidate {
   providerCategory?: string;
 }
 
-/** A category applied to one candidate, by whichever path decided it. */
+/** A category applied to one candidate by the rules. */
 export interface Classification {
   dedupKey: string;
-  category: Category;
+  category: CategoryLabel;
   confidence: number;
 }
