@@ -20,8 +20,6 @@
     "break": 57.1
   },
   "tempDirName": ".stryker-tmp",
-  "incremental": true,
-  "incrementalFile": ".stryker/incremental.json",
   "vitest": {
     "related": false
   }

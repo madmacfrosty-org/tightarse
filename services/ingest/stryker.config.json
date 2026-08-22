@@ -19,12 +19,10 @@
   "jsonReporter": {
     "fileName": ".stryker/mutation.json"
   },
-  "incremental": true,
-  "incrementalFile": ".stryker/incremental.json",
   "thresholds": {
     "high": 90,
     "low": 70,
-    "break": 57.9
+    "break": 58.2
   },
   "tempDirName": ".stryker-tmp"
 }
