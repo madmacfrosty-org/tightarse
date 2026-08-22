@@ -12,14 +12,10 @@ const report = (over: Partial<CategoriseReport> = {}): CategoriseReport => ({
   mode: "rules",
   skipped: false,
   backlog: 3,
-  matchedByRules: 2,
+  matched: 2,
   unmatched: 1,
   written: 2,
   customRules: 16,
-  rejected: 0,
-  missing: 0,
-  inputTokens: 0,
-  outputTokens: 0,
   tally: new Map(),
   assignments: [],
   candidates: [],
@@ -34,8 +30,6 @@ describe("enrichmentMetrics", () => {
       EnrichmentWritten: 2,
       EnrichmentUnmatched: 1,
       CustomRules: 16,
-      EnrichmentInputTokens: 0,
-      EnrichmentOutputTokens: 0,
     });
   });
 
@@ -45,16 +39,5 @@ describe("enrichmentMetrics", () => {
     const m = enrichmentMetrics(report({ written: 0 }));
     expect(m["EnrichmentWritten"]).toBe(0);
     expect(m["EnrichmentMatched"]).toBe(2);
-  });
-
-  it("emits token counts even when nothing was spent", () => {
-    // Zero has to be a fact rather than an absence: a schedule that quietly
-    // started calling the model would otherwise look exactly like one that
-    // never did.
-    expect(enrichmentMetrics(report())).toMatchObject({ EnrichmentInputTokens: 0 });
-    expect(enrichmentMetrics(report({ inputTokens: 900, outputTokens: 120 }))).toMatchObject({
-      EnrichmentInputTokens: 900,
-      EnrichmentOutputTokens: 120,
-    });
   });
 });

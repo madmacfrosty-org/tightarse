@@ -102,7 +102,7 @@ export async function categorise(
       tenantId,
       range,
       backlog: report.backlog,
-      matched: report.matchedByRules,
+      matched: report.matched,
       written: report.written,
       customRules: report.customRules,
       unmatched: report.unmatched,
@@ -112,7 +112,7 @@ export async function categorise(
 
   return {
     backlog: report.backlog,
-    matched: report.matchedByRules,
+    matched: report.matched,
     written: report.written,
     customRules: report.customRules,
   };
