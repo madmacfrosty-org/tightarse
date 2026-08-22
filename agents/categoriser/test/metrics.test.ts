@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { enrichmentMetrics } from "../src/metrics";
-import type { CategoriseReport } from "@tightarse/domain";
+import type { EnrichReport } from "@tightarse/domain";
 
 /**
  * Naming moved here with the metrics: an alarm matches a CloudWatch metric by
@@ -8,7 +8,7 @@ import type { CategoriseReport } from "@tightarse/domain";
  * domain returns the facts.
  */
 
-const report = (over: Partial<CategoriseReport> = {}): CategoriseReport => ({
+const report = (over: Partial<EnrichReport> = {}): EnrichReport => ({
   mode: "rules",
   skipped: false,
   backlog: 3,

@@ -14,7 +14,7 @@
  */
 
 import { DynamoStore } from "@tightarse/dynamodb";
-import { categorise, type CategoriseReport } from "@tightarse/domain";
+import { enrich, type EnrichReport } from "@tightarse/domain";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -37,7 +37,7 @@ async function main() {
 
   const ledger = new DynamoStore({ tableName, region });
 
-  const report = await categorise({ ledger }, tenantId, {
+  const report = await enrich({ ledger }, tenantId, {
     range: { from, to },
     now: new Date(),
     ...(limit === undefined ? {} : { limit }),
@@ -53,7 +53,7 @@ async function main() {
   print(report, dryRun);
 }
 
-function print(report: CategoriseReport, dryRun: boolean): void {
+function print(report: EnrichReport, dryRun: boolean): void {
   const { backlog, matched, unmatched } = report;
   console.log(`${backlog} transactions awaiting categorisation\n`);
   if (backlog === 0) return;
