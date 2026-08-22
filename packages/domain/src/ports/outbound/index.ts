@@ -25,6 +25,7 @@ import type { AccountId } from "../../ledger/account.js";
 import type { Categorisation } from "../../categorisation/categorisation.js";
 import type { Category } from "../../categorisation/category.js";
 import type { RuleSet } from "../../categorisation/rules.js";
+import type { Evidence } from "../../categorisation/evidence.js";
 import type { CustomRule, TransactionEnrichment } from "../../categorisation/enrichment.js";
 import type { Member } from "../../household/member.js";
 import type { TenantSettings } from "../../household/settings.js";
@@ -87,6 +88,30 @@ export interface Categories {
   putCategory(tenantId: string, category: Category): Promise<void>;
   /** Every category, for resolution at read. */
   listCategories(tenantId: string): Promise<Row[]>;
+}
+
+/**
+ * Whatever suggests how the rules should change.
+ *
+ * A port because the suggestion is a policy, not a fact: a deterministic pass
+ * over conflicts, a person with an editor, or a model reading the same evidence
+ * are all the same operation with a different opinion behind it. The design says
+ * a model authors rules and never classifies transactions — this is the door it
+ * comes through, and it faces the same checks as any other.
+ *
+ * Sets are returned whole rather than as a delta. A set version is what gets
+ * written and what a categorisation's provenance names, so a proposal that
+ * cannot be expressed as a version is one nothing can record.
+ */
+export interface RuleProposer {
+  /** How a proposal is attributed. Recorded when one is accepted. */
+  readonly proposedBy: string;
+  /**
+   * Suggest what the sets should become, given what they currently do.
+   *
+   * Returning nothing is a legitimate answer, and the default one.
+   */
+  propose(evidence: Evidence, sets: readonly RuleSet[]): Promise<readonly RuleSet[]>;
 }
 
 /** Categorisations. Current rows arrive via `Transactions.listRange`. */

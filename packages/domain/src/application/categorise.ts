@@ -21,10 +21,10 @@
  * See docs/design/categorisation.md.
  */
 
+import { candidateOf } from "./candidate.js";
 import { Categorisation } from "../categorisation/categorisation.js";
 import { RuleSet } from "../categorisation/rules.js";
 import { evaluate, type Evaluation } from "../categorisation/evaluate.js";
-import type { Candidate } from "../categorisation/taxonomy.js";
 import type { CategoryId } from "../categorisation/category.js";
 import type { Categorisations, RuleSets, Row, Transactions } from "../ports/outbound/index.js";
 import type { DateRange } from "../ports/index.js";
@@ -251,17 +251,6 @@ export async function categorise(
   };
 }
 
-/** What a rule is allowed to see of a transaction. Deliberately less than a row. */
-function candidateOf(row: Row): Candidate {
-  const providerCategory = row["providerCategory"];
-  return {
-    dedupKey: String(row["dedupKey"] ?? ""),
-    description: String(row["description"] ?? ""),
-    amount: Number(row["amount"] ?? 0),
-    currency: String(row["currency"] ?? "GBP"),
-    ...(typeof providerCategory === "string" ? { providerCategory } : {}),
-  };
-}
 
 /**
  * The categorisation in force for each transaction.
