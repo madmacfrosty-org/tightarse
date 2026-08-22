@@ -100,6 +100,70 @@ jobs:
       - name: Synth CDK
         run: npm run synth
 
+  # A separate job so it runs alongside `build` rather than after it: the sweep
+  # takes about six and a half minutes, and adding that to the critical path of
+  # every pull request would be felt. In parallel it costs wall time only up to
+  # its own duration, and runner minutes are free on a public repository.
+  #
+  # It runs on pull requests rather than only on main, because a merge to main
+  # deploys. Catching a regression after the merge means catching it after it is
+  # live.
+  #
+  # Until this existed the mutation floors were enforced by nobody: `npm run
+  # test:mutation` was a thing somebody remembered to type. Coverage thresholds
+  # cannot tell whether a test checks anything; this can, and a gate nothing runs
+  # is not a gate.
+  mutation:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      # packages/dynamodb mutates code covered by integration tests, so this job
+      # needs a table of its own.
+      id-token: write
+
+    env:
+      # A different name from the build job's. Both run concurrently under the
+      # same run_id, and two jobs creating one table is a race that presents as
+      # a confusing ResourceInUseException.
+      LEDGER_TEST_TABLE: tightarse-citest-${{ github.run_id }}-${{ github.run_attempt }}-mut
+      AWS_REGION: eu-west-2
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Stryker runs the suite, and the suite resolves workspace packages through
+      # their dist. A fresh checkout has none.
+      - name: Build
+        run: npm run typecheck
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::707256068475:role/tightarse-dev-github-citest
+          aws-region: eu-west-2
+          role-session-name: gha-mutation-${{ github.run_id }}
+
+      - name: Create the ephemeral ledger table
+        run: npm run create-test-table -w @tightarse/dynamodb
+
+      # Every package, each against its own pinned floor. The floors are what the
+      # suite achieves today, so this fails when tests stop checking something
+      # rather than when a package misses an arbitrary target. Raise them, never
+      # lower them.
+      - name: Mutation testing
+        run: npm run test:mutation
+
+      - name: Destroy the ephemeral ledger table
+        if: always()
+        run: npm run create-test-table -w @tightarse/dynamodb -- --delete
+
   secrets:
     runs-on: ubuntu-latest
     steps:
@@ -133,7 +197,10 @@ jobs:
   # under Settings → Environments → dev and every deploy waits for a human. That
   # is worth considering: this account holds five years of real transactions.
   deploy:
-    needs: build
+    # Both, because a merge to main deploys. A mutation regression that only
+    # failed a job the deploy did not wait for would reach AWS anyway, which
+    # would make the gate decorative in the one place it matters most.
+    needs: [build, mutation]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: dev

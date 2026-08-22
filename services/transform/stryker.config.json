@@ -17,11 +17,9 @@
   "thresholds": {
     "high": 90,
     "low": 70,
-    "break": 80.0
+    "break": 81.6
   },
   "tempDirName": ".stryker-tmp",
-  "incremental": true,
-  "incrementalFile": ".stryker/incremental.json",
   "vitest": {
     "related": false
   }
