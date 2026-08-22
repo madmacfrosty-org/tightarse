@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Match } from "aws-cdk-lib/assertions";
 import { templates } from "./harness";
 
-const { api, web } = templates();
+const { api, web, stacks } = templates();
 
 describe("api", () => {
   it("puts a JWT authoriser on every route", () => {
@@ -16,6 +16,18 @@ describe("api", () => {
       expect(props.AuthorizationType, `route ${id} (${props.RouteKey})`).toBe("JWT");
       expect(props.AuthorizerId, `route ${id} (${props.RouteKey})`).toBeDefined();
     }
+  });
+
+  it("is deployed after ingest, which owns the function it imports by name", () => {
+    // The connect function is imported with fromFunctionName, so the template
+    // carries no reference to IngestStack and CDK would otherwise be free to
+    // deploy this stack first. Against an empty account that means creating a
+    // Lambda permission for a function that does not exist yet: CloudFormation
+    // returns 404 and rolls the stack back, which is how prod's first deploy
+    // failed. An account where the function already exists cannot show this,
+    // which is why dev never did.
+    const names = stacks.api.dependencies.map((d) => d.stackName);
+    expect(names).toContain(stacks.ingest.stackName);
   });
 
   it("serves the routes the dashboard and connect flow need", () => {

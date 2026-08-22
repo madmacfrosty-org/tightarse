@@ -104,6 +104,9 @@ export function buildApp(
     dataKey: foundation.dataKey,
     clientSecret: foundation.clientSecret,
   });
+  // Must match bin/tightarse.ts. The connect function crosses the two stacks as
+  // a name, so only this makes CDK deploy Ingest first.
+  api.addStackDependency(ingest);
   const web = new WebStack(app, `TightarseWeb-${settings.name}`, {
     env,
     settings,

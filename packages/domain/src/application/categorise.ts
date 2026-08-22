@@ -1,77 +1,147 @@
 /**
- * Categorise a household's backlog by applying its rules.
+ * Categorise the household's ledger by applying its rule sets.
  *
- * Deterministic, and deliberately so. Rules are data; applying them is
- * mechanical; the same rules over the same transactions give the same answer
- * every time. That is what makes a categorisation reproducible, which in turn is
- * what allows re-application to be total rather than having to tiptoe around
- * rows nothing can regenerate. See docs/design/categorisation.md.
+ * One operation, two triggers: a new transaction arrives, or a rule set version
+ * changes. Both are the same thing — evaluate, compare with what is stored, and
+ * append a version where the answer differs.
  *
- * A model has no part in this. Where one is used later it will propose rules for
- * review, never classify a transaction — model output is not reproducible, and a
- * categorisation derived from it would have to be materialised, excluded from
- * re-application and never regenerated, which is the exception that the whole
- * model is shaped to avoid.
+ * **Scope cannot be narrowed by a changed rule's footprint.** Composition breaks
+ * that: a new `refine` changes the outcome for transactions where a *different*
+ * rule did the asserting. Full re-application over the range is the honest
+ * default.
  *
- * Two drivers reach this: a schedule, and an operator on the command line. They
- * used to be two loops over the same ledger with their own copies of the write,
- * so a fix to one never reached the other.
+ * **Write volume is proportional to changes, not to transactions.** An unchanged
+ * answer writes nothing, which is what makes re-applying the whole ledger cheap
+ * enough to be the default.
  *
- * Idempotent. An already-enriched transaction is not in the backlog, so
- * re-running costs nothing.
+ * **Idempotency is load-bearing.** Applying the same set versions to the same
+ * transactions must give the same answer, or every run appends versions and the
+ * history fills with churn. There is a test for exactly that.
+ *
+ * See docs/design/categorisation.md.
  */
 
-import { prepare, writeEnrichments } from "../categorisation/categorising.js";
-import { RULES_VERSION } from "../categorisation/merchant-rules.js";
-import type { Candidate, Classification } from "../categorisation/taxonomy.js";
-import type { EnrichmentMode } from "../categorisation/enrichment.js";
-import type { CategoriserReads } from "../ports/outbound/index.js";
+import { Categorisation } from "../categorisation/categorisation.js";
+import { RuleSet } from "../categorisation/rules.js";
+import { evaluate, type Evaluation } from "../categorisation/evaluate.js";
+import type { Candidate } from "../categorisation/taxonomy.js";
+import type { CategoryId } from "../categorisation/category.js";
+import type { Categorisations, RuleSets, Row, Transactions } from "../ports/outbound/index.js";
 import type { DateRange } from "../ports/index.js";
 
+/**
+ * What applying the rules concluded about one transaction.
+ *
+ * `Decision`, `DecideArgs` and `decide` are exported from this module so they
+ * can be tested directly — the rules about custody and idempotency are worth
+ * asserting one at a time — but they are deliberately NOT re-exported from the
+ * package. A driver reaching past `categorise` to decide for itself is how the
+ * read side ended up with three callers each reaching in at whatever depth
+ * suited it.
+ */
+export type Decision =
+  /** The rules produce what is already stored. Writes nothing. */
+  | { readonly kind: "unchanged" }
+  /** The answer changed, or there was none. Appends the next version. */
+  | { readonly kind: "append"; readonly next: Categorisation }
+  /**
+   * What is stored came from an authored set, so nothing derived may replace it.
+   *
+   * Custody is structural rather than remembered. Derived data overwriting
+   * authored data has already happened here — placeholder account details
+   * overwrote real ones and every current account read "unknown" for a while —
+   * and "improve the rules" must not be an operation capable of destroying the
+   * only data that cannot be rebuilt.
+   */
+  | { readonly kind: "protected"; readonly by: string }
+  /**
+   * Something is stored, and nothing matches any more.
+   *
+   * Left alone and surfaced. Silently keeping a category nobody can explain is
+   * worse than saying so, and deleting it would lose the history.
+   */
+  | { readonly kind: "orphaned"; readonly category: CategoryId }
+  /** No rule matched and nothing was stored. The backlog, not a failure. */
+  | { readonly kind: "none" };
+
+export interface DecideArgs {
+  readonly evaluation: Evaluation;
+  readonly current?: Categorisation | undefined;
+  /** Set ids that may never be regenerated. */
+  readonly authored: ReadonlySet<string>;
+  readonly dedupKey: string;
+  readonly timestamp: string;
+  readonly now: string;
+}
+
+/**
+ * What to do about one transaction.
+ *
+ * "Unchanged" means the same category, not the same provenance. A rule edit that
+ * bumps a set version without changing any answer would otherwise rewrite every
+ * row in the ledger, which is exactly the write volume this design exists to
+ * avoid. The stored `setVersion` is therefore the version that first produced
+ * the answer, not the last one to agree with it — and because a set version is
+ * immutable and a transaction is content-addressed, "does the current version
+ * still agree" is a fold away.
+ */
+export function decide(args: DecideArgs): Decision {
+  const { evaluation, current, authored } = args;
+
+  if (current && authored.has(current.setId)) return { kind: "protected", by: current.setId };
+
+  const effective = evaluation.effective;
+  if (!effective) {
+    return current ? { kind: "orphaned", category: current.category } : { kind: "none" };
+  }
+  if (current && current.category === effective.category) return { kind: "unchanged" };
+
+  return {
+    kind: "append",
+    next: {
+      dedupKey: args.dedupKey,
+      timestamp: args.timestamp,
+      category: effective.category,
+      setId: effective.setId,
+      setVersion: effective.version,
+      version: (current?.version ?? 0) + 1,
+      status: "effective",
+      appliedAt: args.now,
+    },
+  };
+}
+
 export interface CategoriseDependencies {
-  /** The backlog, the household's rules, and where a result is written. */
-  readonly ledger: CategoriserReads;
+  /** One range query returns the transactions and their categorisations. */
+  readonly transactions: Transactions;
+  readonly ruleSets: RuleSets;
+  readonly categorisations: Categorisations;
 }
 
 export interface CategoriseOptions {
-  /** The window to categorise. */
   readonly range: DateRange;
-  /** Cap the backlog read, for a sample run. */
-  readonly limit?: number | undefined;
-  /** Overrides the household setting. */
-  readonly mode?: EnrichmentMode | undefined;
-  /** Stamped on every enrichment written by this run. */
+  /** Stamped on everything written by this run. */
   readonly now: Date;
-  /** Apply and count, write nothing. */
+  /** Decide and count, write nothing. */
   readonly dryRun?: boolean | undefined;
 }
 
 export interface CategoriseReport {
-  /** The mode this run actually used. */
-  readonly mode: EnrichmentMode;
-  /** True when the household has enrichment off and nothing was attempted. */
-  readonly skipped: boolean;
-  /** Transactions in the window with no categorisation yet. */
-  readonly backlog: number;
-  /** How many of those the rules placed. */
-  readonly matched: number;
-  /** How many the rules could not place. They stay in the backlog. */
-  readonly unmatched: number;
-  /** How many enrichments were written. Differs from `matched` when a row vanished. */
-  readonly written: number;
-  /** How many of the household's own rules were loaded. */
-  readonly customRules: number;
-  /** How many landed in each category. */
-  readonly tally: ReadonlyMap<string, number>;
+  readonly scanned: number;
+  readonly unchanged: number;
+  readonly appended: number;
+  readonly protectedFromChange: number;
+  readonly orphaned: number;
+  readonly uncategorised: number;
   /**
-   * What was assigned, and the candidates behind it.
+   * Sets claiming two answers at once, and qualifiers with nothing to qualify.
    *
-   * Carried so a dry run can show which transaction got which category — a
-   * distribution can look plausible while individual rows are wrong. In memory
-   * only: these hold descriptions, which are merchants and people's names.
+   * Counts, because they are a trigger rather than a report: which rules
+   * collided is a re-application away, and every categorisation here is
+   * reproducible by construction.
    */
-  readonly assignments: readonly Classification[];
-  readonly candidates: readonly Candidate[];
+  readonly conflicts: number;
+  readonly inertRefines: number;
 }
 
 export async function categorise(
@@ -79,57 +149,100 @@ export async function categorise(
   tenantId: string,
   options: CategoriseOptions,
 ): Promise<CategoriseReport> {
-  const { ledger } = deps;
+  const sets = (await deps.ruleSets.listRuleSets(tenantId)).map((r) => RuleSet.parse(r));
+  const authored = new Set(sets.filter((s) => s.authored).map((s) => s.setId));
 
-  // Mode is a household setting and "off" means off. A schedule must respect it,
-  // or turning enrichment off would silently keep doing the thing.
-  const settings = await ledger.getSettings(tenantId);
-  const mode = options.mode ?? settings?.enrichment ?? "rules";
-  if (mode === "off") {
-    return {
-      mode,
-      skipped: true,
-      backlog: 0,
-      matched: 0,
-      unmatched: 0,
-      written: 0,
-      customRules: 0,
-      tally: new Map(),
-      assignments: [],
-      candidates: [],
-    };
+  const { transactions, categorisations } = await deps.transactions.listRange(tenantId, options.range);
+  const current = latestByTransaction(categorisations);
+  const now = options.now.toISOString();
+
+  let unchanged = 0;
+  let appended = 0;
+  let protectedFromChange = 0;
+  let orphaned = 0;
+  let uncategorised = 0;
+  let conflicts = 0;
+  let inertRefines = 0;
+
+  for (const row of transactions) {
+    const candidate = candidateOf(row);
+    const evaluation = evaluate(sets, candidate);
+
+    for (const set of evaluation.sets) {
+      for (const p of set.problems) {
+        if (p.kind === "conflict") conflicts += 1;
+        else inertRefines += 1;
+      }
+    }
+
+    const decision = decide({
+      evaluation,
+      current: current.get(candidate.dedupKey),
+      authored,
+      dedupKey: candidate.dedupKey,
+      timestamp: String(row["timestamp"] ?? ""),
+      now,
+    });
+
+    switch (decision.kind) {
+      case "unchanged":
+        unchanged += 1;
+        break;
+      case "append":
+        if (!options.dryRun) await deps.categorisations.putCategorisation(tenantId, decision.next);
+        appended += 1;
+        break;
+      case "protected":
+        protectedFromChange += 1;
+        break;
+      case "orphaned":
+        orphaned += 1;
+        break;
+      case "none":
+        uncategorised += 1;
+        break;
+    }
   }
 
-  const prepared = await prepare(ledger, tenantId, options.range, options.limit);
-
-  const { written, tally } = options.dryRun
-    ? { written: 0, tally: count(prepared.classifications) }
-    : await writeEnrichments(
-        ledger,
-        tenantId,
-        prepared.classifications,
-        prepared.timestamps,
-        RULES_VERSION,
-        options.now.toISOString(),
-      );
-
   return {
-    mode,
-    skipped: false,
-    backlog: prepared.candidates.length,
-    matched: prepared.classifications.length,
-    unmatched: prepared.unmatched.length,
-    written,
-    customRules: prepared.customRuleCount,
-    tally,
-    assignments: prepared.classifications,
-    candidates: prepared.candidates,
+    scanned: transactions.length,
+    unchanged,
+    appended,
+    protectedFromChange,
+    orphaned,
+    uncategorised,
+    conflicts,
+    inertRefines,
   };
 }
 
-/** A dry run still reports what it would have assigned, so it counts without writing. */
-function count(cs: readonly Classification[]): Map<string, number> {
-  const tally = new Map<string, number>();
-  for (const c of cs) tally.set(c.category, (tally.get(c.category) ?? 0) + 1);
-  return tally;
+/** What a rule is allowed to see of a transaction. Deliberately less than a row. */
+function candidateOf(row: Row): Candidate {
+  const providerCategory = row["providerCategory"];
+  return {
+    dedupKey: String(row["dedupKey"] ?? ""),
+    description: String(row["description"] ?? ""),
+    amount: Number(row["amount"] ?? 0),
+    currency: String(row["currency"] ?? "GBP"),
+    ...(typeof providerCategory === "string" ? { providerCategory } : {}),
+  };
+}
+
+/**
+ * The categorisation in force for each transaction.
+ *
+ * Versions of one categorisation sort adjacently, but a scan is not a promise of
+ * order, so the highest version wins explicitly rather than the last one seen.
+ * A `proposed` version is not in force: it exists so an approval flow has a
+ * shape, and until one exists it must not change what anything reads.
+ */
+function latestByTransaction(rows: readonly Row[]): Map<string, Categorisation> {
+  const out = new Map<string, Categorisation>();
+  for (const row of rows) {
+    const parsed = Categorisation.safeParse(row);
+    if (!parsed.success || parsed.data.status !== "effective") continue;
+    const existing = out.get(parsed.data.dedupKey);
+    if (!existing || parsed.data.version > existing.version) out.set(parsed.data.dedupKey, parsed.data);
+  }
+  return out;
 }

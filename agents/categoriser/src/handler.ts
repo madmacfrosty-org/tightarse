@@ -17,7 +17,7 @@
  */
 import { DynamoStore } from "@tightarse/dynamodb";
 import { emit } from "@tightarse/metrics";
-import { categorise as runCategorisation } from "@tightarse/domain";
+import { enrich } from "@tightarse/domain";
 import type { CategoriserReads } from "@tightarse/domain";
 import { enrichmentMetrics } from "./metrics.js";
 
@@ -81,7 +81,7 @@ export async function categorise(
   // deciding to spend it, not to a schedule that spends it at 06:00 whether or
   // not anyone looks. The use case is rules-only without one, even for a
   // household whose setting says "model".
-  const report = await runCategorisation({ ledger }, tenantId, { range, now: to });
+  const report = await enrich({ ledger }, tenantId, { range, now: to });
 
   if (report.skipped) {
     console.log(JSON.stringify({ tenantId, mode: report.mode, skipped: true }));

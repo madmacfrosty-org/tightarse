@@ -7,9 +7,9 @@
  * layer's business.
  */
 
-import type { CategoriseReport } from "@tightarse/domain";
+import type { EnrichReport } from "@tightarse/domain";
 
-export function enrichmentMetrics(report: CategoriseReport): Record<string, number> {
+export function enrichmentMetrics(report: EnrichReport): Record<string, number> {
   return {
     EnrichmentBacklog: report.backlog,
     EnrichmentMatched: report.matched,

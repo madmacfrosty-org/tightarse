@@ -45,6 +45,14 @@ export * from "./reporting/balances.js";
 export * from "./reporting/coverage.js";
 export * from "./reporting/transfers.js";
 export * from "./reporting/reporting.js";
-export * from "./application/categorise.js";
+// Named rather than `export *`: `decide` and its argument type are the
+// module's internals, tested directly but not offered to a driver.
+export {
+  categorise,
+  type CategoriseDependencies,
+  type CategoriseOptions,
+  type CategoriseReport,
+} from "./application/categorise.js";
+export * from "./application/enrich.js";
 export * from "./application/reconcile.js";
 export * from "./ports/index.js";

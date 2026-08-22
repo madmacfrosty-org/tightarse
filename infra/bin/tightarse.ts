@@ -54,7 +54,7 @@ const api = new ApiStack(app, `TightarseApi-${settings.name}`, {
   connectFunctionName,
 });
 
-new IngestStack(app, `TightarseIngest-${settings.name}`, {
+const ingest = new IngestStack(app, `TightarseIngest-${settings.name}`, {
   env,
   settings,
   connectFunctionName,
@@ -63,6 +63,18 @@ new IngestStack(app, `TightarseIngest-${settings.name}`, {
   dataKey: foundation.dataKey,
   clientSecret: foundation.clientSecret,
 });
+
+// Passing the connect function by name tells CloudFormation nothing: no resource
+// in the Api template refers to the Ingest template, so CDK is free to deploy Api
+// first. Where the function already exists that is harmless, which is why dev
+// never showed it — dev grew Ingest before Api. In an empty account the Lambda
+// permission is created against a function that is not there yet, CloudFormation
+// returns 404, and the whole stack rolls back. That is prod's first deploy.
+//
+// This is not the cycle the name-passing avoids. That cycle would need Ingest to
+// reference something in Api, and it references nothing: a stack dependency
+// orders the deploy without putting an export between the two.
+api.addStackDependency(ingest);
 
 new WebStack(app, `TightarseWeb-${settings.name}`, {
   env,
