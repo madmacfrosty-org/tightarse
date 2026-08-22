@@ -97,6 +97,17 @@ export const keys = {
    * alongside it by `ruleSetVersion`, in the same transaction, so the two cannot
    * diverge.
    */
+  /**
+   * A category, keyed by its stable id rather than its label.
+   *
+   * The whole point of the entity: renaming a category is a one-field edit
+   * rather than a rewrite of every row that references it.
+   */
+  category: (tenantId: string, id: string) => ({
+    pk: `T#${tenantId}`,
+    sk: `CATEGORY#${id}`,
+  }),
+
   ruleSet: (tenantId: string, setId: string) => ({
     pk: `T#${tenantId}`,
     sk: `RULESET#${setId}`,

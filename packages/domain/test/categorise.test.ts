@@ -293,6 +293,22 @@ describe("applying over a range", () => {
     expect(written).toEqual([]);
   });
 
+  it("reports what a change would be FROM, not only what it would become", async () => {
+    // The point of reading a dry run is judging whether a reassignment is an
+    // improvement. "412 would change" cannot be judged; "groceries -> fuel" can.
+    const cat = stored({ category: "shopping" }) as unknown as Row;
+    const { deps } = ledger([txRow("d1", "SOMEMART SUPERSTORE")], [cat]);
+    const report = await categorise(deps, "frost", { range: RANGE, now: NOW, dryRun: true });
+    expect(report.changes).toHaveLength(1);
+    expect(report.changes[0]).toMatchObject({ from: "shopping", to: "groceries", setId: "built-in" });
+  });
+
+  it("omits `from` for a transaction that had no category", async () => {
+    const { deps } = ledger([txRow("d1", "SOMEMART SUPERSTORE")]);
+    const report = await categorise(deps, "frost", { range: RANGE, now: NOW, dryRun: true });
+    expect(report.changes[0]?.from).toBeUndefined();
+  });
+
   it("decides everything and writes nothing on a dry run", async () => {
     const { deps, written } = ledger([txRow("d1", "SOMEMART SUPERSTORE")]);
     const report = await categorise(deps, "frost", { range: RANGE, now: NOW, dryRun: true });

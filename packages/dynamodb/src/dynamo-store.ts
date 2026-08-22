@@ -14,6 +14,7 @@
 import type {
   Accounts,
   Balances,
+  Categories,
   Categorisations,
   Enrichments,
   Household,
@@ -25,14 +26,14 @@ import { DynamoBalances } from "./balances.js";
 import { DynamoCategorisations } from "./categorisations.js";
 import { DynamoEnrichments } from "./enrichments.js";
 import { DynamoHousehold } from "./household.js";
-import { DynamoRuleSets } from "./rulesets.js";
+import { DynamoCategories, DynamoRuleSets } from "./rulesets.js";
 import { DynamoTransactions } from "./transactions.js";
 import type { TableOptions } from "./table.js";
 
 export type DynamoStoreOptions = TableOptions;
 
 export class DynamoStore
-  implements Transactions, Enrichments, Categorisations, Accounts, Balances, RuleSets, Household
+  implements Transactions, Enrichments, Categorisations, Categories, Accounts, Balances, RuleSets, Household
 {
   private readonly transactions: DynamoTransactions;
   private readonly enrichments: DynamoEnrichments;
@@ -40,6 +41,7 @@ export class DynamoStore
   private readonly accounts: DynamoAccounts;
   private readonly balances: DynamoBalances;
   private readonly rulesets: DynamoRuleSets;
+  private readonly categories: DynamoCategories;
   private readonly household: DynamoHousehold;
 
   constructor(opts: DynamoStoreOptions) {
@@ -49,6 +51,7 @@ export class DynamoStore
     this.accounts = new DynamoAccounts(opts);
     this.balances = new DynamoBalances(opts);
     this.rulesets = new DynamoRuleSets(opts);
+    this.categories = new DynamoCategories(opts);
     this.household = new DynamoHousehold(opts);
   }
 
@@ -71,6 +74,8 @@ export class DynamoStore
   readonly clearBalanceReadingDirty: Balances["clearBalanceReadingDirty"] = (...a) => this.balances.clearBalanceReadingDirty(...a);
   readonly listRuleSets: RuleSets["listRuleSets"] = (...a) => this.rulesets.listRuleSets(...a);
   readonly listRuleSetHistory: RuleSets["listRuleSetHistory"] = (...a) => this.rulesets.listRuleSetHistory(...a);
+  readonly putCategory: Categories["putCategory"] = (...a) => this.categories.putCategory(...a);
+  readonly listCategories: Categories["listCategories"] = (...a) => this.categories.listCategories(...a);
   readonly putRuleSetVersion: RuleSets["putRuleSetVersion"] = (...a) => this.rulesets.putRuleSetVersion(...a);
   readonly getCustomRules: RuleSets["getCustomRules"] = (...a) => this.rulesets.getCustomRules(...a);
   readonly putCustomRules: RuleSets["putCustomRules"] = (...a) => this.rulesets.putCustomRules(...a);

@@ -17,6 +17,7 @@ import {
   type Account,
   type BalanceReading,
   type Categorisation,
+  type Category,
   type Consent,
   type CustomRule,
   type Member,
@@ -29,6 +30,7 @@ import { keys, RowKind } from "./keys.js";
 import type {
   Accounts,
   Balances,
+  Categories,
   Categorisations,
   DateRange,
   Enrichments,
@@ -48,6 +50,34 @@ import {
 import { TableAdapter } from "./table.js";
 
 /** The DynamoDB adapter for the `RuleSets` port. */
+/**
+ * The category catalogue.
+ *
+ * Overwritten in place rather than versioned: a label, a colour and a
+ * description are presentation and change freely. What must not change is the
+ * id, and nothing here can change one — a different id is a different category.
+ */
+export class DynamoCategories extends TableAdapter implements Categories {
+  async putCategory(tenantId: string, category: Category): Promise<void> {
+    await this.doc.send(
+      new PutCommand({
+        TableName: this.table,
+        // No `kind` marker, unlike every other item here. A category HAS a
+        // `kind` — spending, income or movement — and a marker of that name
+        // silently overwrote it, turning every category into kind "CATEGORY".
+        // Nothing needs the marker: rows in the tenant partition are found by
+        // their sort-key prefix, and `kind` identifies rows only inside a
+        // transaction's partition, where categories never live.
+        Item: { ...keys.category(tenantId, category.id), ...category, tenantId },
+      }),
+    );
+  }
+
+  async listCategories(tenantId: string): Promise<Record<string, unknown>[]> {
+    return this.queryByPrefix(tenantId, "CATEGORY#");
+  }
+}
+
 export class DynamoRuleSets extends TableAdapter implements RuleSets {
   /**
    * The current version of every rule set, and nothing else.

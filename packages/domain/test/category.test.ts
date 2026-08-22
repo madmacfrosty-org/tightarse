@@ -6,7 +6,9 @@ import {
   MAX_RESOLUTION_DEPTH,
   resolveCategory,
 } from "../src/categorisation/category.js";
-import { SEED_CATEGORIES, slugFor } from "../src/categorisation/seed.js";
+import { BUILT_IN_ORDER, HOUSEHOLD_ORDER, SEED_CATEGORIES, seedRuleSets, slugFor } from "../src/categorisation/seed.js";
+import { RuleSet } from "../src/categorisation/rules.js";
+import { RULES } from "../src/categorisation/merchant-rules.js";
 import { CATEGORIES } from "../src/categorisation/taxonomy.js";
 
 /**
@@ -178,5 +180,77 @@ describe("seeding the labels in service today", () => {
 
   it("parses as the schema, so a seeded catalogue is a valid one", () => {
     for (const c of SEED_CATEGORIES) expect(() => Category.parse(c)).not.toThrow();
+  });
+});
+
+describe("seeding the rules in service today", () => {
+  const NOW = new Date("2026-03-01T09:00:00.000Z");
+  const custom = [
+    { pattern: "SOMEWHERE LOCAL", category: "Groceries", addedAt: "2026-01-01T00:00:00.000Z" },
+  ];
+
+  it("turns every shipped pattern into a rule, losing none", () => {
+    const sets = seedRuleSets({ now: NOW });
+    const builtIn = sets.find((s) => s.setId === "built-in");
+    expect(builtIn?.rules).toHaveLength(RULES.length);
+  });
+
+  it("carries the pattern as data, without the flags a RegExp would bring", () => {
+    // A rule is data and data has no flags. Matching applies `i` itself, which
+    // is what these already carried.
+    const builtIn = seedRuleSets({ now: NOW }).find((s) => s.setId === "built-in");
+    for (const r of builtIn?.rules ?? []) {
+      expect(r.matcher.kind).toBe("merchant");
+      if (r.matcher.kind !== "merchant") continue;
+      expect(r.matcher.pattern.startsWith("/")).toBe(false);
+      expect(() => new RegExp(r.matcher.kind === "merchant" ? r.matcher.pattern : "", "i")).not.toThrow();
+    }
+  });
+
+  it("names categories by id, not by the label they used to carry", () => {
+    const builtIn = seedRuleSets({ now: NOW }).find((s) => s.setId === "built-in");
+    const ids = new Set(SEED_CATEGORIES.map((c) => c.id));
+    for (const r of builtIn?.rules ?? []) {
+      if (r.contributes.kind !== "assert") continue;
+      expect(ids.has(r.contributes.category)).toBe(true);
+    }
+  });
+
+  it("puts the household above what we shipped, and marks it authored", () => {
+    // A hand-written rule must never be outranked by one we shipped, and
+    // re-application must never regenerate it.
+    const sets = seedRuleSets({ now: NOW, custom });
+    const household = sets.find((s) => s.setId === "household");
+    expect(household?.order).toBe(HOUSEHOLD_ORDER);
+    expect(household?.authored).toBe(true);
+    expect(HOUSEHOLD_ORDER).toBeLessThan(BUILT_IN_ORDER);
+  });
+
+  it("leaves a gap in the ordering for rules proposed for review", () => {
+    // `assisted` belongs between household and built-in. Renumbering a set
+    // after rules reference it is the churn explicit ordering exists to avoid.
+    expect(BUILT_IN_ORDER - HOUSEHOLD_ORDER).toBeGreaterThan(1);
+  });
+
+  it("writes no household set when the household has no rules of its own", () => {
+    expect(seedRuleSets({ now: NOW }).map((s) => s.setId)).toEqual(["built-in", "provider"]);
+  });
+
+  it("carries a household rule's note through the conversion", () => {
+    // The note is the only record of why a hand-written rule exists. Losing it
+    // in a migration makes every one of them unexplainable afterwards.
+    const withNote = [
+      { pattern: "SOMEWHERE", category: "Groceries", note: "the corner shop", addedAt: "2026-01-01T00:00:00.000Z" },
+    ];
+    const household = seedRuleSets({ now: NOW, custom: withNote }).find((s) => s.setId === "household");
+    expect(household?.rules[0]?.note).toBe("the corner shop");
+  });
+
+  it("produces sets that parse as the schema", () => {
+    for (const s of seedRuleSets({ now: NOW, custom })) expect(() => RuleSet.parse(s)).not.toThrow();
+  });
+
+  it("starts every set at version one, since none continues anything", () => {
+    expect(seedRuleSets({ now: NOW, custom }).every((s) => s.version === 1)).toBe(true);
   });
 });
