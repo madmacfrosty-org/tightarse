@@ -87,8 +87,6 @@ describe("a categorisation", () => {
       status: "effective",
       appliedAt: "2026-08-17T05:00:00Z",
     });
-    expect(c.rules).toEqual([]);
-    expect(c.tags).toEqual([]);
   });
 
   it("refuses version zero, because versions are a history not an index", () => {

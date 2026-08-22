@@ -45,6 +45,7 @@ export * from "./reporting/balances.js";
 export * from "./reporting/coverage.js";
 export * from "./reporting/transfers.js";
 export * from "./reporting/reporting.js";
+export * from "./application/apply.js";
 export * from "./application/categorise.js";
 export * from "./application/reconcile.js";
 export * from "./ports/index.js";

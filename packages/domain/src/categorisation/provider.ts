@@ -60,12 +60,8 @@ export function providerCategorisation(tx: ProviderInput): Categorisation | unde
     // Dateless observations sort first, which is honest: an unstamped reading is
     // the least trustworthy one we hold.
     setVersion: observationVersion(tx.ingestedAt),
-    // No rule can be named. This is the case the design keeps `rules` a list
-    // for, rather than a single optional reference.
-    rules: [],
     version: 1,
     status: "effective",
-    tags: [],
     appliedAt: tx.ingestedAt ?? tx.timestamp,
   };
 }

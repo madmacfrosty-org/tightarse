@@ -7,7 +7,6 @@
  */
 
 import { z } from "zod";
-import { TenantId } from "../household/member.js";
 
 export const Categorisation = z.object({
   dedupKey: z.string().min(1),
@@ -17,14 +16,13 @@ export const Categorisation = z.object({
   setId: z.string().min(1),
   setVersion: z.number().int().nonnegative(),
   /**
-   * The rules that contributed, by content hash and in fold order. Empty where
-   * the categoriser cannot expose one — the provider's own classification has no
-   * rule we can name.
+   * No `rules` list. `setId` and `setVersion` are here, a rule set version is
+   * immutable, and a transaction is content-addressed — so which rules
+   * contributed is one fold away, for the one row anybody ever asks about.
+   * Storing them denormalised a read that was never expensive.
    */
-  rules: z.array(z.string()).default([]),
   version: z.number().int().positive(),
   status: z.enum(["effective", "proposed", "superseded"]),
-  tags: z.array(z.string()).default([]),
   appliedAt: z.string(),
   appliedBy: z.string().optional(),
 });

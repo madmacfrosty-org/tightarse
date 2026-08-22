@@ -15,10 +15,8 @@ const cat = (over: Partial<Categorisation>): Categorisation => ({
   category: "Groceries",
   setId: "built-in",
   setVersion: 1,
-  rules: [],
   version: 1,
   status: "effective",
-  tags: [],
   appliedAt: "2026-08-17T06:00:00Z",
   ...over,
 });

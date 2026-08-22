@@ -25,9 +25,10 @@ describe("the provider's own classification", () => {
   });
 
   it("names no rule, because none can be named", () => {
-    // The case `rules` is a list for. We know the categoriser and roughly when;
-    // we cannot know why it chose.
-    expect(providerCategorisation(tx)!.rules).toEqual([]);
+    // We know the categoriser and roughly when, and cannot know why it chose.
+    // Nothing pretends otherwise: the set is the provider and the version is an
+    // observation stamp.
+    expect(providerCategorisation(tx)!.setId).toBe("provider");
   });
 
   it("falls back to the transaction's own time when we did not record the fetch", () => {
