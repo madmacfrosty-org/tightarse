@@ -713,3 +713,51 @@ suite("control plane: settings, consents and the legacy rules row", () => {
     expect(enrichments.map((e) => e["producedBy"])).toEqual(["model@v1"]);
   });
 });
+
+suite("the category catalogue", () => {
+  let store: DynamoStore;
+
+  beforeAll(() => {
+    ({ ledger: store } = testLedger());
+  });
+
+  it("writes a category and reads it back by its id", async () => {
+    await store.putCategory(TENANT, {
+      id: "groceries",
+      label: "Groceries",
+      kind: "spending",
+      taxonomy: "household",
+      retired: false,
+    });
+    // `kind` is the category's own — spending, income or movement. A row-kind
+    // marker of the same name overwrote it, which made every category read as
+    // kind "CATEGORY" and would have broken every total that branches on it.
+    const all = await store.listCategories(TENANT);
+    expect(all.find((c) => c["id"] === "groceries")).toMatchObject({ label: "Groceries", kind: "spending" });
+  });
+
+  it("overwrites a label in place, because a label is presentation", async () => {
+    // The whole point of the entity: renaming is a one-field edit rather than a
+    // rewrite of every row referencing it.
+    const base = { id: "renamed", kind: "spending" as const, taxonomy: "household" as const, retired: false };
+    await store.putCategory(TENANT, { ...base, label: "Before" });
+    await store.putCategory(TENANT, { ...base, label: "After" });
+    const found = (await store.listCategories(TENANT)).filter((c) => c["id"] === "renamed");
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ label: "After" });
+  });
+
+  it("keeps categories out of the range query the ledger makes", async () => {
+    // CATEGORY# shares the tenant partition with ACCOUNT# and RULESET#, and a
+    // fold run must not have to read and discard the catalogue.
+    await store.putCategory(TENANT, {
+      id: "unseen",
+      label: "Unseen",
+      kind: "spending",
+      taxonomy: "household",
+      retired: false,
+    });
+    const sets = await store.listRuleSets(TENANT);
+    expect(sets.some((r) => r["id"] === "unseen")).toBe(false);
+  });
+});

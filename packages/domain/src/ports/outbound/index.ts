@@ -23,6 +23,7 @@ import type { BalanceReading } from "../../ledger/balance.js";
 import type { ReconciliationMovement, Reading } from "../../ledger/reconciliation.js";
 import type { AccountId } from "../../ledger/account.js";
 import type { Categorisation } from "../../categorisation/categorisation.js";
+import type { Category } from "../../categorisation/category.js";
 import type { RuleSet } from "../../categorisation/rules.js";
 import type { CustomRule, TransactionEnrichment } from "../../categorisation/enrichment.js";
 import type { Member } from "../../household/member.js";
@@ -73,6 +74,19 @@ export interface Enrichments {
     range: DateRange,
     producedBy: string,
   ): Promise<{ deleted: number }>;
+}
+
+/**
+ * The category catalogue.
+ *
+ * Categories are never deleted — merging is a relationship, so no taxonomy
+ * change requires reprocessing — which is why there is no remove here.
+ */
+export interface Categories {
+  /** Write one. Overwrites in place: a label or colour is presentation. */
+  putCategory(tenantId: string, category: Category): Promise<void>;
+  /** Every category, for resolution at read. */
+  listCategories(tenantId: string): Promise<Row[]>;
 }
 
 /** Categorisations. Current rows arrive via `Transactions.listRange`. */

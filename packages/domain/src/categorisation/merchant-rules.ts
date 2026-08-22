@@ -89,7 +89,7 @@ export const RULES: readonly MerchantRule[] = [
  * rather than the description, which is far more reliable — an ATM withdrawal's
  * description is usually a location, not a merchant.
  */
-const PROVIDER_CATEGORY_RULES: Readonly<Record<string, CategoryLabel>> = {
+export const PROVIDER_RULES: Readonly<Record<string, CategoryLabel>> = {
   ATM: "Cash Withdrawal",
 };
 
@@ -167,7 +167,7 @@ export function applyRules(
     }
 
     const byProvider = c.providerCategory
-      ? PROVIDER_CATEGORY_RULES[c.providerCategory]
+      ? PROVIDER_RULES[c.providerCategory]
       : undefined;
     if (byProvider) {
       classifications.push({ dedupKey: c.dedupKey, category: byProvider });

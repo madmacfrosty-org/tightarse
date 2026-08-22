@@ -11,7 +11,9 @@
     "run-batch": "node dist/run-cli.js",
     "rules": "tsx src/rules-cli.ts",
     "test:coverage": "vitest run --coverage",
-    "test:mutation": "stryker run"
+    "test:mutation": "stryker run",
+    "seed": "tsx src/seed-cli.ts",
+    "categorise": "tsx src/categorise-cli.ts"
   },
   "dependencies": {
     "@tightarse/domain": "*",

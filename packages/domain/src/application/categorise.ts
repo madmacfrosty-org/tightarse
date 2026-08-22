@@ -118,6 +118,16 @@ export interface CategoriseDependencies {
   readonly categorisations: Categorisations;
 }
 
+/** One transaction the run would change, and to what. */
+export interface ProposedChange {
+  readonly dedupKey: string;
+  readonly description: string;
+  /** What is stored now, if anything. */
+  readonly from?: string | undefined;
+  readonly to: string;
+  readonly setId: string;
+}
+
 export interface CategoriseOptions {
   readonly range: DateRange;
   /** Stamped on everything written by this run. */
@@ -142,6 +152,17 @@ export interface CategoriseReport {
    */
   readonly conflicts: number;
   readonly inertRefines: number;
+  /**
+   * What a dry run would have written.
+   *
+   * Populated on a dry run only. `appended: 412` is not something anyone can
+   * check; a list of what changes and to what is, and reading it before applying
+   * is the whole reason for running dry.
+   *
+   * Empty on a real run. It holds descriptions, which are merchants and people's
+   * names, so it is for a terminal and never for a file.
+   */
+  readonly changes: readonly ProposedChange[];
 }
 
 export async function categorise(
@@ -163,6 +184,7 @@ export async function categorise(
   let uncategorised = 0;
   let conflicts = 0;
   let inertRefines = 0;
+  const changes: ProposedChange[] = [];
 
   for (const row of transactions) {
     const candidate = candidateOf(row);
@@ -188,10 +210,22 @@ export async function categorise(
       case "unchanged":
         unchanged += 1;
         break;
-      case "append":
-        if (!options.dryRun) await deps.categorisations.putCategorisation(tenantId, decision.next);
+      case "append": {
+        if (options.dryRun) {
+          const from = current.get(candidate.dedupKey)?.category;
+          changes.push({
+            dedupKey: candidate.dedupKey,
+            description: candidate.description,
+            ...(from === undefined ? {} : { from }),
+            to: decision.next.category,
+            setId: decision.next.setId,
+          });
+        } else {
+          await deps.categorisations.putCategorisation(tenantId, decision.next);
+        }
         appended += 1;
         break;
+      }
       case "protected":
         protectedFromChange += 1;
         break;
@@ -213,6 +247,7 @@ export async function categorise(
     uncategorised,
     conflicts,
     inertRefines,
+    changes,
   };
 }
 

@@ -61,3 +61,122 @@ export const SEED_CATEGORIES: readonly Category[] = CATEGORIES.map((label) => ({
   taxonomy: "household" as const,
   retired: false,
 }));
+
+/**
+ * The rules in service today, as versioned sets.
+ *
+ * The second migration step. Shipped patterns become `built-in`, seeded from
+ * code so they stay reviewed through pull requests while the table becomes the
+ * evaluation surface. The household's own become `household`, above them,
+ * because a hand-written rule must never be outranked by one we shipped.
+ *
+ * Precedence runs low to high:
+ *
+ *   0  household   hand-written, authored, never regenerated
+ *   2  built-in    shipped patterns
+ *   3  provider    the provider's own transaction type
+ *
+ * 1 is left free deliberately: `assisted` — rules proposed for review — belongs
+ * between the two, and renumbering a set after rules reference it is exactly the
+ * churn explicit ordering exists to avoid.
+ */
+
+import { PROVIDER_RULES, RULES } from "./merchant-rules.js";
+import type { CustomRule } from "./enrichment.js";
+import type { Rule, RuleSet } from "./rules.js";
+
+export const HOUSEHOLD_ORDER = 0;
+export const BUILT_IN_ORDER = 2;
+export const PROVIDER_ORDER = 3;
+
+/**
+ * A shipped merchant pattern, as a rule.
+ *
+ * `pattern.source` rather than the RegExp: a rule is data, and data has no
+ * flags. Matching applies `i` itself, which is what these already carried.
+ */
+export function builtInRules(): Rule[] {
+  return RULES.map((r) => ({
+    matcher: { kind: "merchant" as const, pattern: r.pattern.source },
+    contributes: { kind: "assert" as const, category: slugFor(r.category) },
+    appliesTo: "debits" as const,
+  }));
+}
+
+/**
+ * The provider's own transaction type, as rules.
+ *
+ * Far more reliable than a description for these: an ATM withdrawal's
+ * description is usually a location rather than a merchant.
+ */
+export function providerRules(): Rule[] {
+  return Object.entries(PROVIDER_RULES).map(([value, label]) => ({
+    matcher: { kind: "providerCategory" as const, value },
+    contributes: { kind: "assert" as const, category: slugFor(label) },
+    appliesTo: "debits" as const,
+  }));
+}
+
+/** The household's own rules, which name categories by label today. */
+export function householdRules(custom: readonly CustomRule[]): Rule[] {
+  return custom.map((r) => ({
+    matcher: { kind: "merchant" as const, pattern: r.pattern },
+    contributes: { kind: "assert" as const, category: slugFor(r.category) },
+    appliesTo: "debits" as const,
+    ...(r.note === undefined ? {} : { note: r.note }),
+  }));
+}
+
+export interface SeedOptions {
+  readonly now: Date;
+  readonly custom?: readonly CustomRule[] | undefined;
+}
+
+/**
+ * Every set to write on a first migration.
+ *
+ * Version 1 throughout: these are the first versions of each set, not a
+ * continuation of anything. The legacy single `RULES` item is left where it is —
+ * it is the source being read, and deleting a source during a migration removes
+ * the only way to check the result.
+ */
+export function seedRuleSets(options: SeedOptions): RuleSet[] {
+  const createdAt = options.now.toISOString();
+  const sets: RuleSet[] = [
+    {
+      setId: "built-in",
+      version: 1,
+      name: "Shipped patterns",
+      order: BUILT_IN_ORDER,
+      authored: false,
+      rules: builtInRules(),
+      createdAt,
+    },
+    {
+      setId: "provider",
+      version: 1,
+      name: "Provider transaction types",
+      order: PROVIDER_ORDER,
+      authored: false,
+      rules: providerRules(),
+      createdAt,
+    },
+  ];
+
+  const custom = options.custom ?? [];
+  if (custom.length > 0) {
+    sets.unshift({
+      setId: "household",
+      version: 1,
+      name: "Hand-written",
+      order: HOUSEHOLD_ORDER,
+      // Authored: re-application never regenerates it. These are the only rules
+      // here that cannot be rebuilt from code.
+      authored: true,
+      rules: householdRules(custom),
+      createdAt,
+    });
+  }
+
+  return sets;
+}
