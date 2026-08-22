@@ -66,25 +66,6 @@ export async function prepare(
   };
 }
 
-/**
- * The numbers worth watching from one categorisation run.
- *
- * Here rather than in the handler because the handler cannot be tested — it
- * builds its own ledger client — and a metric nobody has ever verified is
- * indistinguishable from one that is wrong.
- */
-export function enrichmentMetrics(
-  prepared: Pick<Prepared, "candidates" | "classifications" | "unmatched" | "customRuleCount">,
-  written: number,
-): Record<string, number> {
-  return {
-    EnrichmentBacklog: prepared.candidates.length,
-    EnrichmentMatched: prepared.classifications.length,
-    EnrichmentWritten: written,
-    EnrichmentUnmatched: prepared.unmatched.length,
-    CustomRules: prepared.customRuleCount,
-  };
-}
 
 
 /**
@@ -99,11 +80,30 @@ export async function writeRuleEnrichments(
   prepared: Pick<Prepared, "classifications" | "timestamps">,
   producedAt = new Date().toISOString(),
 ): Promise<{ written: number; tally: Map<string, number> }> {
+  return writeEnrichments(ledger, tenantId, prepared.classifications, prepared.timestamps, RULES_VERSION, producedAt);
+}
+
+/**
+ * Persist classifications, however they were produced.
+ *
+ * `producedBy` is the caller's because it is the difference between an
+ * enrichment a rule can reproduce for free and one that cost a model call. The
+ * rules path passes RULES_VERSION; the model path passes the classifier's own
+ * label.
+ */
+export async function writeEnrichments(
+  ledger: BatchLedger,
+  tenantId: string,
+  classifications: readonly Classification[],
+  timestamps: ReadonlyMap<string, string>,
+  producedBy: string,
+  producedAt: string,
+): Promise<{ written: number; tally: Map<string, number> }> {
   const tally = new Map<string, number>();
   let written = 0;
 
-  for (const c of prepared.classifications) {
-    const timestamp = prepared.timestamps.get(c.dedupKey);
+  for (const c of classifications) {
+    const timestamp = timestamps.get(c.dedupKey);
     // No timestamp means the transaction vanished between listing and writing.
     // Skipping is correct: an enrichment with no transaction is orphaned.
     if (!timestamp) continue;
@@ -113,7 +113,7 @@ export async function writeRuleEnrichments(
       timestamp,
       category: c.category,
       confidence: c.confidence,
-      producedBy: RULES_VERSION,
+      producedBy,
       producedAt,
     });
     tally.set(c.category, (tally.get(c.category) ?? 0) + 1);

@@ -14,7 +14,6 @@
     "test:mutation": "stryker run"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3.700.0",
     "@tightarse/domain": "*",
     "@tightarse/dynamodb": "*",
     "@tightarse/metrics": "*",

@@ -51,6 +51,19 @@ describe("the household's enrichment setting", () => {
 });
 
 describe("the window it reads", () => {
+  it("writes what the rules matched, and reports it", async () => {
+    // The main path. Without this, a mutant that made every run take the
+    // "skipped" branch survived: the schedule would silently do nothing every
+    // morning and still exit cleanly, which is how enrichment coverage fell a
+    // little every day before this job existed.
+    listToEnrich.mockResolvedValue([
+      { dedupKey: "d1", description: "TESCO STORES 3411", amount: -12_00, timestamp: "2026-02-01T00:00:00.000Z" },
+    ]);
+    const result = await categorise(deps());
+    expect(putEnrichment).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ backlog: 1, matched: 1, written: 1 });
+  });
+
   it("asks for the configured lookback, not all of history", async () => {
     // The daily read is meant to be small; the backlog is derived by diffing,
     // so a wide range costs a query over five years every morning.

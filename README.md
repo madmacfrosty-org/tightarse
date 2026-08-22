@@ -208,8 +208,11 @@ the bank. Do it in one sitting — the deep-history window closes within the hou
 ## Status
 
 Running against real accounts in a dev account, with two banks connected and
-five years of history. Categorisation is rules-only in production use; the model
-path is written but gated on Bedrock access.
+five years of history. Categorisation is a deterministic application of rules —
+a model has no part in classifying a transaction, and the path that did was
+deleted. Where a model is used later it will propose rules for review, which
+keeps every categorisation reproducible; see
+[the design](docs/design/categorisation.md#the-model-authors-rules-not-categorisations).
 
 Not yet done: the dashboard is served locally rather than from CloudFront
 (pending account verification), deploys still use a long-lived key rather than

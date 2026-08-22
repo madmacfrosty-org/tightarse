@@ -17,8 +17,9 @@
  */
 import { DynamoStore } from "@tightarse/dynamodb";
 import { emit } from "@tightarse/metrics";
-import { enrichmentMetrics, prepare, writeRuleEnrichments, type BatchLedger } from "@tightarse/domain";
+import { categorise as runCategorisation } from "@tightarse/domain";
 import type { CategoriserReads } from "@tightarse/domain";
+import { enrichmentMetrics } from "./metrics.js";
 
 function required(name: string): string {
   const v = process.env[name];
@@ -71,50 +72,49 @@ export async function categorise(
 }> {
   const { ledger, tenantId } = deps;
 
-  // Mode is a household setting and "off" means off — a schedule must respect
-  // it, or turning enrichment off would silently do nothing.
-  const settings = await ledger.getSettings(tenantId);
-  const mode = settings?.enrichment ?? "rules";
-  if (mode === "off") {
-    console.log(JSON.stringify({ tenantId, mode, skipped: true }));
-    return { backlog: 0, matched: 0, written: 0, customRules: 0 };
-  }
-
   const days = event.backfillDays ?? deps.defaultBackfillDays;
   const to = new Date();
   const from = new Date(to.getTime() - days * 86_400_000);
   const range = { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
 
-  const prepared = await prepare(ledger, tenantId, range);
-  const { written, tally } = await writeRuleEnrichments(ledger, tenantId, prepared);
+  // No classifier. The model costs money per run and that belongs to an operator
+  // deciding to spend it, not to a schedule that spends it at 06:00 whether or
+  // not anyone looks. The use case is rules-only without one, even for a
+  // household whose setting says "model".
+  const report = await runCategorisation({ ledger }, tenantId, { range, now: to });
+
+  if (report.skipped) {
+    console.log(JSON.stringify({ tenantId, mode: report.mode, skipped: true }));
+    return { backlog: 0, matched: 0, written: 0, customRules: 0 };
+  }
 
   // Counts and categories only. A description must never reach CloudWatch — it
   // is a merchant, a person's name, or an employer.
   emit({
     namespace: "Tightarse",
     environment: deps.environment,
-    metrics: enrichmentMetrics(prepared, written),
-    properties: { tenantId, mode },
+    metrics: enrichmentMetrics(report),
+    properties: { tenantId, mode: report.mode },
   });
 
   console.log(
     JSON.stringify({
       tenantId,
       range,
-      backlog: prepared.candidates.length,
-      matched: prepared.classifications.length,
-      written,
-      customRules: prepared.customRuleCount,
-      unmatched: prepared.unmatched.length,
-      byCategory: Object.fromEntries(tally),
+      backlog: report.backlog,
+      matched: report.matched,
+      written: report.written,
+      customRules: report.customRules,
+      unmatched: report.unmatched,
+      byCategory: Object.fromEntries(report.tally),
     }),
   );
 
   return {
-    backlog: prepared.candidates.length,
-    matched: prepared.classifications.length,
-    written,
-    customRules: prepared.customRuleCount,
+    backlog: report.backlog,
+    matched: report.matched,
+    written: report.written,
+    customRules: report.customRules,
   };
 }
 
