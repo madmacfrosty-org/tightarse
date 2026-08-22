@@ -2,7 +2,7 @@
  * Manage a household's own categorisation rules.
  *
  *   TABLE=<name> npm run rules -w @tightarse/categoriser -- list
- *   TABLE=<name> npm run rules -w @tightarse/categoriser -- add "PATTERN" "Category" ["note"]
+ *   TABLE=<name> npm run rules -w @tightarse/categoriser -- add "PATTERN" "CategoryLabel" ["note"]
  *   TABLE=<name> npm run rules -w @tightarse/categoriser -- remove "PATTERN"
  *   TABLE=<name> npm run rules -w @tightarse/categoriser -- test "some description"
  *
@@ -14,12 +14,12 @@
  */
 import { DynamoStore } from "@tightarse/dynamodb";
 import type { CustomRule } from "@tightarse/domain";
-import { CATEGORIES, isCategory } from "@tightarse/domain";
+import { CATEGORIES, isCategoryLabel } from "@tightarse/domain";
 import { compileCustom, RULES } from "@tightarse/domain";
 
 const usage = `usage:
   rules list
-  rules add "<regex>" "<Category>" ["note"]
+  rules add "<regex>" "<CategoryLabel>" ["note"]
   rules remove "<regex>"
   rules test "<description>"
 
@@ -49,7 +49,7 @@ async function main(): Promise<void> {
 
     case "add": {
       if (!a || !b) throw new Error(usage);
-      if (!isCategory(b)) throw new Error(`"${b}" is not a category.\n\n${usage}`);
+      if (!isCategoryLabel(b)) throw new Error(`"${b}" is not a category.\n\n${usage}`);
       try {
         new RegExp(a, "i");
       } catch {

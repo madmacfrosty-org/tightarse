@@ -1,5 +1,5 @@
 import type { CustomRule } from "../index.js";
-import { isCategory, type Category } from "./taxonomy.js";
+import { isCategoryLabel, type CategoryLabel } from "./taxonomy.js";
 import type { Candidate, Classification } from "./taxonomy.js";
 
 /**
@@ -31,7 +31,7 @@ import type { Candidate, Classification } from "./taxonomy.js";
  */
 export interface MerchantRule {
   readonly pattern: RegExp;
-  readonly category: Category;
+  readonly category: CategoryLabel;
 }
 
 export const RULES: readonly MerchantRule[] = [
@@ -89,7 +89,7 @@ export const RULES: readonly MerchantRule[] = [
  * rather than the description, which is far more reliable — an ATM withdrawal's
  * description is usually a location, not a merchant.
  */
-const PROVIDER_CATEGORY_RULES: Readonly<Record<string, Category>> = {
+const PROVIDER_CATEGORY_RULES: Readonly<Record<string, CategoryLabel>> = {
   ATM: "Cash Withdrawal",
 };
 
@@ -109,7 +109,7 @@ export interface RuleResult {
 export function compileCustom(rules: readonly CustomRule[]): MerchantRule[] {
   const compiled: MerchantRule[] = [];
   for (const r of rules) {
-    if (!isCategory(r.category)) {
+    if (!isCategoryLabel(r.category)) {
       console.warn(`skipping custom rule "${r.pattern}": unknown category "${r.category}"`);
       continue;
     }
