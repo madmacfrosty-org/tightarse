@@ -23,7 +23,8 @@ describe("contributions", () => {
     // can reason about.
     expect(Contribution.parse({ kind: "assert", category: "Groceries" }).kind).toBe("assert");
     expect(Contribution.parse({ kind: "refine", category: "Fuel" }).kind).toBe("refine");
-    expect(Contribution.parse({ kind: "tag", tag: "reviewed" }).kind).toBe("tag");
+    // Two kinds only: `tag` was specified, never used, and dropped.
+    expect(() => Contribution.parse({ kind: "tag", tag: "reviewed" })).toThrow();
     expect(() => Contribution.parse({ kind: "replace", category: "Fuel" })).toThrow();
   });
 });

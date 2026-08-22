@@ -193,7 +193,6 @@ suite("DynamoStore (integration)", () => {
       dedupKey: dedupKey(t),
       timestamp: "2026-06-10T00:00:00Z",
       category: "Groceries",
-      confidence: 0.91,
       producedBy: "itest",
       producedAt: new Date().toISOString(),
     });
@@ -217,7 +216,6 @@ suite("DynamoStore (integration)", () => {
       dedupKey: dedupKey(t),
       timestamp: "2026-07-04T00:00:00Z",
       category: "Transport",
-      confidence: 0.8,
       producedBy: "itest",
       producedAt: new Date().toISOString(),
     });
@@ -239,7 +237,6 @@ suite("DynamoStore (integration)", () => {
       dedupKey: dedupKey(t),
       timestamp: "2026-10-10T00:00:00Z",
       category: "Groceries",
-      confidence: 0.9,
       producedBy: "itest",
       producedAt: new Date().toISOString(),
     });
@@ -256,7 +253,6 @@ suite("DynamoStore (integration)", () => {
         dedupKey: "n:ghost",
         timestamp: "2026-01-01T00:00:00Z",
         category: "Nothing",
-        confidence: 1,
         producedBy: "itest",
         producedAt: new Date().toISOString(),
       }),
@@ -669,7 +665,6 @@ suite("control plane: settings, consents and the legacy rules row", () => {
         dedupKey: "no-such-transaction",
         timestamp: "2026-05-01T00:00:00Z",
         category: "Groceries",
-        confidence: 1,
         producedBy: "rules@v2",
         producedAt: "2026-08-18T00:00:00Z",
       }),
@@ -708,8 +703,8 @@ suite("control plane: settings, consents and the legacy rules row", () => {
     const u: Transaction = { ...t, transactionId: "del-2", providerTransactionId: "del-2", amount: -2_00 };
     await store.putTransactions([t, u]);
     const key = dedupKey(t);
-    await store.putEnrichment({ tenantId: TENANT, dedupKey: key, timestamp: t.timestamp, category: "Groceries", confidence: 1, producedBy: "rules@v2", producedAt: "2026-08-18T00:00:00Z" });
-    await store.putEnrichment({ tenantId: TENANT, dedupKey: dedupKey(u), timestamp: u.timestamp, category: "Fuel", confidence: 1, producedBy: "model@v1", producedAt: "2026-08-18T00:00:00Z" });
+    await store.putEnrichment({ tenantId: TENANT, dedupKey: key, timestamp: t.timestamp, category: "Groceries", producedBy: "rules@v2", producedAt: "2026-08-18T00:00:00Z" });
+    await store.putEnrichment({ tenantId: TENANT, dedupKey: dedupKey(u), timestamp: u.timestamp, category: "Fuel", producedBy: "model@v1", producedAt: "2026-08-18T00:00:00Z" });
 
     const removed = await store.deleteEnrichments(TENANT, range, "rules@v2");
     expect(removed.deleted).toBe(1);

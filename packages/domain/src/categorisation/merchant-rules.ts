@@ -140,7 +140,7 @@ export function applyRules(
     // author has the context the pattern lacks.
     const mine = custom.find((r) => r.pattern.test(c.description));
     if (mine) {
-      classifications.push({ dedupKey: c.dedupKey, category: mine.category, confidence: 1 });
+      classifications.push({ dedupKey: c.dedupKey, category: mine.category });
       continue;
     }
 
@@ -149,8 +149,7 @@ export function applyRules(
     if (c.providerCategory === "INTEREST") {
       classifications.push({
         dedupKey: c.dedupKey,
-        category: c.amount >= 0 ? "Income" : "Fees & Charges",
-        confidence: 1,
+        category: c.amount >= 0 ? "Income" : "Fees & Charges"
       });
       continue;
     }
@@ -171,7 +170,7 @@ export function applyRules(
       ? PROVIDER_CATEGORY_RULES[c.providerCategory]
       : undefined;
     if (byProvider) {
-      classifications.push({ dedupKey: c.dedupKey, category: byProvider, confidence: 1 });
+      classifications.push({ dedupKey: c.dedupKey, category: byProvider });
       continue;
     }
 
@@ -179,7 +178,7 @@ export function applyRules(
     if (rule) {
       // Confidence 1: a rule is an assertion, not an estimate. If a rule is
       // wrong the rule should be fixed, not hedged.
-      classifications.push({ dedupKey: c.dedupKey, category: rule.category, confidence: 1 });
+      classifications.push({ dedupKey: c.dedupKey, category: rule.category });
       continue;
     }
 

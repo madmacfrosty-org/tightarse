@@ -75,9 +75,15 @@ export interface Candidate {
   providerCategory?: string;
 }
 
-/** A category applied to one candidate by the rules. */
+/**
+ * A category applied to one candidate by the rules.
+ *
+ * No confidence. A rule either matched or it did not, and every rule path set
+ * the number to 1 — a field carrying one value carries no information, and the
+ * command line was sorting "lowest confidence first, where errors hide" over a
+ * constant. It was meaningful when a model returned one; it has not been since.
+ */
 export interface Classification {
   dedupKey: string;
   category: CategoryLabel;
-  confidence: number;
 }

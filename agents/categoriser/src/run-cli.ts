@@ -70,15 +70,21 @@ function print(report: CategoriseReport, dryRun: boolean): void {
     // Every assignment, not just the totals. A distribution can look entirely
     // plausible while individual rows are wrong, and the whole point of a
     // sample is to catch that before applying to the full ledger.
-    console.log(`\nassignments (lowest confidence first — where errors hide):\n`);
+    // Ordered by category so the same assignment sits with its siblings, which
+    // is how a wrong one shows up. This used to sort by confidence, "lowest
+    // first, where errors hide" — over a value every rule set to 1.
+    console.log(`\nassignments:\n`);
     const byKey = new Map(report.candidates.map((c) => [c.dedupKey, c]));
-    for (const a of [...report.assignments].sort((x, y) => x.confidence - y.confidence)) {
+    const sorted = [...report.assignments].sort(
+      (x, y) => x.category.localeCompare(y.category) || x.dedupKey.localeCompare(y.dedupKey),
+    );
+    for (const a of sorted) {
       const c = byKey.get(a.dedupKey);
       const amount = ((c?.amount ?? 0) / 100).toFixed(2).padStart(10);
       const raw = c?.description ?? "";
       const description = raw.length > 38 ? `${raw.slice(0, 37)}…` : raw;
       console.log(
-        `  ${a.confidence.toFixed(2)}  ${amount}  ${description.padEnd(38)}  ${a.category.padEnd(22)}${c?.providerCategory ?? ""}`,
+        `  ${amount}  ${description.padEnd(38)}  ${a.category.padEnd(22)}${c?.providerCategory ?? ""}`,
       );
     }
   }

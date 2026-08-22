@@ -125,6 +125,13 @@ was never two rules disagreeing — it is a merchant and a qualifier:
 The same shape captures one branch of a department store selling only food while
 others also sell clothing: a merchant assert, refined by a location qualifier.
 
+There is no `confidence`. It was specified when a model classified
+transactions and returned one; a rule either matches or it does not, and every
+rule path set the value to 1. A field carrying a single value carries no
+information, and it was actively misleading — the command line ordered a review
+by "lowest confidence first, where errors hide" over a constant. It returns if
+evidence records ever give it a meaning.
+
 Learned evidence — how many sightings support a rule, and with what
 confidence — is **not** on the rule. It is mutable state about a rule that
 changes without the rule changing, and putting it there would mint a set version
@@ -142,7 +149,7 @@ history of a transaction's classification over time.
 | `ruleSet`, `setVersion` | Always present |
 | `rules[]` | The contributing rules. May be empty where the categoriser is opaque. |
 | `version`, `status` | `effective` \| `proposed` \| `superseded` |
-| `confidence`, timestamps | |
+| timestamps | |
 
 `rules[]` rather than a single rule, for two reasons: a set may compose an answer
 from several, and some categorisers cannot expose one at all.

@@ -52,7 +52,6 @@ export interface LedgerRow {
 export interface EnrichmentRow {
   dedupKey: string;
   category: string;
-  confidence?: number;
 }
 
 
