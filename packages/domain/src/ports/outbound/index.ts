@@ -20,6 +20,8 @@
 import type { Account } from "../../ledger/account.js";
 import type { Transaction } from "../../ledger/transaction.js";
 import type { BalanceReading } from "../../ledger/balance.js";
+import type { ReconciliationMovement, Reading } from "../../ledger/reconciliation.js";
+import type { AccountId } from "../../ledger/account.js";
 import type { Categorisation } from "../../categorisation/categorisation.js";
 import type { RuleSet } from "../../categorisation/rules.js";
 import type { CustomRule, TransactionEnrichment } from "../../categorisation/enrichment.js";
@@ -79,6 +81,7 @@ export interface Categorisations {
   listCategorisationHistory(tenantId: string, dedupKey: string): Promise<Row[]>;
 }
 
+/** Where accounts are stored, and read back. */
 export interface Accounts {
   listAccounts(tenantId: string): Promise<Row[]>;
   /** Balances are optional: the accounts list carries none, and a later balance
@@ -91,6 +94,7 @@ export interface Accounts {
   ): Promise<void>;
 }
 
+/** Where balance readings are stored. Append-only: a reading is a fact about a moment. */
 export interface Balances {
   putBalanceReading(reading: BalanceReading): Promise<void>;
   listBalanceReadings(tenantId: string, accountId: string): Promise<Row[]>;
@@ -302,6 +306,34 @@ export interface LedgerWrites {
  * job that could also write the balances it checks against would be marking its
  * own homework.
  */
+/**
+ * What reconciliation reads: the accounts, and the two series behind each one.
+ *
+ * Three calls rather than one bulk read because the adapter is free to satisfy
+ * them from a single consistent scan — which is what it does, and must: reading
+ * one account's balances against another's transactions would produce a
+ * confident wrong answer that nothing downstream could catch.
+ *
+ * Stored rows never appear here. Grouping one into these is storage's job, and
+ * this package must not learn that a reading has a partition key.
+ */
+export interface ReconciliationData {
+  /** Every account to check. Ids only — the check makes no use of anything else. */
+  accounts(): Promise<readonly AccountId[]>;
+  /** One account's balance readings, in any order; the check sorts them. */
+  readings(accountId: AccountId): Promise<readonly Reading[]>;
+  /** One account's transactions, across at least the span being checked. */
+  movements(accountId: AccountId): Promise<readonly ReconciliationMovement[]>;
+}
+
+/**
+ * Recording what the reconciliation made of a balance reading.
+ *
+ * A mark on the reading itself rather than a correcting transaction: a
+ * synthetic row that makes the arithmetic come out is a healthy-looking number
+ * over missing data, and it would have to be retracted later. Marks can simply
+ * be cleared when a late transaction explains the break.
+ */
 export interface ReconciliationMarks {
   markBalanceReadingDirty(
     tenantId: string,
@@ -398,6 +430,13 @@ export class ConsentExpired extends Error {
   }
 }
 
+/**
+ * The provider, as the sync sees it.
+ *
+ * Everything that needs a live connection to a bank. Implemented by the
+ * TrueLayer adapter, which is also where the provider's shapes and its sign
+ * convention are normalised — nothing behind this port sees either.
+ */
 export interface BankData {
   /** Measured facts about this provider. See BankLimits. */
   readonly limits: BankLimits;
