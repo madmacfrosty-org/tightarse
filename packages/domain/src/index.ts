@@ -27,6 +27,7 @@ export * from "./ledger/balance.js";
 export * from "./ledger/reconciliation.js";
 export * from "./categorisation/rules.js";
 export * from "./categorisation/evaluate.js";
+export * from "./categorisation/evidence.js";
 export * from "./categorisation/taxonomy.js";
 export * from "./categorisation/category.js";
 export * from "./categorisation/seed.js";
@@ -47,6 +48,8 @@ export * from "./reporting/transfers.js";
 export * from "./reporting/reporting.js";
 // Named rather than `export *`: `decide` and its argument type are the
 // module's internals, tested directly but not offered to a driver.
+export * from "./application/candidate.js";
+export * from "./application/optimise.js";
 export {
   categorise,
   type CategoriseDependencies,
