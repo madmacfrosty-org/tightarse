@@ -26,18 +26,33 @@ afterEach(() => {
 });
 
 describe("loadConfig", () => {
-  it("uses build-time environment when all four values are present", async () => {
+  it("prefers /config.json over a complete build-time environment", async () => {
+    // The order this asserts is the whole point. A bundle built on a laptop
+    // carries that laptop's .env.local, and prod was once served a bundle with
+    // dev's pool, client id and hosted-UI domain baked in — sign-in went to
+    // dev's hosted UI and died with redirect_mismatch. The deployed
+    // config.json is the only one of the two that knows which environment is
+    // actually being served, so it wins.
+    vi.stubEnv("VITE_USER_POOL_ID", "eu-west-1_WRONG");
+    vi.stubEnv("VITE_USER_POOL_CLIENT_ID", "wrong-client");
+    vi.stubEnv("VITE_HOSTED_UI_DOMAIN", "wrong.auth.example.com");
+    vi.stubEnv("VITE_API_URL", "https://wrong.example.com");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(FULL), { status: 200 })));
+
+    const { loadConfig } = await import("../src/config");
+    expect(await loadConfig()).toEqual(FULL);
+  });
+
+  it("uses build-time environment only when there is no config.json", async () => {
+    // The dev server, which serves no config.json.
     vi.stubEnv("VITE_USER_POOL_ID", FULL.userPoolId);
     vi.stubEnv("VITE_USER_POOL_CLIENT_ID", FULL.userPoolClientId);
     vi.stubEnv("VITE_HOSTED_UI_DOMAIN", FULL.hostedUiDomain);
     vi.stubEnv("VITE_API_URL", FULL.apiUrl);
-    const fetchSpy = vi.fn();
-    vi.stubGlobal("fetch", fetchSpy);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("nope", { status: 404 })));
 
     const { loadConfig } = await import("../src/config");
     expect(await loadConfig()).toEqual(FULL);
-    // No point fetching what we already have.
-    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("falls back to /config.json when the environment is incomplete", async () => {
