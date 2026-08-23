@@ -127,14 +127,11 @@ export interface EnvSettings {
    * digits: nothing reads the suffix, so nothing broke, and a value that is
    * wrong but harmless is one nobody checks. Matching the account makes it
    * verifiable at a glance.
-   */
-  readonly hostedUiPrefix: string;
-  /**
-   * Prefix for the replacement pool being stood up alongside the first.
    *
-   * A second prefix is needed rather than reusing the first, because Cognito
-   * domain prefixes are globally unique across every AWS account and both pools
-   * exist at once during the changeover. See #36.
+   * Still named V2 now the original is gone (#37). The name is load-bearing:
+   * the prefix is part of a live hosted-UI domain, registered as a redirect URI
+   * with Google and referenced by every deployed callback. Renaming the field
+   * is free; renaming the value is not, so the field keeps the value's name.
    */
   readonly hostedUiPrefixV2: string;
   /**
@@ -217,7 +214,6 @@ const SETTINGS: Record<EnvName, EnvSettings> = {
     pointInTimeRecovery: false,
     autoDeleteObjects: true,
     googleClientId: "242040418333-3re7ehr425qst2ghgf8eh1qk263noe19.apps.googleusercontent.com",
-    hostedUiPrefix: "tightarse-dev-068475",
     hostedUiPrefixV2: "tightarse-dev-068475-b",
     siteUrl: "https://d235jlz4kj7lqs.cloudfront.net",
     // False since the cutover on 23 August 2026. Prod holds the connections and
@@ -236,7 +232,6 @@ const SETTINGS: Record<EnvName, EnvSettings> = {
     pointInTimeRecovery: true,
     autoDeleteObjects: false,
     googleClientId: "242040418333-ph17hhc226sb913d8968eg0qr2dod3u8.apps.googleusercontent.com",
-    hostedUiPrefix: "tightarse-prod-312637",
     hostedUiPrefixV2: "tightarse-prod-312637-b",
     web: {
       domainName: "tightarse.madmacfrosty.co.uk",

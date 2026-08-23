@@ -51,13 +51,10 @@ export interface DataStackProps extends cdk.StackProps {
 export class DataStack extends cdk.Stack {
   public readonly table: dynamodb.TableV2;
   public readonly rawBucket: s3.Bucket;
-  public readonly userPool: cognito.UserPool;
-  public readonly userPoolClient: cognito.UserPoolClient;
-  /** The replacement pool from #36, where `email` is mutable. */
+  /** The pool from #36, where `email` is mutable. The original is gone — #37. */
   public readonly userPoolV2: cognito.UserPool;
   public readonly userPoolClientV2: cognito.UserPoolClient;
-  /** The original pool and the replacement, each as one indivisible unit. */
-  public readonly identity: Identity;
+  /** The pool, its client and its hosted UI domain as one indivisible unit. */
   public readonly identityV2: Identity;
 
   constructor(scope: Construct, id: string, props: DataStackProps) {
@@ -333,18 +330,15 @@ export class DataStack extends cdk.Stack {
       return { pool, client };
     };
 
-    // The original. Being retired in #36 and cannot be altered — its email
-    // attribute is immutable and no API can change that.
-    const original = buildPool("Users", "Google", {
-      emailMutable: false,
-      hostedUiPrefix: settings.hostedUiPrefix,
-    });
-    this.userPool = original.pool;
-    this.userPoolClient = original.client;
-
-    // The replacement. Nothing consumes it yet — pointing the API at it is the
-    // next step, and keeping that separate means this deploy cannot break a
-    // sign-in that already works.
+    // The original pool is gone — #37. It could never be altered, because its
+    // `email` attribute is immutable and no API can change that, which is what
+    // #36 replaced it for. Prod's copy was created during the cutover and never
+    // signed into; dev's held two records nobody used.
+    //
+    // Its cross-stack exports go with it. They were kept alive deliberately
+    // after the importers stopped importing them, because CloudFormation refuses
+    // to delete an export still in use and this stack deploys before the two
+    // that would release it. That step is done, so they come out here.
     const replacement = buildPool("UsersV2", "GoogleV2", {
       emailMutable: true,
       hostedUiPrefix: settings.hostedUiPrefixV2,
@@ -352,36 +346,16 @@ export class DataStack extends cdk.Stack {
     this.userPoolV2 = replacement.pool;
     this.userPoolClientV2 = replacement.client;
 
-    /**
-     * Keep the original pool's cross-stack exports alive even though nothing
-     * imports them any more.
-     *
-     * Removing an export and removing its last importer cannot happen in one
-     * deployment. CloudFormation refuses to delete an export that is still in
-     * use, and CDK deploys this stack first — before the API and web stacks
-     * that would stop importing it — so the changeover would fail here, with
-     * this stack rolled back and the other two never attempted.
-     *
-     * These come out in the step that deletes the pool, by which point the
-     * importers are long gone.
-     */
-    this.exportValue(original.pool.userPoolId);
-    this.exportValue(original.client.userPoolClientId);
-
     const domainOf = (prefix: string): string => `${prefix}.auth.${this.region}.amazoncognito.com`;
-    this.identity = { ...original, hostedUiDomain: domainOf(settings.hostedUiPrefix) };
     this.identityV2 = { ...replacement, hostedUiDomain: domainOf(settings.hostedUiPrefixV2) };
 
     // ---------------------------------------------------------------- outputs
 
     new cdk.CfnOutput(this, "LedgerTableName", { value: this.table.tableName });
     new cdk.CfnOutput(this, "RawBucketName", { value: this.rawBucket.bucketName });
-    new cdk.CfnOutput(this, "UserPoolId", { value: this.userPool.userPoolId });
-    new cdk.CfnOutput(this, "UserPoolClientId", { value: this.userPoolClient.userPoolClientId });
-    new cdk.CfnOutput(this, "HostedUiDomain", { value: this.identity.hostedUiDomain });
-
-    // The replacement from #36, output so the changeover can be followed
-    // without digging through the console.
+    // Named V2 while the original still existed. Kept rather than renamed: an
+    // output key is what somebody's notes and scripts refer to, and there is now
+    // only one pool for it to mean.
     new cdk.CfnOutput(this, "UserPoolIdV2", { value: this.userPoolV2.userPoolId });
     new cdk.CfnOutput(this, "UserPoolClientIdV2", { value: this.userPoolClientV2.userPoolClientId });
     new cdk.CfnOutput(this, "HostedUiDomainV2", { value: this.identityV2.hostedUiDomain });
