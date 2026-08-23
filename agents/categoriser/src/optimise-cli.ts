@@ -2,8 +2,14 @@
  * Report what the rules do, and optionally improve them.
  *
  *   TENANT=frost TABLE=<name> npm run optimise -w @tightarse/categoriser
- *   ... -- --resolve-conflicts     propose fixes, still writing nothing
- *   ... -- --resolve-conflicts --accept   publish the proposal
+ *   ... -- --resolve-conflicts            propose fixes, still writing nothing
+ *   ... -- --set built-in --rule 4 --pattern '<new>'   change one rule
+ *   ... -- --file proposal.json           supply whole sets
+ *   ... -- --accept                       publish whatever was proposed
+ *
+ * Rules are data. Narrowing a pattern that matched motorway services when it
+ * meant fuel is an operational act — a proposal measured against the real
+ * ledger and accepted or not — rather than a code change and a deploy.
  *
  * With no proposer it is the diagnostic: what the rules reach, where they
  * collide, and what nothing matches. Dry throughout unless --accept is given,
@@ -12,8 +18,11 @@
  */
 
 import { DynamoStore } from "@tightarse/dynamodb";
-import { accept, noProposals, optimise, type OptimiseReport } from "@tightarse/domain";
+import { accept, noProposals, optimise, type OptimiseReport, type RuleProposer } from "@tightarse/domain";
 import { conflictResolver } from "./conflict-resolver.js";
+import { editing, replacing } from "./authored-proposer.js";
+import { readFileSync } from "node:fs";
+import { RuleSet } from "@tightarse/domain";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -30,14 +39,15 @@ async function main(): Promise<void> {
   const region = process.env["AWS_REGION"] ?? "eu-west-1";
   const from = arg("from") ?? "2021-01-01";
   const to = arg("to") ?? new Date().toISOString().slice(0, 10);
-  const resolving = process.argv.includes("--resolve-conflicts");
   const accepting = process.argv.includes("--accept");
 
   const ledger = new DynamoStore({ tableName, region });
-  const proposer = resolving ? conflictResolver() : noProposals;
-  const report = await optimise({ transactions: ledger, ruleSets: ledger, proposer }, tenantId, {
-    range: { from, to },
-  });
+  const proposer = chooseProposer();
+  const report = await optimise(
+    { transactions: ledger, ruleSets: ledger, categories: ledger, proposer },
+    tenantId,
+    { range: { from, to } },
+  );
 
   print(report);
 
@@ -46,12 +56,54 @@ async function main(): Promise<void> {
     return;
   }
 
-  const accepted = await accept({ ruleSets: ledger }, tenantId, report.proposed, {
+  const accepted = await accept({ ruleSets: ledger, categories: ledger }, tenantId, report.proposed, {
     now: new Date(),
     by: report.proposedBy,
   });
   console.log(`\npublished:`);
   for (const a of accepted) console.log(`  ${a.setId.padEnd(12)} v${a.from} -> v${a.to}  ${a.rules} rules`);
+}
+
+/**
+ * Which opinion to apply, if any.
+ *
+ * The default proposes nothing, so with no flags this is the diagnostic. Every
+ * other route ends up in the same `optimise` call and faces the same before and
+ * after — which is the point of the port.
+ */
+function chooseProposer(): RuleProposer {
+  if (process.argv.includes("--resolve-conflicts")) return conflictResolver();
+
+  const by = process.env["USER"] ?? "operator";
+
+  // Whole sets from a file: the general form, and the one a model will produce.
+  // It is how a rule moves BETWEEN sets, which an in-place edit cannot express —
+  // and moving a rule down a set is how "only if nothing more specific matched"
+  // is said, precedence being the mechanism for exactly that.
+  const file = arg("file");
+  if (file !== undefined) {
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+    const sets = (Array.isArray(parsed) ? parsed : [parsed]).map((s) => RuleSet.parse(s));
+    return replacing(sets, `${by} via ${file}`);
+  }
+
+  const set = arg("set");
+  const index = arg("rule");
+  if (set === undefined || index === undefined) return noProposals;
+
+  const pattern = arg("pattern");
+  const category = arg("category");
+  const contributes = arg("contributes") as "assert" | "refine" | undefined;
+  return editing(
+    {
+      setId: set,
+      index: Number(index),
+      ...(pattern === undefined ? {} : { pattern }),
+      ...(category === undefined ? {} : { category }),
+      ...(contributes === undefined ? {} : { contributes }),
+    },
+    by,
+  );
 }
 
 function print(report: OptimiseReport): void {

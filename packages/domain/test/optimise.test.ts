@@ -157,7 +157,12 @@ describe("with something proposed", () => {
 describe("accepting a proposal", () => {
   const NOW = new Date("2026-03-01T09:00:00.000Z");
 
-  function ruleSets(existing: RuleSet[]) {
+  const catalogue = [
+    { id: "one", label: "One", kind: "spending", taxonomy: "household", retired: false },
+    { id: "gone", label: "Gone", kind: "spending", taxonomy: "household", retired: true },
+  ] as unknown as Row[];
+
+  function ruleSets(existing: RuleSet[], categories: Row[] = catalogue) {
     const written: RuleSet[] = [];
     return {
       written,
@@ -168,6 +173,7 @@ describe("accepting a proposal", () => {
             written.push(s);
           },
         },
+        categories: { listCategories: async () => categories },
       } as never,
     };
   }
@@ -192,6 +198,47 @@ describe("accepting a proposal", () => {
     const { deps, written } = ruleSets([]);
     await accept(deps, "frost", [set("built-in", [])], { now: NOW, by: "conflict-resolver" });
     expect(written[0]).toMatchObject({ createdBy: "conflict-resolver", createdAt: NOW.toISOString() });
+  });
+
+  it("refuses a rule naming a category that does not exist", async () => {
+    // Rules are data, so a category id is something a person typed or a model
+    // produced. Unchecked it is a rule that matches happily and then asserts
+    // something nothing can resolve.
+    const { deps, written } = ruleSets([]);
+    await expect(
+      accept(deps, "frost", [set("built-in", [asserts("a", "invented")])], { now: NOW, by: "test" }),
+    ).rejects.toThrow(/invented/);
+    expect(written).toEqual([]);
+  });
+
+  it("refuses a rule choosing a retired category", async () => {
+    // A retired category still resolves for rows already pointing at it — that
+    // is why categories are never deleted — but a NEW rule choosing one is
+    // reaching for something deliberately withdrawn.
+    const { deps, written } = ruleSets([]);
+    await expect(
+      accept(deps, "frost", [set("built-in", [asserts("a", "gone")])], { now: NOW, by: "test" }),
+    ).rejects.toThrow(/gone/);
+    expect(written).toEqual([]);
+  });
+
+  it("checks every set before writing any, so a bad one fails the lot", async () => {
+    const { deps, written } = ruleSets([]);
+    await expect(
+      accept(
+        deps,
+        "frost",
+        [set("a", [asserts("x", "one")]), set("b", [asserts("y", "invented")])],
+        { now: NOW, by: "test" },
+      ),
+    ).rejects.toThrow();
+    expect(written).toEqual([]);
+  });
+
+  it("needs no catalogue when a proposal has no rules to check", async () => {
+    const { deps, written } = ruleSets([], []);
+    await accept(deps, "frost", [set("built-in", [])], { now: NOW, by: "test" });
+    expect(written).toHaveLength(1);
   });
 
   it("refuses to replace an authored set, and writes nothing at all", async () => {

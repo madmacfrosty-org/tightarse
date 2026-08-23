@@ -34,6 +34,23 @@ export interface MerchantRule {
   readonly category: CategoryLabel;
 }
 
+/**
+ * The patterns a new household starts with.
+ *
+ * A SEED, not a source. Once `seed-cli` has run, `built-in` lives in the table
+ * as a versioned set and is changed there — by proposal, measured against the
+ * real ledger, and accepted. Editing this list afterwards changes what the NEXT
+ * household starts with and nothing else.
+ *
+ * That is deliberate. Rules are data: narrowing a pattern that matched motorway
+ * services when it meant fuel should not need a pull request and a deploy, and
+ * once a change is versioned, dry-run, breadth-measured and diffed before and
+ * after, the gate is the review.
+ *
+ * The risk is drift — someone "fixing" a pattern here that the table stopped
+ * using months ago — which is why this says so rather than leaving it to be
+ * discovered.
+ */
 export const RULES: readonly MerchantRule[] = [
   // Groceries
   { pattern: /\b(TESCO|SAINSBURY'?S?|ASDA|ALDI|LIDL|MORRISON'?S?|WAITROSE|CO-?OP|ICELAND|OCADO|BOOKER)\b/i, category: "Groceries" },

@@ -18,8 +18,9 @@
 
 import { candidateOf } from "./candidate.js";
 import { gatherEvidence, type Evidence } from "../categorisation/evidence.js";
+import { Category } from "../categorisation/category.js";
 import { RuleSet } from "../categorisation/rules.js";
-import type { Row, RuleProposer, RuleSets, Transactions } from "../ports/outbound/index.js";
+import type { Categories, Row, RuleProposer, RuleSets, Transactions } from "../ports/outbound/index.js";
 import type { DateRange } from "../ports/index.js";
 
 /**
@@ -38,6 +39,14 @@ export interface OptimiseDependencies {
   readonly transactions: Transactions;
   readonly ruleSets: RuleSets;
   readonly proposer: RuleProposer;
+  /**
+   * The catalogue, for checking that a proposal names categories that exist.
+   *
+   * Rules are data, so a category id inside one is a reference someone typed or
+   * a model produced. Unchecked, it is a rule that matches happily and then
+   * asserts a category nothing can resolve.
+   */
+  readonly categories: Categories;
 }
 
 export interface OptimiseOptions {
@@ -128,7 +137,7 @@ export interface Accepted {
  * categorisation's provenance keeps meaning what it said.
  */
 export async function accept(
-  deps: Pick<OptimiseDependencies, "ruleSets">,
+  deps: Pick<OptimiseDependencies, "ruleSets" | "categories">,
   tenantId: string,
   proposed: readonly RuleSet[],
   options: { readonly now: Date; readonly by: string },
@@ -136,6 +145,13 @@ export async function accept(
   const current = new Map(
     (await deps.ruleSets.listRuleSets(tenantId)).map((r) => RuleSet.parse(r)).map((s) => [s.setId, s]),
   );
+
+  // Checked before anything is written, so a proposal naming a category that
+  // does not exist fails whole rather than half.
+  const unknown = await unknownCategories(deps, tenantId, proposed);
+  if (unknown.length > 0) {
+    throw new Error(`Refusing rules naming categories that do not exist or are retired: ${unknown.join(", ")}`);
+  }
 
   const accepted: Accepted[] = [];
   for (const set of proposed) {
@@ -159,4 +175,27 @@ export async function accept(
     accepted.push({ setId: next.setId, from: existing?.version ?? 0, to: next.version, rules: next.rules.length });
   }
   return accepted;
+}
+
+/**
+ * Category references in a proposal that nothing can resolve.
+ *
+ * Retired counts as unknown. A retired category still resolves for rows already
+ * pointing at it — that is why categories are never deleted — but a NEW rule
+ * choosing one is someone reaching for a category deliberately withdrawn.
+ */
+async function unknownCategories(
+  deps: Pick<OptimiseDependencies, "categories">,
+  tenantId: string,
+  proposed: readonly RuleSet[],
+): Promise<string[]> {
+  const referenced = new Set<string>();
+  for (const set of proposed) {
+    for (const rule of set.rules) referenced.add(rule.contributes.category);
+  }
+  if (referenced.size === 0) return [];
+
+  const catalogue = (await deps.categories.listCategories(tenantId)).map((r) => Category.parse(r));
+  const usable = new Set(catalogue.filter((c) => !c.retired).map((c) => c.id));
+  return [...referenced].filter((id) => !usable.has(id)).sort();
 }
