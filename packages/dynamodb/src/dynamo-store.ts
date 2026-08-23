@@ -16,7 +16,6 @@ import type {
   Balances,
   Categories,
   Categorisations,
-  Enrichments,
   Household,
   RuleSets,
   Transactions,
@@ -24,7 +23,6 @@ import type {
 import { DynamoAccounts } from "./accounts.js";
 import { DynamoBalances } from "./balances.js";
 import { DynamoCategorisations } from "./categorisations.js";
-import { DynamoEnrichments } from "./enrichments.js";
 import { DynamoHousehold } from "./household.js";
 import { DynamoCategories, DynamoRuleSets } from "./rulesets.js";
 import { DynamoTransactions } from "./transactions.js";
@@ -33,10 +31,9 @@ import type { TableOptions } from "./table.js";
 export type DynamoStoreOptions = TableOptions;
 
 export class DynamoStore
-  implements Transactions, Enrichments, Categorisations, Categories, Accounts, Balances, RuleSets, Household
+  implements Transactions, Categorisations, Categories, Accounts, Balances, RuleSets, Household
 {
   private readonly transactions: DynamoTransactions;
-  private readonly enrichments: DynamoEnrichments;
   private readonly categorisations: DynamoCategorisations;
   private readonly accounts: DynamoAccounts;
   private readonly balances: DynamoBalances;
@@ -46,7 +43,6 @@ export class DynamoStore
 
   constructor(opts: DynamoStoreOptions) {
     this.transactions = new DynamoTransactions(opts);
-    this.enrichments = new DynamoEnrichments({ ...opts, transactions: this.transactions });
     this.categorisations = new DynamoCategorisations(opts);
     this.accounts = new DynamoAccounts(opts);
     this.balances = new DynamoBalances(opts);
@@ -60,9 +56,6 @@ export class DynamoStore
   readonly putTransactions: Transactions["putTransactions"] = (...a) => this.transactions.putTransactions(...a);
   readonly listPending: Transactions["listPending"] = (...a) => this.transactions.listPending(...a);
   readonly replacePending: Transactions["replacePending"] = (...a) => this.transactions.replacePending(...a);
-  readonly listToEnrich: Enrichments["listToEnrich"] = (...a) => this.enrichments.listToEnrich(...a);
-  readonly putEnrichment: Enrichments["putEnrichment"] = (...a) => this.enrichments.putEnrichment(...a);
-  readonly deleteEnrichments: Enrichments["deleteEnrichments"] = (...a) => this.enrichments.deleteEnrichments(...a);
   readonly putCategorisation: Categorisations["putCategorisation"] = (...a) => this.categorisations.putCategorisation(...a);
   readonly listCategorisationHistory: Categorisations["listCategorisationHistory"] = (...a) => this.categorisations.listCategorisationHistory(...a);
   readonly listAccounts: Accounts["listAccounts"] = (...a) => this.accounts.listAccounts(...a);

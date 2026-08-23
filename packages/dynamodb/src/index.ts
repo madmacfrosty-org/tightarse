@@ -5,7 +5,6 @@ export { DynamoStore, type DynamoStoreOptions } from "./dynamo-store";
 // members.
 export { TableAdapter, type TableOptions } from "./table";
 export { DynamoTransactions } from "./transactions";
-export { DynamoEnrichments } from "./enrichments";
 export { DynamoCategorisations } from "./categorisations";
 export { DynamoAccounts } from "./accounts";
 export { DynamoBalances } from "./balances";
@@ -14,7 +13,6 @@ export { DynamoHousehold } from "./household";
 export { DynamoTableRows } from "./rows";
 export {
   transactionItem,
-  enrichmentItem,
   pendingItem,
   accountItem,
   consentItem,

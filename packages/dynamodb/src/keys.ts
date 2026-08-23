@@ -23,6 +23,11 @@ export const RowKind = {
    */
   categorisation: "CAT",
   transaction: "TX",
+  /**
+   * A marker only. Enrichment rows are no longer written or read —
+   * categorisations replaced them — but the prefix exists in stored data and
+   * the sort order below depends on knowing where it sits.
+   */
   enrichment: "EN",
 } as const;
 export type RowKind = (typeof RowKind)[keyof typeof RowKind];
@@ -34,7 +39,7 @@ export type RowKind = (typeof RowKind)[keyof typeof RowKind];
  * see both sides of a movement between family members' accounts, which is only
  * possible if they share a partition space.
  *
- * Transactions and enrichments share one partition per tenant, with the row
+ * Transactions and their categorisations share one partition per tenant, with the row
  * kind placed AFTER the timestamp in the sort key. That ordering is the whole
  * trick: a single `between` on the sort key returns transactions and their
  * enrichments together, interleaved and adjacent, for any date range.
@@ -161,22 +166,6 @@ export const keys = {
     sk: `${setId}#${String(version).padStart(6, "0")}`,
   }),
 
-  /** Same partition and timestamp as the transaction it describes, so the two
-   *  land adjacent to each other in one query. */
-  enrichment: (tenantId: string, timestamp: string, dedup: string) => ({
-    pk: `T#${tenantId}#TX`,
-    sk: `${timestamp}#${RowKind.enrichment}#${dedup}`,
-  }),
-
-  /** Sort-key bounds for a date range, inclusive of `from` and exclusive of
-   *  `to`. Returns both transactions and enrichments. */
-  rangeBounds: (from: string, to: string) => ({ from, to }),
-
-  /**
-   * Pending is a cache, not a ledger entry — pending transactions change
-   * amount and can vanish. Ingest deletes and replaces the whole partition per
-   * account each sync, with a TTL as backstop.
-   */
   /**
    * One row per balance fetch, newest last.
    *
@@ -201,6 +190,11 @@ export const keys = {
     sk: `${asOf}#${fetchedAt}`,
   }),
 
+  /**
+   * Pending is a cache, not a ledger entry — pending transactions change
+   * amount and can vanish. Ingest deletes and replaces the whole partition per
+   * account each sync, with a TTL as backstop.
+   */
   pending: (tenantId: string, accountId: string, timestamp: string, providerId: string) => ({
     pk: `T#${tenantId}#PEND#${accountId}`,
     sk: `${timestamp}#${providerId}`,

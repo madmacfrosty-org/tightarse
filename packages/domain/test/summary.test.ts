@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { summarise, mergeEnrichments, toAccountState, type LedgerRow, type AssignedCategory } from "../src/reporting/summary.js";
+import { summarise, mergeCategories, toAccountState, type LedgerRow, type AssignedCategory } from "../src/reporting/summary.js";
 
 /**
  * Overrides for a test-data builder.
@@ -107,9 +107,9 @@ describe("summarise", () => {
   });
 });
 
-describe("mergeEnrichments", () => {
+describe("mergeCategories", () => {
   it("returns newest first with categories attached", () => {
-    const merged = mergeEnrichments(
+    const merged = mergeCategories(
       [row({ timestamp: "2026-01-01T00:00:00Z" }), row({ dedupKey: "n:2", timestamp: "2026-06-01T00:00:00Z" })],
       [{ dedupKey: "n:2", category: "Transport", setId: "built-in" }],
     );

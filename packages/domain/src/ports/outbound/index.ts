@@ -26,7 +26,7 @@ import type { Categorisation } from "../../categorisation/categorisation.js";
 import type { Category } from "../../categorisation/category.js";
 import type { RuleSet } from "../../categorisation/rules.js";
 import type { Evidence } from "../../categorisation/evidence.js";
-import type { CustomRule, TransactionEnrichment } from "../../categorisation/enrichment.js";
+import type { CustomRule } from "../../categorisation/enrichment.js";
 import type { Member } from "../../household/member.js";
 import type { TenantSettings } from "../../household/settings.js";
 import type { Consent } from "../../household/consent.js";
@@ -36,7 +36,7 @@ import type { DateRange } from "../index.js";
 export type Row = Record<string, unknown>;
 
 /**
- * The transaction record and its enrichments.
+ * The transaction record and its categorisations.
  *
  * `listRange` returns three kinds from one query because they share a partition
  * — that adjacency is deliberate and is what makes a batch read one call.
@@ -45,7 +45,7 @@ export interface Transactions {
   listRange(
     tenantId: string,
     range: DateRange,
-  ): Promise<{ transactions: Row[]; enrichments: Row[]; categorisations: Row[] }>;
+  ): Promise<{ transactions: Row[]; categorisations: Row[] }>;
   listAccountRange(tenantId: string, accountId: string, range: DateRange): Promise<Row[]>;
   putTransactions(
     txns: readonly Transaction[],
@@ -59,23 +59,6 @@ export interface Transactions {
   ): Promise<{ deleted: number; written: number }>;
 }
 
-/**
- * Enrichment, as it exists today.
- *
- * Being replaced by `Categorisations`: `listToEnrich` defines the backlog as
- * "has no enrichment row", which is a business rule living in the persistence
- * layer, and the categorisation design replaces it with staleness by rule set
- * version. Kept as its own port so what is going away is visible.
- */
-export interface Enrichments {
-  listToEnrich(tenantId: string, range: DateRange, limit?: number): Promise<Row[]>;
-  putEnrichment(e: TransactionEnrichment): Promise<void>;
-  deleteEnrichments(
-    tenantId: string,
-    range: DateRange,
-    producedBy: string,
-  ): Promise<{ deleted: number }>;
-}
 
 /**
  * The category catalogue.
@@ -332,7 +315,7 @@ export interface LedgerReads {
   listRange(
     tenantId: string,
     range: DateRange,
-  ): Promise<{ transactions: Row[]; enrichments: Row[]; categorisations: Row[] }>;
+  ): Promise<{ transactions: Row[]; categorisations: Row[] }>;
   listAccounts(tenantId: string): Promise<Row[]>;
   /**
    * The rule sets, for their precedence.
@@ -424,19 +407,6 @@ export interface ReconciliationMarks {
   ): Promise<void>;
 }
 
-/**
- * The categorisation batch: read the backlog, read the rules, write the result.
- *
- * `getSettings` is here because a household may turn enrichment off and a
- * schedule must respect it — the one control-plane read this data-plane job
- * legitimately needs.
- */
-export interface CategoriserReads {
-  listToEnrich(tenantId: string, range: DateRange, limit?: number): Promise<Row[]>;
-  getCustomRules(tenantId: string): Promise<CustomRule[]>;
-  putEnrichment(e: TransactionEnrichment): Promise<void>;
-  getSettings(tenantId: string): Promise<TenantSettings | null>;
-}
 
 /** What a provider hands back for a set of credentials. */
 export interface BankToken {

@@ -23,7 +23,7 @@ import type {
   TransactionsResult,
 } from "../index.js";
 import { effectiveCategories, orderOf } from "./categories.js";
-import { mergeEnrichments, summarise, toAccountState, type AssignedCategory, type LedgerRow } from "./summary.js";
+import { mergeCategories, summarise, toAccountState, type AssignedCategory, type LedgerRow } from "./summary.js";
 import { daysBetween, netPositionSeries, type AccountFacts, type Movement } from "./balances.js";
 import { clampToCoverage, completeFrom, coverageOf, type AccountCoverage } from "./coverage.js";
 
@@ -135,7 +135,7 @@ export async function transactions(deps: Deps, tenantId: string, range: Range): 
   ]);
   return {
     range,
-    transactions: mergeEnrichments(
+    transactions: mergeCategories(
       txns as unknown as LedgerRow[],
       effectiveCategories(txns as unknown as LedgerRow[], categorisations, orderOf(sets)),
     ),

@@ -24,7 +24,6 @@ import {
   RuleSet,
   type TenantSettings,
   type Transaction,
-  type TransactionEnrichment,
 } from "@tightarse/domain";
 import { keys, RowKind } from "./keys.js";
 import type {
@@ -33,7 +32,6 @@ import type {
   Categories,
   Categorisations,
   DateRange,
-  Enrichments,
   Household,
   RuleSets,
   Transactions,
@@ -42,7 +40,6 @@ import {
   accountItem,
   categorisationItems,
   consentItem,
-  enrichmentItem,
   pendingItem,
   ruleSetItems,
   transactionItem,

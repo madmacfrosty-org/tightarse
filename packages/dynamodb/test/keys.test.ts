@@ -14,20 +14,7 @@ describe("keys", () => {
   const t = "frost";
   const ts = "2026-08-08T00:00:00Z";
 
-  it("puts transactions and enrichments in one partition", () => {
-    expect(keys.transaction(t, ts, "n:a").pk).toBe(keys.enrichment(t, ts, "n:a").pk);
-  });
 
-  it("orders by timestamp before kind, so a range query returns both", () => {
-    // The kind marker sits AFTER the timestamp precisely so that a single
-    // `between` on the sort key spans transactions and enrichments together.
-    const tx = keys.transaction(t, ts, "n:a").sk;
-    const en = keys.enrichment(t, ts, "n:a").sk;
-    expect(tx.startsWith(ts)).toBe(true);
-    expect(en.startsWith(ts)).toBe(true);
-    expect(tx).toContain(`#${RowKind.transaction}#`);
-    expect(en).toContain(`#${RowKind.enrichment}#`);
-  });
 
   it("sorts chronologically as strings, which is what the range query relies on", () => {
     const early = keys.transaction(t, "2021-08-09T00:00:00Z", "n:a").sk;
