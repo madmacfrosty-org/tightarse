@@ -74,12 +74,12 @@ describe("raw landing zone", () => {
 });
 
 describe("identity", () => {
-  it("gives every pool its own provider where a client id is supplied", () => {
-    // Two per environment, one per pool, while #36's changeover is in progress.
-    // Both pools need their own — an identity provider belongs to a pool and
-    // cannot be shared.
-    expect(Object.keys(dev.data.findResources("AWS::Cognito::UserPoolIdentityProvider"))).toHaveLength(2);
-    expect(Object.keys(prod.data.findResources("AWS::Cognito::UserPoolIdentityProvider"))).toHaveLength(2);
+  it("gives the pool its provider where a client id is supplied", () => {
+    // One per environment since #37 retired the original pool. It was two while
+    // both existed, because an identity provider belongs to a pool and cannot be
+    // shared — so a count of two here now means a pool nobody meant to create.
+    expect(Object.keys(dev.data.findResources("AWS::Cognito::UserPoolIdentityProvider"))).toHaveLength(1);
+    expect(Object.keys(prod.data.findResources("AWS::Cognito::UserPoolIdentityProvider"))).toHaveLength(1);
   });
 
   it("configures no federation where a client id is absent", () => {
@@ -94,18 +94,20 @@ describe("identity", () => {
     expect(Object.keys(none.data.findResources("AWS::Cognito::UserPoolIdentityProvider"))).toHaveLength(0);
   });
 
-  it("gives the replacement pool a mutable email, which is its entire purpose", () => {
-    // The one difference between the two pools, and the reason the second
-    // exists. See #36: an immutable email makes every federated sign-in after
-    // the first fail, and it cannot be changed on a pool that already exists.
+  it("gives the pool a mutable email, which is the whole reason it exists", () => {
+    // #36 in one assertion. Cognito re-applies an identity provider's attribute
+    // mapping on every federated sign-in, so an immutable email makes the first
+    // Google sign-in succeed and every one after it fail with "user.email:
+    // Attribute cannot be updated". A pool's schema is fixed at creation, so the
+    // original could not be repaired — it had to be replaced, and #37 deleted it.
+    //
+    // Every pool, not the first one found: a false here is the defect returning.
     const pools = Object.values(dev.data.findResources("AWS::Cognito::UserPool"));
-    const emailMutability = pools.map(
-      (p: any) => p.Properties.Schema.find((a: any) => a.Name === "email")?.Mutable,
-    );
-    // One of each during the changeover: the original cannot be fixed, the
-    // replacement is correct.
-    expect(emailMutability.filter((m) => m === true)).toHaveLength(1);
-    expect(emailMutability.filter((m) => m === false)).toHaveLength(1);
+    expect(pools).toHaveLength(1);
+    for (const pool of pools) {
+      const email = (pool as any).Properties.Schema.find((a: any) => a.Name === "email");
+      expect(email?.Mutable, "an immutable email is #36 all over again").toBe(true);
+    }
   });
 
   it("accepts the deployed site and localhost as callbacks", () => {
@@ -125,13 +127,15 @@ describe("identity", () => {
     }
   });
 
-  it("gives the two pools different hosted UI prefixes", () => {
-    // Cognito domain prefixes are globally unique across every AWS account, and
-    // both pools exist at once. Reusing the prefix fails the deploy.
-    const domains = Object.values(dev.data.findResources("AWS::Cognito::UserPoolDomain"));
-    const prefixes = domains.map((d: any) => d.Properties.Domain);
-    expect(prefixes).toHaveLength(2);
-    expect(new Set(prefixes).size).toBe(2);
+  it("gives each environment one hosted UI prefix, and never the same one", () => {
+    // Cognito domain prefixes are globally unique across every AWS account, so
+    // dev and prod cannot share one even though they are separate accounts.
+    // There were two per environment while both pools existed; #37 leaves one.
+    const prefixesOf = (t: typeof dev.data) =>
+      Object.values(t.findResources("AWS::Cognito::UserPoolDomain")).map((d: any) => d.Properties.Domain);
+    expect(prefixesOf(dev.data)).toHaveLength(1);
+    expect(prefixesOf(prod.data)).toHaveLength(1);
+    expect(prefixesOf(dev.data)[0]).not.toBe(prefixesOf(prod.data)[0]);
   });
 
   it("attaches the household trigger to both pools, not just the original", () => {
@@ -160,27 +164,6 @@ describe("identity", () => {
     dev.data.hasResourceProperties("AWS::Cognito::UserPool", {
       Schema: Match.arrayWith([
         Match.objectLike({ Name: "tenant", Mutable: false }),
-      ]),
-    });
-  });
-
-  it("pins email as immutable, which is a known defect and not a preference", () => {
-    // This asserts the CURRENT state, not the desired one, and that is
-    // deliberate — the two differ and the difference is tracked in #36.
-    //
-    // Email should be mutable: Cognito re-applies an identity provider's
-    // attribute mapping on every federated sign-in, so an immutable one makes
-    // the first Google sign-in succeed and every one after it fail with
-    // "user.email: Attribute cannot be updated". That is the live symptom.
-    //
-    // It cannot be changed here. A pool's schema is fixed at creation, and
-    // setting mutable: true produces an update Cognito rejects — which on 16
-    // August left the stack in UPDATE_ROLLBACK_FAILED. Fixing it means a new
-    // pool, so this test exists to make the current value a conscious record
-    // rather than something a reader assumes was chosen.
-    dev.data.hasResourceProperties("AWS::Cognito::UserPool", {
-      Schema: Match.arrayWith([
-        Match.objectLike({ Name: "email", Required: true, Mutable: false }),
       ]),
     });
   });
