@@ -283,3 +283,84 @@ jobs:
             TightarseIngest-dev \
             TightarseWeb-dev \
             --require-approval never
+
+  # Promotion, not a second pipeline. Prod deploys the same commit that dev just
+  # deployed, from the same build, so the two accounts cannot drift silently —
+  # and drift is the failure this exists to stop. Prod spent a day running a
+  # build forty minutes older than main, which is what wrote a morning's worth of
+  # rows in a model the code had already retired. Nothing reported that, because
+  # a stale deployment looks exactly like a current one until you run `cdk diff`.
+  #
+  # No `if:` of its own. A job whose `needs` is skipped is skipped, so the
+  # branch and event conditions on `deploy` govern this too, in one place.
+  #
+  # `environment: prod` is the gate rather than decoration: that environment
+  # carries a required reviewer, and `tightarse-prod-github-deploy` trusts
+  # exactly `repo:madmacfrosty-org/tightarse:environment:prod` — a job that does
+  # not declare it cannot assume the role at all.
+  #
+  # Approval rather than automatic promotion, for one reason. Dev succeeding is a
+  # weaker signal than it looks while the two accounts differ in what they hold:
+  # whichever one owns the live bank connections is the one where a bad change
+  # costs something, and that ownership moves. Some changes are also ordered
+  # against acts that are not code — copying connection secrets, a redirect URI,
+  # flipping syncEnabled. One click preserves that sequencing; the job removes
+  # the drift either way.
+  deploy-prod:
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    environment: prod
+
+    permissions:
+      contents: read
+      # Without this GitHub will not mint the token at all, and the failure
+      # reads as a credentials error rather than a missing permission.
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::960946312637:role/tightarse-prod-github-deploy
+          aws-region: eu-west-1
+          role-session-name: gha-prod-${{ github.run_id }}
+
+      # Jobs do not share a filesystem, so this one has to build for itself.
+      - name: Build the workspaces
+        run: npm run typecheck
+
+      # cdk synth deploys web/dist as an asset and fails without it.
+      - name: Build the web app
+        run: npm run build -w @tightarse/web
+
+      # Deliberately no ALERT_EMAIL check, unlike the dev job above. That check
+      # guards a subscription that no longer exists: it was created once, never
+      # confirmed, discarded by SNS after three days while CloudFormation went on
+      # reporting CREATE_COMPLETE, and was then removed on purpose. See the
+      # reasoning on the Alerts topic in infra/lib/ingest-stack.ts. Copying the
+      # gate here would demand a secret on the prod environment to protect
+      # something that is not there.
+      #
+      # `-c env=prod` is what separates this from the dev job. Without it the
+      # stack names would not resolve and the deploy would fail rather than
+      # target the wrong account — the naming in bin/tightarse.ts is what makes
+      # that true, and it is why the names carry the environment.
+      - name: Deploy
+        working-directory: infra
+        run: |
+          npx cdk deploy \
+            -c env=prod \
+            TightarseFoundation-prod \
+            TightarseData-prod \
+            TightarseApi-prod \
+            TightarseIngest-prod \
+            TightarseWeb-prod \
+            --require-approval never
