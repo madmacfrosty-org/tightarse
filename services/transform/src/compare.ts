@@ -8,7 +8,7 @@
  * ## Scoped on purpose
  *
  * A replayed table will legitimately not match a live one, because the transform
- * is not the only writer. The categoriser writes enrichment rows, the household
+ * is not the only writer. The categoriser writes categorisation rows, the household
  * writes settings and categorisation rules, the connect flow writes consents,
  * and an administrator writes members. None of those come from raw objects, so
  * a replayed table has none of them and a whole-table diff would drown in
@@ -46,10 +46,13 @@ export function rowKind(row: Row): string {
   if (sk === "MEMBER") return "member";
   if (pk.includes("#PEND#")) return "pending";
   if (pk.includes("#BAL#")) return "balanceReading";
-  // Transactions and enrichments share a partition and differ by a marker in
-  // the sort key: <timestamp>#TX#<dedup> against <timestamp>#EN#<dedup>.
+  // Transactions and their categorisations share a partition and differ by a
+  // marker in the sort key: <timestamp>#TX#<dedup> against
+  // <timestamp>#CAT#<dedup>#<set>. A replay rebuilds the ledger from raw
+  // provider objects, and a category is not in one — so this has to tell them
+  // apart or a comparison reports every categorisation as missing.
   if (pk.endsWith("#TX") && sk.includes("#TX#")) return "transaction";
-  if (pk.endsWith("#TX") && sk.includes("#EN#")) return "enrichment";
+  if (pk.endsWith("#TX") && sk.includes("#CAT#")) return "categorisation";
   return "unknown";
 }
 

@@ -53,7 +53,7 @@ describe("grouping a scan for reconciliation", () => {
     { pk: "T#frost", sk: "ACCOUNT#card-1", accountId: "card-1", isCard: true },
     { pk: "T#frost#BAL#acc-1", sk: "2026-01-01T05:00:00.000Z", accountId: "acc-1", asOf: "2026-01-01T05:00:00.000Z", fetchedAt: "2026-01-01T05:00:00.000Z", balance: 100 },
     { pk: "T#frost#TX", sk: "2026-01-02T00:00:00Z#TX#n:a", accountId: "acc-1", timestamp: "2026-01-02T00:00:00Z", amount: -50 },
-    { pk: "T#frost#TX", sk: "2026-01-02T00:00:00Z#EN#n:a", accountId: "acc-1", category: "Groceries" },
+    { pk: "T#frost#TX", sk: "2026-01-02T00:00:00Z#CAT#n:a#built-in", accountId: "acc-1", category: "groceries" },
     { pk: "T#frost", sk: "SETTINGS" },
   ];
 
@@ -67,7 +67,7 @@ describe("grouping a scan for reconciliation", () => {
     expect(g.movements.get("acc-1")).toHaveLength(1);
   });
 
-  it("leaves enrichments out, which share a partition with transactions", () => {
+  it("leaves categorisations out, which share a partition with transactions", () => {
     // They differ only by a marker in the sort key. Counting one as a movement
     // would report a break on an account that is perfectly fine.
     expect(groupForReconciliation(rows).movements.get("acc-1")).toEqual([

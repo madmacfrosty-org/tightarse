@@ -37,7 +37,6 @@ describe("keys", () => {
     const cat = keys.categorisation("frost", "2026-03-01T00:00:00Z", "d1", "household");
     expect(cat.pk).toBe(tx.pk);
     expect(cat.sk < tx.sk).toBe(true);
-    expect(RowKind.categorisation < RowKind.enrichment).toBe(true);
   });
 
   it("gives each set its own current row, so two sets cannot collide", () => {
