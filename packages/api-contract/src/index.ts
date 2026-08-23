@@ -118,7 +118,9 @@ export const TransactionView = z.object({
   transactionType: z.string().describe("The provider's own type. Not the direction — see amount"),
   providerCategory: z.string().optional(),
   category: z.string(),
-  provisional: Provisional,
+  setId: z
+    .string()
+    .describe("Which rule set produced the category; `provider` where nothing did"),
 });
 export type TransactionView = z.infer<typeof TransactionView>;
 

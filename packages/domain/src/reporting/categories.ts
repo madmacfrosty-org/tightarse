@@ -1,20 +1,22 @@
 /**
  * Which category a report should show.
  *
- * The bridge between the two mechanisms. Categorisation rows are the model the
- * ledger is moving to; enrichment rows are what it has. A transaction with both
- * takes the categorisation, because that is the one with provenance — it names
- * the set and version that produced it, and can be re-derived.
+ * Categorisations only. The enrichment rows the old mechanism wrote are no
+ * longer read: they are answers no current rule produces and nothing can
+ * explain, and the design is explicit that where nothing matches any more it
+ * should surface as needing attention rather than silently keeping a category
+ * nobody can account for.
  *
- * Deliberately additive. Removing the enrichment path in the same change as
- * switching the writer would mean a window where the dashboard has nothing to
- * show, and "the categories vanished" is not a migration anyone should have to
- * live through.
+ * The fallback existed while the two overlapped. It went once a real
+ * application run covered the ledger: 6,586 of 6,616 enriched transactions are
+ * categorised, and the 30 that are not are the four rule conflicts, where a set
+ * claiming two answers produces none. Those now read as uncategorised, which is
+ * what they are.
  */
 
 import { resolve, type SetOrder } from "../categorisation/resolve.js";
 import { Categorisation } from "../categorisation/categorisation.js";
-import type { EnrichmentRow, LedgerRow } from "./summary.js";
+import type { AssignedCategory, LedgerRow } from "./summary.js";
 import type { Row } from "../ports/outbound/index.js";
 
 /** Set precedence, from the sets themselves. Data, never load order. */
@@ -35,9 +37,8 @@ export function orderOf(sets: readonly Row[]): SetOrder[] {
 export function effectiveCategories(
   transactions: readonly LedgerRow[],
   categorisations: readonly Row[],
-  enrichments: readonly EnrichmentRow[],
   order: readonly SetOrder[],
-): EnrichmentRow[] {
+): AssignedCategory[] {
   const stored = new Map<string, Categorisation[]>();
   for (const row of categorisations) {
     const parsed = Categorisation.safeParse(row);
@@ -47,7 +48,7 @@ export function effectiveCategories(
     stored.set(parsed.data.dedupKey, forKey);
   }
 
-  const out = new Map(enrichments.map((e) => [e.dedupKey, e]));
+  const out = new Map<string, AssignedCategory>();
 
   for (const tx of transactions) {
     const forTx = stored.get(tx.dedupKey);
@@ -59,7 +60,7 @@ export function effectiveCategories(
     // payment rail to a spending category.
     if (effective === undefined || effective.setId === "provider") continue;
 
-    out.set(tx.dedupKey, { dedupKey: tx.dedupKey, category: effective.category });
+    out.set(tx.dedupKey, { dedupKey: tx.dedupKey, category: effective.category, setId: effective.setId });
   }
 
   return [...out.values()];

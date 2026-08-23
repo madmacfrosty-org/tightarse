@@ -57,6 +57,15 @@ describe("whether a rule applies at all", () => {
     expect(matches(r, candidate({ amount: 2_500_00 }))).toBe(false);
   });
 
+  it("matches only credits when the rule says so", () => {
+    // Direction deciding the category outright: interest is Income when
+    // received and Fees & Charges when paid, which is two rules over one
+    // matcher and cannot be said without this.
+    const r = rule(merchant("interest"), asserts("income"), { appliesTo: "credits" });
+    expect(matches(r, candidate({ description: "INTEREST PAID", amount: 4_00 }))).toBe(true);
+    expect(matches(r, candidate({ description: "INTEREST PAID", amount: -4_00 }))).toBe(false);
+  });
+
   it("admits credits when the rule asks for them", () => {
     const r = rule(merchant("somemart"), asserts("income"), { appliesTo: "all" });
     expect(matches(r, candidate({ amount: 2_500_00 }))).toBe(true);

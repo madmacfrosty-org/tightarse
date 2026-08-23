@@ -55,6 +55,9 @@ export function matches(rule: Rule, candidate: Candidate): boolean {
   // Credits are excluded unless a rule says otherwise. An employer sharing a
   // name with a retailer once filed £62,868 of salary as Shopping.
   if (rule.appliesTo === "debits" && candidate.amount >= 0) return false;
+  // And a credits-only rule is how direction decides a category outright:
+  // interest is Income when received and Fees & Charges when paid.
+  if (rule.appliesTo === "credits" && candidate.amount < 0) return false;
 
   const m = rule.matcher;
   switch (m.kind) {

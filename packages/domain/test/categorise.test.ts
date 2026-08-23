@@ -36,7 +36,7 @@ const stored = (over: Partial<Categorisation> = {}): Categorisation => ({
   ...over,
 });
 
-const args = { authored: new Set<string>(), dedupKey: "d1", timestamp: "2026-02-01T00:00:00.000Z", now: NOW.toISOString() };
+const args = { dedupKey: "d1", timestamp: "2026-02-01T00:00:00.000Z", now: NOW.toISOString() };
 
 describe("what to do about one transaction", () => {
   it("writes nothing when the rules produce what is already stored", () => {
@@ -72,16 +72,16 @@ describe("what to do about one transaction", () => {
     expect(d).toEqual({ kind: "unchanged" });
   });
 
-  it("never regenerates over an authored set", () => {
-    // Derived data overwriting authored data has already happened here, and
-    // custody has to be structural rather than remembered.
-    const d = decide({
-      ...args,
-      authored: new Set(["household"]),
-      evaluation: evaluation("fuel"),
-      current: stored({ setId: "household" }),
-    });
-    expect(d).toEqual({ kind: "protected", by: "household" });
+  it("re-applies over a categorisation an authored rule produced", () => {
+    // `authored` is a statement about a rule SET, not about what it produces. A
+    // categorisation from a hand-written rule is still derived — re-running the
+    // rule reproduces it — and freezing it would mean improving that rule never
+    // reaches the transactions it already matched, which is what re-application
+    // exists to do.
+    //
+    // Found by running it: 2,229 real transactions were frozen this way.
+    const d = decide({ ...args, evaluation: evaluation("fuel"), current: stored({ setId: "household" }) });
+    expect(d.kind).toBe("append");
   });
 
   it("surfaces a stored category that nothing matches any more, and leaves it alone", () => {
@@ -168,14 +168,16 @@ describe("applying over a range", () => {
     expect(written).toEqual([]);
   });
 
-  it("leaves an authored categorisation alone", async () => {
+  it("re-applies over what an authored set produced, rather than freezing it", async () => {
+    // A household rule change must reach the transactions it already matched.
+    // Running this for real found 2,229 frozen by the opposite reading.
     const authored = set({ setId: "household", order: 0, authored: true, rules: [] });
     const builtIn = set({ setId: "built-in", order: 2, rules: [rule("somemart", "fuel")] });
     const cat = { ...stored({ setId: "household", category: "gifts-charity" }) } as unknown as Row;
     const { deps, written } = ledger([txRow("d1", "SOMEMART SUPERSTORE")], [cat], [authored, builtIn]);
     const report = await categorise(deps, "frost", { range: RANGE, now: NOW });
-    expect(report).toMatchObject({ protectedFromChange: 1, appended: 0 });
-    expect(written).toEqual([]);
+    expect(report).toMatchObject({ appended: 1 });
+    expect(written[0]).toMatchObject({ category: "fuel", version: 2 });
   });
 
   it("takes the highest version in force, not the last row a scan returned", async () => {

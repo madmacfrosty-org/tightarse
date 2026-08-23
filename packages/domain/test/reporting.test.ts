@@ -12,7 +12,9 @@ import { accounts, balances, reporting, summary, toAccountFacts, toMovements, tr
 
 const listRange = vi.fn();
 const listAccounts = vi.fn();
-const listRuleSets = vi.fn(async () => []);
+// Typed, because an inferred `never[]` makes any set a type error the moment
+// a test needs one — which is exactly what happened.
+const listRuleSets = vi.fn(async (): Promise<Record<string, unknown>[]> => []);
 const deps = { ledger: { listRange, listAccounts, listRuleSets } satisfies LedgerReads };
 
 const txn = (over: Record<string, unknown> = {}) => ({
