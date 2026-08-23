@@ -135,6 +135,12 @@ export interface SeedOptions {
 /**
  * Every set to write on a first migration.
  *
+ * Proposed, not effective. A seed is a rule change like any other and goes
+ * through the same door: proposed, looked at, decided. The household set will
+ * need a person, because nothing derived may be auto-approved over an authored
+ * one — which is right, since converting eighteen hand-written rules is worth
+ * reading once.
+ *
  * Version 1 throughout: these are the first versions of each set, not a
  * continuation of anything. The legacy single `RULES` item is left where it is —
  * it is the source being read, and deleting a source during a migration removes
@@ -149,6 +155,7 @@ export function seedRuleSets(options: SeedOptions): RuleSet[] {
       name: "Shipped patterns",
       order: BUILT_IN_ORDER,
       authored: false,
+      status: "proposed" as const,
       rules: builtInRules(),
       createdAt,
     },
@@ -158,6 +165,7 @@ export function seedRuleSets(options: SeedOptions): RuleSet[] {
       name: "Provider transaction types",
       order: PROVIDER_ORDER,
       authored: false,
+      status: "proposed" as const,
       rules: providerRules(),
       createdAt,
     },
@@ -173,6 +181,7 @@ export function seedRuleSets(options: SeedOptions): RuleSet[] {
       // Authored: re-application never regenerates it. These are the only rules
       // here that cannot be rebuilt from code.
       authored: true,
+      status: "proposed" as const,
       rules: householdRules(custom),
       createdAt,
     });

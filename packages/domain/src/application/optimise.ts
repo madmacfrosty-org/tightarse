@@ -116,35 +116,33 @@ function dead(evidence: Evidence): number {
 }
 
 
-/** What accepting a proposal did to one set. */
-export interface Accepted {
+/** What proposing did to one set. */
+export interface Proposed {
   readonly setId: string;
-  readonly from: number;
-  readonly to: number;
+  /** The version written, waiting on a decision. */
+  readonly version: number;
   readonly rules: number;
 }
 
 /**
- * Publish a proposal as the next version of each set it changes.
+ * Record a proposal, without acting on it.
  *
- * Separate from `optimise` on purpose. Measuring a proposal and adopting it are
- * different decisions, and collapsing them would mean every report carried the
- * power to change what the ledger says.
+ * Every rule change is a proposal — a person with an editor, a pass over
+ * conflicts, or a model — and it is written as the next version of its set,
+ * marked `proposed`. That version is readable and reviewable without changing
+ * what the fold does, which is what makes reviewing it worth anything.
  *
  * Versions are assigned here rather than taken from the proposal. A proposer
  * knows what the rules should be; it has no business deciding where they sit in
- * a history it cannot see, and a published version is immutable precisely so a
- * categorisation's provenance keeps meaning what it said.
+ * a history it cannot see.
  */
-export async function accept(
+export async function propose(
   deps: Pick<OptimiseDependencies, "ruleSets" | "categories">,
   tenantId: string,
   proposed: readonly RuleSet[],
   options: { readonly now: Date; readonly by: string },
-): Promise<Accepted[]> {
-  const current = new Map(
-    (await deps.ruleSets.listRuleSets(tenantId)).map((r) => RuleSet.parse(r)).map((s) => [s.setId, s]),
-  );
+): Promise<Proposed[]> {
+  const current = await currentSets(deps, tenantId);
 
   // Checked before anything is written, so a proposal naming a category that
   // does not exist fails whole rather than half.
@@ -153,28 +151,96 @@ export async function accept(
     throw new Error(`Refusing rules naming categories that do not exist or are retired: ${unknown.join(", ")}`);
   }
 
-  const accepted: Accepted[] = [];
+  const out: Proposed[] = [];
   for (const set of proposed) {
-    const existing = current.get(set.setId);
-
-    // Custody, enforced rather than remembered. `authored` means nothing derived
-    // may regenerate it — a person may edit their own rules, but a proposal is
-    // by definition not a person, and "improve the rules" must not be an
-    // operation capable of destroying the only data that cannot be rebuilt.
-    if (existing?.authored === true) {
-      throw new Error(`Refusing to replace the authored set "${set.setId}"`);
-    }
-
     const next: RuleSet = {
       ...set,
-      version: (existing?.version ?? 0) + 1,
+      version: (current.get(set.setId)?.version ?? 0) + 1,
+      status: "proposed",
       createdAt: options.now.toISOString(),
       createdBy: options.by,
     };
     await deps.ruleSets.putRuleSetVersion(tenantId, next);
-    accepted.push({ setId: next.setId, from: existing?.version ?? 0, to: next.version, rules: next.rules.length });
+    out.push({ setId: next.setId, version: next.version, rules: next.rules.length });
   }
-  return accepted;
+  return out;
+}
+
+/**
+ * Whether a proposal may be approved without a person looking at it.
+ *
+ * Two conditions, and both have to hold.
+ *
+ * An `authored` set is never auto-approved. A derived proposal MAY touch one —
+ * simplifying three rules into one can legitimately make a hand-written special
+ * case redundant, and refusing to propose that means never being offered it —
+ * but replacing what somebody wrote is a decision for them.
+ *
+ * And nothing that gets worse is approved. Fewer conflicts with no new gaps is
+ * a machine-checkable improvement; anything else is a judgement, and the point
+ * of measuring before and after is to know which one you are looking at.
+ */
+export function mayApproveAutomatically(
+  report: OptimiseReport,
+  current: ReadonlyMap<string, RuleSet>,
+): { readonly allowed: boolean; readonly because: string } {
+  const authored = report.proposed.filter((s) => current.get(s.setId)?.authored === true).map((s) => s.setId);
+  if (authored.length > 0) {
+    return { allowed: false, because: `replaces an authored set: ${authored.join(", ")}` };
+  }
+
+  const i = report.improvement;
+  if (i === undefined) return { allowed: false, because: "nothing was proposed" };
+  if (i.gaps.after > i.gaps.before) {
+    return { allowed: false, because: `${i.gaps.after - i.gaps.before} more merchants would match nothing` };
+  }
+  if (i.conflicts.after > i.conflicts.before) {
+    return { allowed: false, because: `${i.conflicts.after - i.conflicts.before} more conflicts` };
+  }
+  if (i.inertRefines.after > i.inertRefines.before) {
+    return { allowed: false, because: `${i.inertRefines.after - i.inertRefines.before} more inert refines` };
+  }
+  return { allowed: true, because: "fewer conflicts, no new gaps, nothing authored replaced" };
+}
+
+/** What deciding a proposal did. */
+export interface Decided {
+  readonly setId: string;
+  readonly version: number;
+  readonly status: "effective" | "rejected";
+}
+
+/**
+ * Accept or reject proposals.
+ *
+ * Rejection carries a reason and is recorded, because a declined proposal that
+ * leaves no trace is one the next run makes again, and the day after.
+ *
+ * Accepting does not touch a transaction. Applying rules to the ledger is
+ * `categorise`, deliberately separate: a rule change and its effect are
+ * different decisions, and the second is re-runnable.
+ */
+export async function decide(
+  deps: Pick<OptimiseDependencies, "ruleSets">,
+  tenantId: string,
+  proposals: readonly Pick<Proposed, "setId" | "version">[],
+  decision: { readonly status: "effective" } | { readonly status: "rejected"; readonly because: string },
+): Promise<Decided[]> {
+  const out: Decided[] = [];
+  for (const p of proposals) {
+    await deps.ruleSets.decideRuleSetVersion(tenantId, p.setId, p.version, decision);
+    out.push({ setId: p.setId, version: p.version, status: decision.status });
+  }
+  return out;
+}
+
+async function currentSets(
+  deps: Pick<OptimiseDependencies, "ruleSets">,
+  tenantId: string,
+): Promise<Map<string, RuleSet>> {
+  return new Map(
+    (await deps.ruleSets.listRuleSets(tenantId)).map((r) => RuleSet.parse(r)).map((s) => [s.setId, s]),
+  );
 }
 
 /**
@@ -182,7 +248,7 @@ export async function accept(
  *
  * Retired counts as unknown. A retired category still resolves for rows already
  * pointing at it — that is why categories are never deleted — but a NEW rule
- * choosing one is someone reaching for a category deliberately withdrawn.
+ * choosing one is someone reaching for something deliberately withdrawn.
  */
 async function unknownCategories(
   deps: Pick<OptimiseDependencies, "categories">,
@@ -199,3 +265,5 @@ async function unknownCategories(
   const usable = new Set(catalogue.filter((c) => !c.retired).map((c) => c.id));
   return [...referenced].filter((id) => !usable.has(id)).sort();
 }
+
+export { currentSets };

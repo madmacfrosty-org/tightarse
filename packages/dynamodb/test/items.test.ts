@@ -91,6 +91,7 @@ describe("rule set rows", () => {
     order: 100,
     authored: true,
     rules: [],
+    status: "effective" as const,
     createdAt: "2026-08-18T00:00:00Z",
   };
 

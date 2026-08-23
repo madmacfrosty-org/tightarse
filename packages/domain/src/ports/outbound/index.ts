@@ -259,7 +259,28 @@ export interface Notifications {
 export interface RuleSets {
   listRuleSets(tenantId: string): Promise<Row[]>;
   listRuleSetHistory(tenantId: string, setId: string): Promise<Row[]>;
+  /**
+   * Write a version.
+   *
+   * Only an `effective` one becomes current. A proposal must be readable and
+   * reviewable without changing what the fold does, or reviewing it would be
+   * decoration.
+   */
   putRuleSetVersion(tenantId: string, set: RuleSet): Promise<void>;
+  /**
+   * Decide a proposal.
+   *
+   * Conditioned on it still being `proposed`, so two people deciding at once
+   * cannot both win. Accepting points current at it in the same transaction:
+   * a version marked effective that current does not name is a set with two
+   * answers.
+   */
+  decideRuleSetVersion(
+    tenantId: string,
+    setId: string,
+    version: number,
+    decision: { status: "effective" } | { status: "rejected"; because: string },
+  ): Promise<void>;
   /** The single-item rules that predate versioned sets. Migrating away. */
   getCustomRules(tenantId: string): Promise<CustomRule[]>;
   putCustomRules(tenantId: string, rules: readonly CustomRule[]): Promise<void>;

@@ -52,6 +52,17 @@ export const Rule = z.object({
 });
 export type Rule = z.infer<typeof Rule>;
 
+/**
+ * Where a version stands.
+ *
+ * Every rule change is a proposal, whoever made it — a person with an editor, a
+ * pass over conflicts, or a model. `effective` is the one the fold reads;
+ * `proposed` is waiting on a decision; `rejected` records one that was declined,
+ * which matters because otherwise the next run proposes the same thing again.
+ */
+export const RuleSetStatus = z.enum(["proposed", "effective", "rejected"]);
+export type RuleSetStatus = z.infer<typeof RuleSetStatus>;
+
 export const RuleSet = z.object({
   setId: z.string().min(1),
   /** Immutable. A change produces the next version, never a mutation. */
@@ -64,7 +75,14 @@ export const RuleSet = z.object({
   authored: z.boolean(),
   /** Ordered: the fold applies matching rules in this order. */
   rules: z.array(Rule),
+  /**
+   * Defaults to effective so that everything written before proposals existed
+   * reads as decided, which it was.
+   */
+  status: RuleSetStatus.default("effective"),
   createdAt: z.string(),
   createdBy: z.string().optional(),
+  /** Why a proposal was declined. The most useful thing an optimiser can learn. */
+  rejectedBecause: z.string().optional(),
 });
 export type RuleSet = z.infer<typeof RuleSet>;
