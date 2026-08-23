@@ -515,6 +515,7 @@ suite("versioned rule sets and categorisations", () => {
         appliesTo: "debits" as const,
       },
     ],
+    status: "effective" as const,
     createdAt: new Date().toISOString(),
   });
 
@@ -759,5 +760,66 @@ suite("the category catalogue", () => {
     });
     const sets = await store.listRuleSets(TENANT);
     expect(sets.some((r) => r["id"] === "unseen")).toBe(false);
+  });
+});
+
+suite("proposals", () => {
+  let ledger: DynamoStore;
+  const TEN = `prop-${Date.now()}`;
+
+  beforeAll(() => {
+    ({ ledger } = testLedger());
+  });
+
+  const proposal = (version: number, category = "Groceries") => ({
+    setId: "built-in",
+    version,
+    name: "Shipped",
+    order: 2,
+    authored: false,
+    status: "proposed" as const,
+    rules: [
+      {
+        matcher: { kind: "merchant" as const, pattern: "^SOMESHOP" },
+        contributes: { kind: "assert" as const, category },
+        appliesTo: "debits" as const,
+      },
+    ],
+    createdAt: new Date().toISOString(),
+  });
+
+  it("does not make a proposed version current", async () => {
+    // It has to be reviewable without changing what the fold does, or reviewing
+    // it would be decoration.
+    await ledger.putRuleSetVersion(TEN, proposal(1));
+    expect(await ledger.listRuleSets(TEN)).toEqual([]);
+    expect(await ledger.listRuleSetHistory(TEN, "built-in")).toHaveLength(1);
+  });
+
+  it("makes it current when it is accepted", async () => {
+    await ledger.decideRuleSetVersion(TEN, "built-in", 1, { status: "effective" });
+    const current = await ledger.listRuleSets(TEN);
+    expect(current).toHaveLength(1);
+    expect(current[0]).toMatchObject({ version: 1, status: "effective" });
+  });
+
+  it("refuses to decide the same version twice", async () => {
+    // Two people deciding at once must not both win.
+    await expect(
+      ledger.decideRuleSetVersion(TEN, "built-in", 1, { status: "rejected", because: "changed my mind" }),
+    ).rejects.toThrow();
+  });
+
+  it("records why a proposal was rejected, and leaves current alone", async () => {
+    // A declined proposal that leaves no trace is one the next run makes again.
+    await ledger.putRuleSetVersion(TEN, proposal(2, "Shopping"));
+    await ledger.decideRuleSetVersion(TEN, "built-in", 2, { status: "rejected", because: "loses 139 merchants" });
+
+    const history = await ledger.listRuleSetHistory(TEN, "built-in");
+    const rejected = history.find((h) => h["version"] === 2);
+    expect(rejected).toMatchObject({ status: "rejected", rejectedBecause: "loses 139 merchants" });
+
+    const current = await ledger.listRuleSets(TEN);
+    expect(current[0]).toMatchObject({ version: 1 });
   });
 });

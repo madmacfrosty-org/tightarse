@@ -5,7 +5,9 @@
  *   ... -- --resolve-conflicts            propose fixes, still writing nothing
  *   ... -- --set built-in --rule 4 --pattern '<new>'   change one rule
  *   ... -- --file proposal.json           supply whole sets
- *   ... -- --accept                       publish whatever was proposed
+ *   ... -- --propose                      record the proposal, decide later
+ *   ... -- --accept                       record it and publish it
+ *   ... -- --auto                          publish only if it is unambiguously better
  *
  * Rules are data. Narrowing a pattern that matched motorway services when it
  * meant fuel is an operational act — a proposal measured against the real
@@ -18,7 +20,16 @@
  */
 
 import { DynamoStore } from "@tightarse/dynamodb";
-import { accept, noProposals, optimise, type OptimiseReport, type RuleProposer } from "@tightarse/domain";
+import {
+  currentSets,
+  decide,
+  mayApproveAutomatically,
+  noProposals,
+  optimise,
+  propose,
+  type OptimiseReport,
+  type RuleProposer,
+} from "@tightarse/domain";
 import { conflictResolver } from "./conflict-resolver.js";
 import { editing, replacing } from "./authored-proposer.js";
 import { readFileSync } from "node:fs";
@@ -51,17 +62,37 @@ async function main(): Promise<void> {
 
   print(report);
 
-  if (!accepting || report.proposed.length === 0) {
-    if (report.proposed.length > 0) console.log(`\nNothing written. Re-run with --accept to publish.`);
-    return;
+  if (report.proposed.length === 0) return;
+
+  const auto = process.argv.includes("--auto");
+  const verdict = mayApproveAutomatically(report, await currentSets({ ruleSets: ledger }, tenantId));
+
+  if (!accepting && !auto) {
+    console.log(`\n  auto-approvable: ${verdict.allowed ? "yes" : "no"} — ${verdict.because}`);
+    console.log(`\nNothing written. Re-run with --accept to record and publish, or --propose to record only.`);
+    if (!process.argv.includes("--propose")) return;
   }
 
-  const accepted = await accept({ ruleSets: ledger, categories: ledger }, tenantId, report.proposed, {
+  if (auto && !verdict.allowed) {
+    console.log(`\nNot auto-approved: ${verdict.because}`);
+    console.log(`Recording the proposal for a person to decide.`);
+  }
+
+  // Recorded either way. A proposal that leaves no trace is one the next run
+  // makes again, and the day after.
+  const recorded = await propose({ ruleSets: ledger, categories: ledger }, tenantId, report.proposed, {
     now: new Date(),
     by: report.proposedBy,
   });
+  console.log(`\nproposed:`);
+  for (const p of recorded) console.log(`  ${p.setId.padEnd(12)} v${p.version}  ${p.rules} rules`);
+
+  const publish = accepting || (auto && verdict.allowed);
+  if (!publish) return;
+
+  const decided = await decide({ ruleSets: ledger }, tenantId, recorded, { status: "effective" });
   console.log(`\npublished:`);
-  for (const a of accepted) console.log(`  ${a.setId.padEnd(12)} v${a.from} -> v${a.to}  ${a.rules} rules`);
+  for (const d of decided) console.log(`  ${d.setId.padEnd(12)} v${d.version} is now effective`);
 }
 
 /**

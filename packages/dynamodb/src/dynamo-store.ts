@@ -77,6 +77,8 @@ export class DynamoStore
   readonly putCategory: Categories["putCategory"] = (...a) => this.categories.putCategory(...a);
   readonly listCategories: Categories["listCategories"] = (...a) => this.categories.listCategories(...a);
   readonly putRuleSetVersion: RuleSets["putRuleSetVersion"] = (...a) => this.rulesets.putRuleSetVersion(...a);
+  readonly decideRuleSetVersion: RuleSets["decideRuleSetVersion"] = (...a) =>
+    this.rulesets.decideRuleSetVersion(...a);
   readonly getCustomRules: RuleSets["getCustomRules"] = (...a) => this.rulesets.getCustomRules(...a);
   readonly putCustomRules: RuleSets["putCustomRules"] = (...a) => this.rulesets.putCustomRules(...a);
   readonly getMemberTenant: Household["getMemberTenant"] = (...a) => this.household.getMemberTenant(...a);

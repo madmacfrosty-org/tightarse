@@ -21,6 +21,7 @@ const set = (setId: string, rules: Rule[], authored = false): RuleSet => ({
   version: 3,
   name: setId,
   order: authored ? 0 : 2,
+  status: "effective",
   authored,
   rules,
   createdAt: "2026-01-01T00:00:00.000Z",

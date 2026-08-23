@@ -34,6 +34,7 @@ const set = (over: Partial<RuleSet> & { setId: string; order: number; rules: Rul
   version: 1,
   name: over.setId,
   authored: false,
+  status: "effective" as const,
   createdAt: "2026-01-01T00:00:00.000Z",
   ...over,
 });

@@ -36,6 +36,7 @@ const set = (setId: string, order: number, rules: Rule[]): RuleSet => ({
   name: setId,
   order,
   authored: false,
+  status: "effective",
   rules,
   createdAt: "2026-01-01T00:00:00.000Z",
 });

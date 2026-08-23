@@ -21,7 +21,7 @@ import {
   type Consent,
   type CustomRule,
   type Member,
-  type RuleSet,
+  RuleSet,
   type TenantSettings,
   type Transaction,
   type TransactionEnrichment,
@@ -110,30 +110,96 @@ export class DynamoRuleSets extends TableAdapter implements RuleSets {
   }
 
   /**
-   * Publish a rule set version: the immutable record and the current pointer,
-   * written together.
+   * Write a rule set version.
    *
-   * One transaction, because the current row is a copy. If only one landed they
-   * would disagree about what the current version is, and every skip decision
-   * downstream reads the copy — so a fold run would silently use the wrong rules
-   * and write categorisations attributing them to a version that says something
-   * else.
+   * An `effective` one is published: the immutable record and the current
+   * pointer, written together. One transaction, because the current row is a
+   * copy — if only one landed they would disagree about what the current version
+   * is, and a fold run would silently use the wrong rules while attributing them
+   * to a version that says something else.
+   *
+   * A `proposed` one writes the record ONLY. It has to be readable and
+   * reviewable without changing what the fold does, or reviewing it would be
+   * decoration.
    */
   async putRuleSetVersion(tenantId: string, set: RuleSet): Promise<void> {
     const { current, version } = ruleSetItems(tenantId, set);
+    // A published version is immutable. Rewriting one would change what a
+    // categorisation's provenance means after the fact.
+    const record = {
+      Put: { TableName: this.table, Item: version, ConditionExpression: "attribute_not_exists(pk)" },
+    };
+
+    if (set.status !== "effective") {
+      await this.doc.send(new TransactWriteCommand({ TransactItems: [record] }));
+      return;
+    }
+
+    await this.doc.send(
+      new TransactWriteCommand({
+        TransactItems: [{ Put: { TableName: this.table, Item: current } }, record],
+      }),
+    );
+  }
+
+  /**
+   * Decide a proposal.
+   *
+   * Mutates `status` on a row otherwise immutable, and the distinction matters:
+   * what must never change is the RULES, because a categorisation's provenance
+   * names their version. The decision ABOUT those rules is not part of what
+   * provenance points at, and a decision necessarily happens after the fact.
+   *
+   * Conditioned on the version still being `proposed`, so two people deciding at
+   * once cannot both win. Accepting points current at it in the same
+   * transaction: a version marked effective that current does not name is a set
+   * with two answers.
+   */
+  async decideRuleSetVersion(
+    tenantId: string,
+    setId: string,
+    version: number,
+    decision: { status: "effective" } | { status: "rejected"; because: string },
+  ): Promise<void> {
+    const key = keys.ruleSetVersion(tenantId, setId, version);
+
+    if (decision.status === "rejected") {
+      await this.doc.send(
+        new UpdateCommand({
+          TableName: this.table,
+          Key: key,
+          UpdateExpression: "SET #s = :rejected, rejectedBecause = :because",
+          ConditionExpression: "#s = :proposed",
+          ExpressionAttributeNames: { "#s": "status" },
+          ExpressionAttributeValues: {
+            ":rejected": "rejected",
+            ":proposed": "proposed",
+            ":because": decision.because,
+          },
+        }),
+      );
+      return;
+    }
+
+    const existing = await this.doc.send(new GetCommand({ TableName: this.table, Key: key }));
+    if (!existing.Item) throw new Error(`No version ${version} of rule set "${setId}"`);
+    const accepted = { ...existing.Item, status: "effective" } as Record<string, unknown>;
+    const { current } = ruleSetItems(tenantId, RuleSet.parse(accepted));
+
     await this.doc.send(
       new TransactWriteCommand({
         TransactItems: [
-          { Put: { TableName: this.table, Item: current } },
           {
-            Put: {
+            Update: {
               TableName: this.table,
-              Item: version,
-              // A published version is immutable. Rewriting one would change
-              // what a categorisation's provenance means after the fact.
-              ConditionExpression: "attribute_not_exists(pk)",
+              Key: key,
+              UpdateExpression: "SET #s = :effective",
+              ConditionExpression: "#s = :proposed",
+              ExpressionAttributeNames: { "#s": "status" },
+              ExpressionAttributeValues: { ":effective": "effective", ":proposed": "proposed" },
             },
           },
+          { Put: { TableName: this.table, Item: { ...current, status: "effective" } } },
         ],
       }),
     );
