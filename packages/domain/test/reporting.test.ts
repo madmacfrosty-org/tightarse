@@ -12,7 +12,8 @@ import { accounts, balances, reporting, summary, toAccountFacts, toMovements, tr
 
 const listRange = vi.fn();
 const listAccounts = vi.fn();
-const deps = { ledger: { listRange, listAccounts } satisfies LedgerReads };
+const listRuleSets = vi.fn(async () => []);
+const deps = { ledger: { listRange, listAccounts, listRuleSets } satisfies LedgerReads };
 
 const txn = (over: Record<string, unknown> = {}) => ({
   dedupKey: "d1",
@@ -145,7 +146,7 @@ describe("binding the use cases to the inbound port", () => {
   it("routes every one of them to its use case", async () => {
     // Each binding is a separate arrow, so three working and one wired to the
     // wrong function would still expose the right four keys.
-    listRange.mockResolvedValue({ transactions: [], enrichments: [] });
+    listRange.mockResolvedValue({ transactions: [], enrichments: [], categorisations: [] });
     listAccounts.mockResolvedValue([]);
     const app = reporting(deps);
     const range = { from: "2026-03-01", to: "2026-03-02" };
@@ -160,7 +161,7 @@ describe("binding the use cases to the inbound port", () => {
     // The tenant comes from a verified claim and is the whole access-control
     // model; a binding that dropped it would read someone else's ledger.
     listAccounts.mockResolvedValue([]);
-    listRange.mockResolvedValue({ transactions: [], enrichments: [] });
+    listRange.mockResolvedValue({ transactions: [], enrichments: [], categorisations: [] });
     return reporting(deps).accounts("frost").then(() => {
       expect(listAccounts).toHaveBeenCalledWith("frost");
     });
@@ -172,6 +173,7 @@ describe("binding the use cases to the inbound port", () => {
     listRange.mockResolvedValue({
       transactions: [txn({ amount: -10_00 }), txn({ dedupKey: "d2", accountId: "b", amount: 10_00 })],
       enrichments: [],
+      categorisations: [],
     });
     const netted = await reporting(deps).summary("frost", { from: "2026-03-01", to: "2026-03-02" });
     const raw = await reporting(deps).summary(
@@ -187,7 +189,7 @@ describe("binding the use cases to the inbound port", () => {
     // A current account's running balance is only as fresh as its last settled
     // transaction, so the live balance is dated rather than assumed to be today.
     // Absent lastSyncedAt must not become an invalid date.
-    listRange.mockResolvedValue({ transactions: [], enrichments: [] });
+    listRange.mockResolvedValue({ transactions: [], enrichments: [], categorisations: [] });
     listAccounts.mockResolvedValue([
       { accountId: "a", currentBalance: 100_00, lastSyncedAt: "2026-03-04T05:00:00.000Z" },
       { accountId: "b", currentBalance: 50_00 },

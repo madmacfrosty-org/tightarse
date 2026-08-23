@@ -22,6 +22,7 @@ import type {
   Summary,
   TransactionsResult,
 } from "../index.js";
+import { effectiveCategories, orderOf } from "./categories.js";
 import { mergeEnrichments, summarise, toAccountState, type EnrichmentRow, type LedgerRow } from "./summary.js";
 import { daysBetween, netPositionSeries, type AccountFacts, type Movement } from "./balances.js";
 import { clampToCoverage, completeFrom, coverageOf, type AccountCoverage } from "./coverage.js";
@@ -114,10 +115,18 @@ export async function summary(
   range: Range,
   opts: SummaryOptions = {},
 ): Promise<Summary> {
-  const { transactions, enrichments } = await deps.ledger.listRange(tenantId, range);
+  const [{ transactions, enrichments, categorisations }, sets] = await Promise.all([
+    deps.ledger.listRange(tenantId, range),
+    deps.ledger.listRuleSets(tenantId),
+  ]);
   return summarise(
     transactions as unknown as LedgerRow[],
-    enrichments as unknown as EnrichmentRow[],
+    effectiveCategories(
+      transactions as unknown as LedgerRow[],
+      categorisations,
+      enrichments as unknown as EnrichmentRow[],
+      orderOf(sets),
+    ),
     range,
     // `transfers: false` disables detection; the default enables it.
     opts.nettingTransfers === false ? { transfers: false } : {},
@@ -125,12 +134,20 @@ export async function summary(
 }
 
 export async function transactions(deps: Deps, tenantId: string, range: Range): Promise<TransactionsResult> {
-  const { transactions: txns, enrichments } = await deps.ledger.listRange(tenantId, range);
+  const [{ transactions: txns, enrichments, categorisations }, sets] = await Promise.all([
+    deps.ledger.listRange(tenantId, range),
+    deps.ledger.listRuleSets(tenantId),
+  ]);
   return {
     range,
     transactions: mergeEnrichments(
       txns as unknown as LedgerRow[],
-      enrichments as unknown as EnrichmentRow[],
+      effectiveCategories(
+        txns as unknown as LedgerRow[],
+        categorisations,
+        enrichments as unknown as EnrichmentRow[],
+        orderOf(sets),
+      ),
     ),
   };
 }

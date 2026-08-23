@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { applyRules, RULES } from "../src/categorisation/merchant-rules.js";
+import { compileCustom, RULES } from "../src/categorisation/merchant-rules.js";
+import { seedRuleSets } from "../src/categorisation/seed.js";
+import { evaluate } from "../src/categorisation/evaluate.js";
 import { isCategoryLabel } from "../src/categorisation/taxonomy.js";
 import type { Candidate } from "../src/categorisation/taxonomy.js";
 
@@ -11,104 +13,83 @@ const cand = (description: string, over: Partial<Candidate> = {}): Candidate => 
   ...over,
 });
 
-describe("applyRules", () => {
-  it("matches common merchants regardless of the surrounding noise", () => {
-    const r = applyRules([
-      cand("TESCO STORES 3456 LONDON"),
-      cand("SHELL 12345 M4 SERVICES"),
-      cand("NETFLIX.COM 4567"),
-    ]);
-    expect(r.classifications.map((c) => c.category)).toEqual([
-      "Groceries",
-      "Fuel",
-      "Subscriptions",
-    ]);
-    expect(r.unmatched).toHaveLength(0);
+/**
+ * The shipped patterns, driven the way they are actually used.
+ *
+ * They used to be tested through `applyRules`, the matcher that rule sets
+ * replaced. Testing them through `evaluate` over the seeded set keeps what was
+ * worth keeping — that these patterns match real statement formats — and points
+ * it at the path that runs.
+ */
+describe("brand names as they actually appear on statements", () => {
+  const builtIn = seedRuleSets({ now: new Date("2026-01-01T00:00:00.000Z") }).find((s) => s.setId === "built-in")!;
+
+  const categoryOf = (description: string, over: Partial<Candidate> = {}) =>
+    evaluate([builtIn], {
+      dedupKey: "d1",
+      description,
+      amount: -10_00,
+      currency: "GBP",
+      ...over,
+    }).effective?.category;
+
+  it.each([
+    ["TESCO STORES 3456 LONDON", "groceries"],
+    ["SHELL 12345 M4 SERVICES", "fuel"],
+    ["NETFLIX.COM 4567", "subscriptions"],
+    ["SAINSBURYS S/MKT 0123", "groceries"],
+    ["MCDONALDS 4567 LONDON", "eating-out"],
+    ["TFL TRAVEL CH LONDON", "transport"],
+  ])("places %s", (description, expected) => {
+    expect(categoryOf(description)).toBe(expected);
   });
 
   it("uses the provider type for cash, where the description is a place not a merchant", () => {
-    const r = applyRules([cand("HIGH STREET BRANCH", { providerCategory: "ATM" })]);
-    expect(r.classifications[0]!.category).toBe("Cash Withdrawal");
+    // An ATM withdrawal's description is usually a location, and the provider's
+    // own transaction type is far more reliable than trying to read it.
+    const provider = seedRuleSets({ now: new Date("2026-01-01T00:00:00.000Z") }).find((s) => s.setId === "provider")!;
+    expect(
+      evaluate([provider], {
+        dedupKey: "d1",
+        description: "HIGH STREET BRANCH",
+        amount: -50_00,
+        currency: "GBP",
+        providerCategory: "ATM",
+      }).effective?.category,
+    ).toBe("cash-withdrawal");
   });
 
-  it("leaves anything it does not recognise for the model", () => {
-    const r = applyRules([cand("SOME LOCAL SHOP LTD"), cand("TESCO STORES 1")]);
-    expect(r.unmatched).toHaveLength(1);
-    expect(r.unmatched[0]!.description).toBe("SOME LOCAL SHOP LTD");
-    expect(r.classifications).toHaveLength(1);
-  });
-
-  it("asserts rather than estimates — a rule is confidence 1", () => {
-    // If a rule is wrong the rule should be fixed, not hedged with a lower
-    // number that quietly downweights it everywhere.
-    const r = applyRules([cand("ALDI 998")]);
-  });
-
-  it("does not confuse Uber Eats with Uber", () => {
-    const r = applyRules([cand("UBER EATS LONDON"), cand("UBER TRIP HELP.UBER.COM")]);
-    const byDesc = new Map(r.classifications.map((c) => [c.dedupKey, c.category]));
-    expect(byDesc.get("n:UBER EATS LONDON")).toBe("Eating Out");
-    expect(byDesc.get("n:UBER TRIP HELP.UBER.COM")).toBe("Transport");
-  });
-
-  it("only ever produces categories from the taxonomy", () => {
-    for (const rule of RULES) {
-      expect(isCategoryLabel(rule.category)).toBe(true);
-    }
-  });
-
-  it("is order-independent for a given transaction", () => {
-    const a = applyRules([cand("BOOTS 123"), cand("ALDI 1")]);
-    const b = applyRules([cand("ALDI 1"), cand("BOOTS 123")]);
-    const map = (r: ReturnType<typeof applyRules>) =>
-      new Map(r.classifications.map((c) => [c.dedupKey, c.category]));
-    expect(map(a).get("n:BOOTS 123")).toBe(map(b).get("n:BOOTS 123"));
+  it("leaves an unfamiliar merchant alone rather than guessing", () => {
+    expect(categoryOf("ZZQX TRADING LTD")).toBeUndefined();
   });
 });
 
-describe("direction", () => {
-  it("never applies a merchant rule to money in", () => {
-    // Against the real ledger, 48 credits of roughly £5,000 matched an AMAZON
-    // rule and were filed as Shopping. They were salary — a large employer
-    // sharing a name with a large retailer. A rule cannot distinguish a refund
-    // from income, so it must not try.
-    const r = applyRules([cand("AMAZON PAYROLL", { amount: 527818 })]);
-    expect(r.classifications).toHaveLength(0);
-    expect(r.unmatched).toHaveLength(1);
+describe("compiling a household's own rules", () => {
+  /**
+   * Entered by hand, so one typo must not stop a whole run. Covered here since
+   * `rules-cli test` is the only caller left — the categorisation path stopped
+   * using these when rule sets replaced them.
+   */
+  const rule = (pattern: string, category: string) => ({
+    pattern,
+    category,
+    addedAt: "2026-01-01T00:00:00.000Z",
   });
 
-  it("still applies merchant rules to money out", () => {
-    const r = applyRules([cand("AMAZON MKTPLACE", { amount: -2499 })]);
-    expect(r.classifications[0]!.category).toBe("Shopping");
+  it("compiles a usable rule case-insensitively", () => {
+    const [compiled] = compileCustom([rule("somemart", "Groceries")]);
+    expect(compiled?.category).toBe("Groceries");
+    expect(compiled?.pattern.test("SOMEMART SUPERSTORE")).toBe(true);
   });
 
-  it("reads interest by direction, not by label", () => {
-    const paid = applyRules([cand("INTEREST", { amount: -500, providerCategory: "INTEREST" })]);
-    const received = applyRules([cand("INTEREST", { amount: 500, providerCategory: "INTEREST" })]);
-    expect(paid.classifications[0]!.category).toBe("Fees & Charges");
-    expect(received.classifications[0]!.category).toBe("Income");
+  it("drops a rule naming a category that does not exist, and keeps the rest", () => {
+    const compiled = compileCustom([rule("a", "Invented"), rule("b", "Groceries")]);
+    expect(compiled).toHaveLength(1);
+    expect(compiled[0]?.category).toBe("Groceries");
   });
-});
 
-describe("brand names as they actually appear on statements", () => {
-  // A trailing \b after a singular brand cannot match the possessive or plural
-  // form, which is the form banks print. "SAINSBURYS S/MKTS" went uncategorised
-  // for 22 transactions against a rule that looked correct.
-  const cases: Array<[string, string]> = [
-    ["SAINSBURYS S/MKTS EDINBURGH", "Groceries"],
-    ["SAINSBURY'S LOCAL", "Groceries"],
-    ["MORRISONS PETROL", "Groceries"],
-    ["MCDONALDS 1234 LEEDS", "Eating Out"],
-    ["NANDO'S CARDIFF", "Eating Out"],
-    ["MICROSOFT*ULTIMATE MSBILL.INFO", "Subscriptions"],
-  ];
-
-  for (const [description, expected] of cases) {
-    it(`files "${description}" as ${expected}`, () => {
-      const [result] = applyRules([
-        { dedupKey: "k", description, amount: -1234, currency: "GBP" },
-      ]).classifications;
-      expect(result?.category).toBe(expected);
-    });
-  }
+  it("drops a pattern that will not compile rather than throwing", () => {
+    // One bad regex should not stop a household categorising anything.
+    expect(compileCustom([rule("([unclosed", "Groceries")])).toEqual([]);
+  });
 });

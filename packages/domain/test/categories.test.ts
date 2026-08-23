@@ -1,0 +1,136 @@
+import { describe, it, expect } from "vitest";
+import { effectiveCategories, orderOf } from "../src/reporting/categories.js";
+import type { EnrichmentRow, LedgerRow } from "../src/reporting/summary.js";
+import type { Row } from "../src/ports/outbound/index.js";
+
+/**
+ * Which category a report shows while two mechanisms overlap.
+ *
+ * Enrichment rows are what the ledger has; categorisation rows are what it is
+ * moving to. Getting the preference wrong empties the dashboard, so it is worth
+ * pinning rather than assuming.
+ */
+
+const tx = (dedupKey: string, over: Partial<LedgerRow> = {}): LedgerRow =>
+  ({
+    dedupKey,
+    timestamp: "2026-02-01T00:00:00.000Z",
+    amount: -10_00,
+    accountId: "acc-1",
+    description: "A MERCHANT",
+    ...over,
+  }) as LedgerRow;
+
+const cat = (dedupKey: string, category: string, over: Record<string, unknown> = {}): Row => ({
+  dedupKey,
+  timestamp: "2026-02-01T00:00:00.000Z",
+  category,
+  setId: "built-in",
+  setVersion: 1,
+  version: 1,
+  status: "effective",
+  appliedAt: "2026-02-02T00:00:00.000Z",
+  ...over,
+});
+
+const order = [
+  { setId: "household", order: 0 },
+  { setId: "built-in", order: 2 },
+];
+
+describe("preferring a categorisation over an enrichment", () => {
+  it("takes the categorisation where a transaction has both", () => {
+    // The categorisation is the one with provenance: it names the set and
+    // version that produced it, and can be re-derived.
+    const out = effectiveCategories([tx("d1")], [cat("d1", "fuel")], [{ dedupKey: "d1", category: "groceries" }], order);
+    expect(out).toEqual([{ dedupKey: "d1", category: "fuel" }]);
+  });
+
+  it("keeps the enrichment where nothing has categorised the transaction yet", () => {
+    // Deliberately additive. Removing the old path in the same change as
+    // switching the writer would leave a window with nothing to show.
+    const out = effectiveCategories([tx("d1")], [], [{ dedupKey: "d1", category: "groceries" }], order);
+    expect(out).toEqual([{ dedupKey: "d1", category: "groceries" }]);
+  });
+
+  it("says nothing about a transaction neither has touched", () => {
+    expect(effectiveCategories([tx("d1")], [], [], order)).toEqual([]);
+  });
+
+  it("takes the most trusted set when several have an opinion", () => {
+    const out = effectiveCategories(
+      [tx("d1")],
+      [cat("d1", "shopping", { setId: "household" }), cat("d1", "fuel")],
+      [],
+      order,
+    );
+    expect(out).toEqual([{ dedupKey: "d1", category: "shopping" }]);
+  });
+
+  it("takes the newest version within a set", () => {
+    const out = effectiveCategories(
+      [tx("d1")],
+      [cat("d1", "fuel", { version: 1 }), cat("d1", "transport", { version: 2 })],
+      [],
+      order,
+    );
+    expect(out[0]?.category).toBe("transport");
+  });
+
+  it("ignores a proposed version, which must not change what is displayed", () => {
+    const out = effectiveCategories(
+      [tx("d1")],
+      [cat("d1", "fuel", { version: 1 }), cat("d1", "transport", { version: 2, status: "proposed" })],
+      [],
+      order,
+    );
+    expect(out[0]?.category).toBe("fuel");
+  });
+
+  it("does not promote the provider's own value to a category", () => {
+    // The provider's is derived from the transaction rather than stored, and it
+    // is a payment rail rather than a spending category. The reporting path
+    // already falls back to it and marks it provisional, which is the honest
+    // reading; promoting it here would quietly call it certain.
+    const withProvider = tx("d1", { providerCategory: "PURCHASE" } as never);
+    expect(effectiveCategories([withProvider], [], [], order)).toEqual([]);
+  });
+
+  it("shows nothing when the only version stored is proposed", () => {
+    // A proposal must not change what is displayed, so a transaction whose only
+    // categorisation is proposed reads as uncategorised rather than as decided.
+    const out = effectiveCategories([tx("d1")], [cat("d1", "fuel", { status: "proposed" })], [], order);
+    expect(out).toEqual([]);
+  });
+
+  it("skips a row that is not a categorisation rather than failing the report", () => {
+    // A range query returns whatever shares the partition, and one bad row must
+    // not stop a household seeing its spending.
+    const junk = { pk: "T#frost#TX", sk: "nonsense" } as Row;
+    const out = effectiveCategories([tx("d1")], [junk, cat("d1", "fuel")], [], order);
+    expect(out).toEqual([{ dedupKey: "d1", category: "fuel" }]);
+  });
+
+  it("leaves a set it has no ranking for behind one it does", () => {
+    // Ranking last rather than dropping: a categorisation invisible because
+    // someone forgot to rank its set is a silent failure.
+    const out = effectiveCategories([tx("d1")], [cat("d1", "fuel"), cat("d1", "other", { setId: "mystery" })], [], order);
+    expect(out[0]?.category).toBe("fuel");
+  });
+});
+
+describe("reading precedence from the sets", () => {
+  it("takes setId and order, and nothing else", () => {
+    expect(orderOf([{ setId: "household", order: 0, name: "x", rules: [] }])).toEqual([
+      { setId: "household", order: 0 },
+    ]);
+  });
+
+  it("ignores a row that cannot supply both", () => {
+    // A malformed set must not become order NaN, which sorts unpredictably and
+    // would make the effective category depend on scan order.
+    expect(orderOf([{ setId: "a" }, { order: 1 }, { setId: "b", order: 3 }] as Row[])).toEqual([
+      { setId: "b", order: 3 },
+    ]);
+  });
+});

@@ -12,10 +12,11 @@ import type { Reporting } from "@tightarse/domain";
 
 const listRange = vi.fn();
 const listAccounts = vi.fn();
+const listRuleSets = vi.fn(async () => []);
 // Bound through the inbound port, over a fake ledger. These tests assert on real
 // aggregated output, so they keep driving the whole application — see the routing
 // tests at the end for the ones that no longer need a ledger at all.
-const deps: ApiDeps = { reporting: reporting({ ledger: { listRange, listAccounts } }) };
+const deps: ApiDeps = { reporting: reporting({ ledger: { listRange, listAccounts, listRuleSets } }) };
 
 const event = (over: Record<string, unknown> = {}) => ({
   rawPath: "/summary",
@@ -26,7 +27,7 @@ const event = (over: Record<string, unknown> = {}) => ({
 const body = (res: { body: string }) => JSON.parse(res.body) as Record<string, unknown>;
 
 beforeEach(() => {
-  listRange.mockReset().mockResolvedValue({ transactions: [], enrichments: [] });
+  listRange.mockReset().mockResolvedValue({ transactions: [], enrichments: [], categorisations: [] });
   listAccounts.mockReset().mockResolvedValue([]);
 });
 
@@ -108,6 +109,7 @@ describe("routing", () => {
         },
       ],
       enrichments: [{ dedupKey: "k1", category: "Groceries" }],
+      categorisations: [],
     });
     const res = await route(deps, event({ rawPath: "/v1/transactions" }) as never);
     const rows = body(res)["transactions"] as Array<Record<string, unknown>>;
@@ -278,7 +280,7 @@ describe("balance over time", () => {
 
   beforeEach(() => {
     listAccounts.mockResolvedValue(accountRows);
-    listRange.mockResolvedValue({ transactions: txnRows, enrichments: [] });
+    listRange.mockResolvedValue({ transactions: txnRows, enrichments: [], categorisations: [] });
   });
 
   it("returns a point for every day in the range", async () => {
@@ -320,6 +322,7 @@ describe("balance over time", () => {
         txnRows[1],
       ],
       enrichments: [],
+      categorisations: [],
     });
     const res = await route(deps, event({ rawPath: "/v1/balances", queryStringParameters: { from: "2026-01-01", to: "2026-03-05" } }));
     const body = JSON.parse(res.body);
@@ -347,6 +350,7 @@ describe("what /accounts says about coverage", () => {
         },
       ],
       enrichments: [],
+      categorisations: [],
     });
     const res = await route(deps, event({ rawPath: "/v1/accounts" }));
     const body = JSON.parse(res.body);
@@ -358,7 +362,7 @@ describe("what /accounts says about coverage", () => {
 
   it("omits completeFrom when no account constrains the range", async () => {
     listAccounts.mockResolvedValue([{ accountId: "cur", isCard: false }]);
-    listRange.mockResolvedValue({ transactions: [], enrichments: [] });
+    listRange.mockResolvedValue({ transactions: [], enrichments: [], categorisations: [] });
     const res = await route(deps, event({ rawPath: "/v1/accounts" }));
     const body = JSON.parse(res.body);
     expect(body.completeFrom).toBeUndefined();

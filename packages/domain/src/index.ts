@@ -32,7 +32,6 @@ export * from "./categorisation/taxonomy.js";
 export * from "./categorisation/category.js";
 export * from "./categorisation/seed.js";
 export * from "./categorisation/merchant-rules.js";
-export * from "./categorisation/categorising.js";
 export * from "./categorisation/categorisation.js";
 export * from "./categorisation/enrichment.js";
 export * from "./categorisation/provider.js";
@@ -42,6 +41,7 @@ export * from "./household/settings.js";
 export * from "./household/consent.js";
 export * from "./raw/keys.js";
 export * from "./reporting/summary.js";
+export * from "./reporting/categories.js";
 export * from "./reporting/balances.js";
 export * from "./reporting/coverage.js";
 export * from "./reporting/transfers.js";
@@ -56,6 +56,5 @@ export {
   type CategoriseOptions,
   type CategoriseReport,
 } from "./application/categorise.js";
-export * from "./application/enrich.js";
 export * from "./application/reconcile.js";
 export * from "./ports/index.js";

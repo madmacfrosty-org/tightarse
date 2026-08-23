@@ -1,43 +1,53 @@
 import { describe, it, expect } from "vitest";
-import { enrichmentMetrics } from "../src/metrics";
-import type { EnrichReport } from "@tightarse/domain";
+import { categorisationMetrics } from "../src/metrics";
+import type { CategoriseReport } from "@tightarse/domain";
 
 /**
- * Naming moved here with the metrics: an alarm matches a CloudWatch metric by
- * exact spelling, so the names live where one can be seen being emitted. The
- * domain returns the facts.
+ * Naming lives here: an alarm matches a CloudWatch metric by exact spelling, so
+ * the names sit where one can be seen being emitted. The domain returns facts.
  */
 
-const report = (over: Partial<EnrichReport> = {}): EnrichReport => ({
-  mode: "rules",
-  skipped: false,
-  backlog: 3,
-  matched: 2,
-  unmatched: 1,
-  written: 2,
-  customRules: 16,
-  tally: new Map(),
-  assignments: [],
-  candidates: [],
+const report = (over: Partial<CategoriseReport> = {}): CategoriseReport => ({
+  scanned: 100,
+  unchanged: 60,
+  appended: 30,
+  protectedFromChange: 2,
+  orphaned: 1,
+  uncategorised: 7,
+  conflicts: 4,
+  inertRefines: 0,
+  changes: [],
   ...over,
 });
 
-describe("enrichmentMetrics", () => {
-  it("reports the backlog, what matched, and what was left", () => {
-    expect(enrichmentMetrics(report())).toEqual({
-      EnrichmentBacklog: 3,
-      EnrichmentMatched: 2,
-      EnrichmentWritten: 2,
-      EnrichmentUnmatched: 1,
-      CustomRules: 16,
+describe("categorisationMetrics", () => {
+  it("reports what the run did, in full", () => {
+    expect(categorisationMetrics(report())).toEqual({
+      CategorisationScanned: 100,
+      CategorisationAppended: 30,
+      CategorisationUnchanged: 60,
+      CategorisationUncategorised: 7,
+      CategorisationProtected: 2,
+      CategorisationOrphaned: 1,
+      CategorisationConflicts: 4,
+      CategorisationInertRefines: 0,
     });
   });
 
-  it("distinguishes matched from written", () => {
-    // They differ when a transaction disappears between listing and writing,
-    // and a run that matched plenty while writing nothing is worth seeing.
-    const m = enrichmentMetrics(report({ written: 0 }));
-    expect(m["EnrichmentWritten"]).toBe(0);
-    expect(m["EnrichmentMatched"]).toBe(2);
+  it("emits zeros rather than omitting them", () => {
+    // A metric that disappears when it is zero cannot be alarmed on: "no data"
+    // and "nothing wrong" become the same signal.
+    const m = categorisationMetrics(report({ conflicts: 0, orphaned: 0, appended: 0 }));
+    expect(m["CategorisationConflicts"]).toBe(0);
+    expect(m["CategorisationOrphaned"]).toBe(0);
+    expect(m["CategorisationAppended"]).toBe(0);
+  });
+
+  it("distinguishes appended from unchanged", () => {
+    // They differ on every run after the first, and a run that appended nothing
+    // because nothing changed is the healthy case rather than a failure.
+    const m = categorisationMetrics(report({ appended: 0, unchanged: 100 }));
+    expect(m["CategorisationAppended"]).toBe(0);
+    expect(m["CategorisationUnchanged"]).toBe(100);
   });
 });
