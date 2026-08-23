@@ -12,7 +12,9 @@ import type { Reporting } from "@tightarse/domain";
 
 const listRange = vi.fn();
 const listAccounts = vi.fn();
-const listRuleSets = vi.fn(async () => []);
+// Typed, because an inferred `never[]` makes any set a type error the moment
+// a test needs one — which is exactly what happened.
+const listRuleSets = vi.fn(async (): Promise<Record<string, unknown>[]> => []);
 // Bound through the inbound port, over a fake ledger. These tests assert on real
 // aggregated output, so they keep driving the whole application — see the routing
 // tests at the end for the ones that no longer need a ledger at all.
