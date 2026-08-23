@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { noProposals, optimise } from "../src/application/optimise.js";
+import { accept, noProposals, optimise } from "../src/application/optimise.js";
 import type { Evidence } from "../src/categorisation/evidence.js";
 import type { Rule, RuleSet } from "../src/categorisation/rules.js";
 import type { Row, RuleProposer } from "../src/ports/outbound/index.js";
@@ -151,5 +151,55 @@ describe("with something proposed", () => {
     await optimise(deps([conflicted], [row("SOMEMART STORE")], spy), "frost", { range: RANGE });
     expect(seen?.conflicts).toHaveLength(1);
     expect(seen?.scanned).toBe(1);
+  });
+});
+
+describe("accepting a proposal", () => {
+  const NOW = new Date("2026-03-01T09:00:00.000Z");
+
+  function ruleSets(existing: RuleSet[]) {
+    const written: RuleSet[] = [];
+    return {
+      written,
+      deps: {
+        ruleSets: {
+          listRuleSets: async () => existing as unknown as Row[],
+          putRuleSetVersion: async (_t: string, s: RuleSet) => {
+            written.push(s);
+          },
+        },
+      } as never,
+    };
+  }
+
+  it("publishes the next version, rather than the one it was handed", async () => {
+    // A proposer knows what the rules should be. It has no business deciding
+    // where they sit in a history it cannot see.
+    const existing = { ...set("built-in", [asserts("a", "one")]), version: 7 };
+    const { deps, written } = ruleSets([existing]);
+    const result = await accept(deps, "frost", [{ ...existing, version: 1 }], { now: NOW, by: "test" });
+    expect(written[0]?.version).toBe(8);
+    expect(result[0]).toEqual({ setId: "built-in", from: 7, to: 8, rules: 1 });
+  });
+
+  it("starts at version one for a set that does not exist yet", async () => {
+    const { deps, written } = ruleSets([]);
+    await accept(deps, "frost", [set("assisted", [asserts("a", "one")])], { now: NOW, by: "test" });
+    expect(written[0]?.version).toBe(1);
+  });
+
+  it("records who accepted it and when", async () => {
+    const { deps, written } = ruleSets([]);
+    await accept(deps, "frost", [set("built-in", [])], { now: NOW, by: "conflict-resolver" });
+    expect(written[0]).toMatchObject({ createdBy: "conflict-resolver", createdAt: NOW.toISOString() });
+  });
+
+  it("refuses to replace an authored set, and writes nothing at all", async () => {
+    // Custody enforced rather than remembered. "Improve the rules" must not be
+    // an operation capable of destroying the only data that cannot be rebuilt.
+    const household = { ...set("household", [asserts("a", "one")]), authored: true };
+    const { deps, written } = ruleSets([household]);
+    await expect(accept(deps, "frost", [household], { now: NOW, by: "test" })).rejects.toThrow(/authored/);
+    expect(written).toEqual([]);
   });
 });

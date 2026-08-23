@@ -106,3 +106,57 @@ function dead(evidence: Evidence): number {
   return evidence.reach.filter((r) => r.transactions === 0).length;
 }
 
+
+/** What accepting a proposal did to one set. */
+export interface Accepted {
+  readonly setId: string;
+  readonly from: number;
+  readonly to: number;
+  readonly rules: number;
+}
+
+/**
+ * Publish a proposal as the next version of each set it changes.
+ *
+ * Separate from `optimise` on purpose. Measuring a proposal and adopting it are
+ * different decisions, and collapsing them would mean every report carried the
+ * power to change what the ledger says.
+ *
+ * Versions are assigned here rather than taken from the proposal. A proposer
+ * knows what the rules should be; it has no business deciding where they sit in
+ * a history it cannot see, and a published version is immutable precisely so a
+ * categorisation's provenance keeps meaning what it said.
+ */
+export async function accept(
+  deps: Pick<OptimiseDependencies, "ruleSets">,
+  tenantId: string,
+  proposed: readonly RuleSet[],
+  options: { readonly now: Date; readonly by: string },
+): Promise<Accepted[]> {
+  const current = new Map(
+    (await deps.ruleSets.listRuleSets(tenantId)).map((r) => RuleSet.parse(r)).map((s) => [s.setId, s]),
+  );
+
+  const accepted: Accepted[] = [];
+  for (const set of proposed) {
+    const existing = current.get(set.setId);
+
+    // Custody, enforced rather than remembered. `authored` means nothing derived
+    // may regenerate it — a person may edit their own rules, but a proposal is
+    // by definition not a person, and "improve the rules" must not be an
+    // operation capable of destroying the only data that cannot be rebuilt.
+    if (existing?.authored === true) {
+      throw new Error(`Refusing to replace the authored set "${set.setId}"`);
+    }
+
+    const next: RuleSet = {
+      ...set,
+      version: (existing?.version ?? 0) + 1,
+      createdAt: options.now.toISOString(),
+      createdBy: options.by,
+    };
+    await deps.ruleSets.putRuleSetVersion(tenantId, next);
+    accepted.push({ setId: next.setId, from: existing?.version ?? 0, to: next.version, rules: next.rules.length });
+  }
+  return accepted;
+}
