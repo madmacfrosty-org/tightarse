@@ -7,14 +7,24 @@
  * layer's business.
  */
 
-import type { EnrichReport } from "@tightarse/domain";
+import type { CategoriseReport } from "@tightarse/domain";
 
-export function enrichmentMetrics(report: EnrichReport): Record<string, number> {
+export function categorisationMetrics(report: CategoriseReport): Record<string, number> {
   return {
-    EnrichmentBacklog: report.backlog,
-    EnrichmentMatched: report.matched,
-    EnrichmentWritten: report.written,
-    EnrichmentUnmatched: report.unmatched,
-    CustomRules: report.customRules,
+    CategorisationScanned: report.scanned,
+    CategorisationAppended: report.appended,
+    CategorisationUnchanged: report.unchanged,
+    CategorisationUncategorised: report.uncategorised,
+    // Left alone because an authored set produced them. Not a problem; a number
+    // that should be explicable rather than surprising when someone asks why a
+    // rule change did not reach a transaction.
+    CategorisationProtected: report.protectedFromChange,
+    // A stored category nothing matches any more. Needs attention rather than
+    // silence: keeping a category nobody can explain is worse than saying so.
+    CategorisationOrphaned: report.orphaned,
+    // Rule defects. A conflicted set produces nothing at all, so these cost
+    // coverage as well as being wrong.
+    CategorisationConflicts: report.conflicts,
+    CategorisationInertRefines: report.inertRefines,
   };
 }

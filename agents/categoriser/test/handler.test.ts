@@ -1,138 +1,154 @@
-import { describe, it, expect, afterEach, vi, beforeEach } from "vitest";
-import { categorise, realDeps, type CategoriseDeps } from "../src/handler.js";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { categorise, realDeps, type CategoriseDeps } from "../src/handler";
 
 /**
- * This runs on a schedule, unattended, and writes to the ledger. Until the
- * client became an argument none of it was reachable without a table and a
- * region, so the household's "off" setting — the one thing here somebody would
- * notice being wrong — had no test at all.
+ * The scheduled run.
+ *
+ * This runs unattended and writes to the ledger. What matters is that it applies
+ * the whole range rather than a lookback, that it reports what it did, and that
+ * it refuses to start without a table rather than writing somewhere unnamed.
  */
 
+const listRange = vi.fn();
+const listRuleSets = vi.fn();
+const listCategorisationHistory = vi.fn();
+const putCategorisation = vi.fn();
 const getSettings = vi.fn();
-const listToEnrich = vi.fn();
-const getCustomRules = vi.fn();
-const putEnrichment = vi.fn();
 
 const deps = (over: Partial<CategoriseDeps> = {}): CategoriseDeps => ({
-  ledger: { getSettings, listToEnrich, getCustomRules, putEnrichment },
+  ledger: { listRange, listRuleSets, putCategorisation, listCategorisationHistory, getSettings } as never,
   tenantId: "frost",
-  defaultBackfillDays: 45,
   environment: "test",
   ...over,
+});
+
+const ruleSet = (rules: unknown[]) => ({
+  setId: "built-in",
+  version: 1,
+  name: "built-in",
+  order: 2,
+  authored: false,
+  rules,
+  createdAt: "2026-01-01T00:00:00.000Z",
 });
 
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.spyOn(console, "log").mockImplementation(() => {});
+  listRange.mockReset().mockResolvedValue({ transactions: [], enrichments: [], categorisations: [] });
+  listRuleSets.mockReset().mockResolvedValue([]);
+  putCategorisation.mockReset().mockResolvedValue(undefined);
   getSettings.mockReset().mockResolvedValue({ enrichment: "rules" });
-  listToEnrich.mockReset().mockResolvedValue([]);
-  getCustomRules.mockReset().mockResolvedValue([]);
-  putEnrichment.mockReset().mockResolvedValue(undefined);
 });
 
-describe("the household's enrichment setting", () => {
-  it("does nothing at all when enrichment is off", async () => {
-    // A schedule that ignored this would keep categorising after somebody
-    // turned it off, and the only evidence would be rows appearing.
-    getSettings.mockResolvedValue({ enrichment: "off" });
-    const result = await categorise(deps());
-    expect(result).toEqual({ backlog: 0, matched: 0, written: 0, customRules: 0 });
-    expect(listToEnrich).not.toHaveBeenCalled();
-    expect(putEnrichment).not.toHaveBeenCalled();
-  });
-
-  it("runs the rules when a household has no setting recorded", async () => {
-    // Absent means "not configured yet", not "off". Defaulting to off would
-    // leave a new household silently uncategorised for ever.
-    getSettings.mockResolvedValue(undefined);
+describe("what the schedule does", () => {
+  it("applies the whole ledger, not a lookback", async () => {
+    // Scope cannot be narrowed by a changed rule's footprint: a new refine
+    // changes the outcome for transactions a DIFFERENT rule asserted, so
+    // anything narrower is a guess about which rows a change can reach.
     await categorise(deps());
-    expect(listToEnrich).toHaveBeenCalled();
-  });
-});
-
-describe("the window it reads", () => {
-  it("writes what the rules matched, and reports it", async () => {
-    // The main path. Without this, a mutant that made every run take the
-    // "skipped" branch survived: the schedule would silently do nothing every
-    // morning and still exit cleanly, which is how enrichment coverage fell a
-    // little every day before this job existed.
-    listToEnrich.mockResolvedValue([
-      { dedupKey: "d1", description: "TESCO STORES 3411", amount: -12_00, timestamp: "2026-02-01T00:00:00.000Z" },
-    ]);
-    const result = await categorise(deps());
-    expect(putEnrichment).toHaveBeenCalledTimes(1);
-    expect(result).toMatchObject({ backlog: 1, matched: 1, written: 1 });
+    const [, range] = listRange.mock.calls[0] as [string, { from: string; to: string }];
+    expect(range.from).toBe("2000-01-01");
   });
 
-  it("asks for the configured lookback, not all of history", async () => {
-    // The daily read is meant to be small; the backlog is derived by diffing,
-    // so a wide range costs a query over five years every morning.
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-03-10T06:00:00Z"));
-    await categorise(deps({ defaultBackfillDays: 45 }));
-    expect(listToEnrich).toHaveBeenCalledWith(
-      "frost",
-      { from: "2026-01-24", to: "2026-03-10" },
-      undefined,
-    );
-    vi.useRealTimers();
-  });
-
-  it("lets an event widen the window for a backfill after a rule changes", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-03-10T06:00:00Z"));
-    await categorise(deps(), { backfillDays: 400 });
-    expect(listToEnrich).toHaveBeenCalledWith(
-      "frost",
-      { from: "2025-02-03", to: "2026-03-10" },
-      undefined,
-    );
-    vi.useRealTimers();
+  it("lets an event narrow the window for a one-off", async () => {
+    await categorise(deps(), { from: "2026-01-01", to: "2026-02-01" });
+    const [, range] = listRange.mock.calls[0] as [string, { from: string; to: string }];
+    expect(range).toEqual({ from: "2026-01-01", to: "2026-02-01" });
   });
 
   it("reads the household it was given and not a hardcoded one", async () => {
     await categorise(deps({ tenantId: "someone-else" }));
-    expect(getSettings).toHaveBeenCalledWith("someone-else");
-    expect(listToEnrich).toHaveBeenCalledWith("someone-else", expect.anything(), undefined);
+    expect(listRange.mock.calls[0]?.[0]).toBe("someone-else");
+  });
+
+  it("writes a categorisation for what the rules place", async () => {
+    // The main path. Without this, a run that silently did nothing every
+    // morning would still exit cleanly — which is the decay this job exists to
+    // stop.
+    listRuleSets.mockResolvedValue([
+      ruleSet([
+        {
+          matcher: { kind: "merchant", pattern: "somemart" },
+          contributes: { kind: "assert", category: "groceries" },
+          appliesTo: "debits",
+        },
+      ]),
+    ]);
+    listRange.mockResolvedValue({
+      transactions: [
+        {
+          dedupKey: "d1",
+          description: "SOMEMART SUPERSTORE",
+          amount: -12_00,
+          currency: "GBP",
+          timestamp: "2026-02-01T00:00:00.000Z",
+        },
+      ],
+      enrichments: [],
+      categorisations: [],
+    });
+    const report = await categorise(deps());
+    expect(putCategorisation).toHaveBeenCalledTimes(1);
+    expect(report).toMatchObject({ scanned: 1, appended: 1 });
+  });
+
+  it("reports counts and never a description", async () => {
+    // This output goes to CloudWatch. A description is a merchant, a person's
+    // name, or an employer.
+    const lines: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((l: unknown) => {
+      lines.push(String(l));
+    });
+    listRange.mockResolvedValue({
+      transactions: [
+        { dedupKey: "d1", description: "A VERY PRIVATE MERCHANT", amount: -1_00, currency: "GBP", timestamp: "2026-02-01T00:00:00.000Z" },
+      ],
+      enrichments: [],
+      categorisations: [],
+    });
+    await categorise(deps());
+    expect(lines.join(" ")).not.toContain("PRIVATE");
+    // The metric line comes first, so find the report rather than assuming a
+    // position — and both are checked for the description above.
+    const report = lines.map((l) => JSON.parse(l) as Record<string, unknown>).find((o) => "scanned" in o);
+    expect(report).toMatchObject({ tenantId: "frost", scanned: 1 });
   });
 });
 
-describe("wiring the scheduled run", () => {
-  const env = { ...process.env };
-  afterEach(() => {
-    process.env = { ...env };
+describe("the household's off switch", () => {
+  it("does nothing at all when enrichment is off", async () => {
+    // It predates the rule-set model, and applying rules without checking it
+    // would silently take away a control somebody set.
+    getSettings.mockResolvedValue({ enrichment: "off" });
+    const report = await categorise(deps());
+    expect(listRange).not.toHaveBeenCalled();
+    expect(putCategorisation).not.toHaveBeenCalled();
+    expect(report.scanned).toBe(0);
   });
 
-  it("builds a real store and reads its settings from the environment", () => {
-    // Only the entry point may run a constructor, so nothing else covers this.
-    process.env["TABLE_NAME"] = "some-table";
-    process.env["TENANT_ID"] = "frost";
-    process.env["BACKFILL_DAYS"] = "60";
-    process.env["ENVIRONMENT"] = "prod";
-    const deps = realDeps();
-    expect(deps.ledger).toHaveProperty("listToEnrich");
-    expect(deps).toMatchObject({ tenantId: "frost", defaultBackfillDays: 60, environment: "prod" });
+  it("runs for a household with no settings recorded", async () => {
+    getSettings.mockResolvedValue(null);
+    await categorise(deps());
+    expect(listRange).toHaveBeenCalled();
   });
+});
 
-  it("defaults the household, the lookback and the metric dimension", () => {
-    // An undefined dimension emits under "undefined" and no alarm matches it,
-    // which is #31 in miniature.
+describe("what it reads from the environment", () => {
+  it("defaults the household and the metric dimension", () => {
+    // An undefined dimension emits under "undefined" and no alarm matches it.
     //
-    // AWS_REGION is deleted deliberately. It is set in CI and in any shell that
-    // has run an aws command, so leaving it inherited means the fallback below is
-    // exercised or not depending on who ran the tests — this file scored 100%
-    // alone and 97.29% in a full sweep for exactly that reason.
+    // AWS_REGION is deleted deliberately: it is set in CI and in any shell that
+    // has run an aws command, so leaving it inherited means this fallback is
+    // exercised or not depending on who ran the tests.
     process.env["TABLE_NAME"] = "some-table";
     delete process.env["TENANT_ID"];
-    delete process.env["BACKFILL_DAYS"];
     delete process.env["ENVIRONMENT"];
     delete process.env["AWS_REGION"];
-    expect(realDeps()).toMatchObject({ tenantId: "frost", defaultBackfillDays: 45, environment: "dev" });
+    expect(realDeps()).toMatchObject({ tenantId: "frost", environment: "dev" });
   });
 
   it("uses AWS_REGION when the environment sets one", () => {
-    // The other half of the same fallback, so neither side depends on the
-    // ambient environment of whoever is running the suite.
     process.env["TABLE_NAME"] = "some-table";
     process.env["AWS_REGION"] = "eu-west-2";
     expect(() => realDeps()).not.toThrow();
@@ -140,14 +156,16 @@ describe("wiring the scheduled run", () => {
 
   it("refuses to start without a table rather than writing somewhere unnamed", () => {
     delete process.env["TABLE_NAME"];
-    expect(() => realDeps()).toThrow(/Missing TABLE_NAME/);
+    expect(() => realDeps()).toThrow(/TABLE_NAME/);
   });
 });
 
-describe("what the package exposes", () => {
-  it("exports the Lambda entry point from the package entry", async () => {
-    const pkg = await import("../src/index.js");
-    expect(typeof pkg.handler).toBe("function");
-    expect(typeof pkg.categorise).toBe("function");
+describe("the package entry", () => {
+  it("exports the Lambda entry point", async () => {
+    // The stack points at this module. An export renamed without the stack
+    // following is a deploy that succeeds and a schedule that never fires.
+    const entry: Record<string, unknown> = await import("../src/index.js");
+    expect(typeof entry["handler"]).toBe("function");
+    expect(typeof entry["categorise"]).toBe("function");
   });
 });

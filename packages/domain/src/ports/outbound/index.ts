@@ -307,6 +307,14 @@ export interface LedgerReads {
     range: DateRange,
   ): Promise<{ transactions: Row[]; enrichments: Row[]; categorisations: Row[] }>;
   listAccounts(tenantId: string): Promise<Row[]>;
+  /**
+   * The rule sets, for their precedence.
+   *
+   * A report cannot say which category is in force without knowing which set
+   * outranks which, and that is data rather than load order. It is a read of the
+   * same tenant partition `listAccounts` already touches.
+   */
+  listRuleSets(tenantId: string): Promise<Row[]>;
 }
 
 /**

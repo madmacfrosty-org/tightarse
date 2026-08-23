@@ -56,11 +56,19 @@ async function logged<T>(what: string, run: () => Promise<T>): Promise<T> {
 // actually happen, and the routing depends on the inbound port exactly as the
 // Lambda does. This server drifted from the deployed handler once already (#28);
 // sharing the port is what stops it happening again.
+//
+// Nothing here is tested, and it cannot be while the server is started at module
+// scope: importing this file binds a port. 48 of the api package's 143 mutants
+// live in this file as a result, which drags its mutation score down by about
+// thirty points and makes the number say more about this file than about the
+// code that ships. Extracting the wiring from the listening is the fix; until
+// then the floor is pinned over a denominator that includes it.
 const deps: ApiDeps = {
   reporting: reporting({
     ledger: {
       listRange: (tenant, range) => logged("listRange", () => ledger.listRange(tenant, range)),
       listAccounts: (tenant) => logged("listAccounts", () => ledger.listAccounts(tenant)),
+      listRuleSets: (tenant) => logged("listRuleSets", () => ledger.listRuleSets(tenant)),
     },
   }),
 };

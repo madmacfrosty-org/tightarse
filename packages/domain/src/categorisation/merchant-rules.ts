@@ -110,11 +110,6 @@ export const PROVIDER_RULES: Readonly<Record<string, CategoryLabel>> = {
   ATM: "Cash Withdrawal",
 };
 
-export interface RuleResult {
-  classifications: Classification[];
-  /** Candidates no rule matched — the model's job, if enabled. */
-  unmatched: Candidate[];
-}
 
 /**
  * Compile a household's own rules, skipping any that are unusable.
@@ -138,71 +133,3 @@ export function compileCustom(rules: readonly CustomRule[]): MerchantRule[] {
   }
   return compiled;
 }
-
-export function applyRules(
-  candidates: readonly Candidate[],
-  custom: readonly MerchantRule[] = [],
-): RuleResult {
-  const classifications: Classification[] = [];
-  const unmatched: Candidate[] = [];
-
-  for (const c of candidates) {
-    // A household's own rules run FIRST, and unlike the generic ones they may
-    // match credits.
-    //
-    // The generic rules cannot: a large employer sharing a name with a large
-    // retailer once filed £62,868 of salary as Shopping, and no pattern can
-    // tell a refund from income. But somebody writing a rule for their own
-    // employer knows precisely which it is — that is the one case where the
-    // author has the context the pattern lacks.
-    const mine = custom.find((r) => r.pattern.test(c.description));
-    if (mine) {
-      classifications.push({ dedupKey: c.dedupKey, category: mine.category });
-      continue;
-    }
-
-    // Interest is Fees & Charges when paid and Income when received. Direction
-    // decides, not the label.
-    if (c.providerCategory === "INTEREST") {
-      classifications.push({
-        dedupKey: c.dedupKey,
-        category: c.amount >= 0 ? "Income" : "Fees & Charges"
-      });
-      continue;
-    }
-
-    // Merchant rules apply to MONEY OUT ONLY.
-    //
-    // Learned the hard way against real data: 48 credits of roughly £5,000
-    // matched an AMAZON rule and were filed as Shopping. They were salary — a
-    // large employer sharing a name with a large retailer. A rule cannot tell a
-    // refund from income, and both are credits, so it must not try. Credits
-    // fall through to the model, which has the amount and can reason about it.
-    if (c.amount >= 0) {
-      unmatched.push(c);
-      continue;
-    }
-
-    const byProvider = c.providerCategory
-      ? PROVIDER_RULES[c.providerCategory]
-      : undefined;
-    if (byProvider) {
-      classifications.push({ dedupKey: c.dedupKey, category: byProvider });
-      continue;
-    }
-
-    const rule = RULES.find((r) => r.pattern.test(c.description));
-    if (rule) {
-      // Confidence 1: a rule is an assertion, not an estimate. If a rule is
-      // wrong the rule should be fixed, not hedged.
-      classifications.push({ dedupKey: c.dedupKey, category: rule.category });
-      continue;
-    }
-
-    unmatched.push(c);
-  }
-
-  return { classifications, unmatched };
-}
-
-export const RULES_VERSION = "rules@v2";
