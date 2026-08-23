@@ -2,97 +2,158 @@
  * Manage a household's own categorisation rules.
  *
  *   TABLE=<name> npm run rules -w @tightarse/categoriser -- list
- *   TABLE=<name> npm run rules -w @tightarse/categoriser -- add "PATTERN" "CategoryLabel" ["note"]
- *   TABLE=<name> npm run rules -w @tightarse/categoriser -- remove "PATTERN"
+ *   TABLE=<name> npm run rules -w @tightarse/categoriser -- add "<regex>" "<category-id>" ["note"]
+ *   TABLE=<name> npm run rules -w @tightarse/categoriser -- remove "<regex>"
  *   TABLE=<name> npm run rules -w @tightarse/categoriser -- test "some description"
+ *   ... -- --propose            record the change without publishing it
  *
- * These live in the table, never in the repository. The generic rules shipped
- * in `rules.ts` are national chains that apply to anyone; a household's real
- * statement is family names, an employer, a person paid regularly, and its own
- * account numbers. Committing those would publish exactly what this project is
- * careful never to hold.
+ * These live in the table, never in the repository. The shipped patterns are
+ * national chains that apply to anyone; a household's real statement is family
+ * names, an employer, a person paid regularly, and its own account numbers.
+ * Committing those would publish exactly what this project is careful never to
+ * hold.
+ *
+ * Every change is a proposal, as every rule change is — recorded as the next
+ * version of the `household` set, with who made it and when. `add` and `remove`
+ * publish it in the same breath by default, because here the person proposing
+ * and the person deciding are the same one and pretending otherwise is
+ * ceremony. `--propose` holds it for a decision instead.
  */
 import { DynamoStore } from "@tightarse/dynamodb";
-import type { CustomRule } from "@tightarse/domain";
-import { CATEGORIES, isCategoryLabel } from "@tightarse/domain";
-import { compileCustom, RULES } from "@tightarse/domain";
+import {
+  decide,
+  evaluate,
+  propose,
+  RuleSet,
+  type Rule,
+} from "@tightarse/domain";
 
 const usage = `usage:
   rules list
-  rules add "<regex>" "<CategoryLabel>" ["note"]
+  rules add "<regex>" "<category-id>" ["note"]
   rules remove "<regex>"
   rules test "<description>"
 
-categories: ${CATEGORIES.join(", ")}`;
+  --propose   record the change without publishing it`;
+
+const HOUSEHOLD = "household";
+
+/** The household's set, or the shape a first one takes. */
+function householdSet(sets: readonly RuleSet[]): RuleSet {
+  const existing = sets.find((s) => s.setId === HOUSEHOLD);
+  if (existing) return existing;
+  return {
+    setId: HOUSEHOLD,
+    version: 0,
+    name: "Hand-written",
+    order: 0,
+    // Above everything shipped, and never regenerated: these are the only rules
+    // here that cannot be rebuilt from code.
+    authored: true,
+    status: "effective",
+    rules: [],
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function patternOf(rule: Rule): string {
+  return rule.matcher.kind === "merchant" ? rule.matcher.pattern : `(${rule.matcher.kind})`;
+}
 
 async function main(): Promise<void> {
   const tableName = process.env["TABLE"];
   if (!tableName) throw new Error("Set TABLE to the ledger table name");
   const tenantId = process.env["TENANT"] ?? "frost";
+  const by = process.env["USER"] ?? "operator";
+  const holding = process.argv.includes("--propose");
   const ledger = new DynamoStore({ tableName, region: process.env["AWS_REGION"] ?? "eu-west-1" });
 
-  const [command, a, b, c] = process.argv.slice(2);
-  const existing = await ledger.getCustomRules(tenantId);
+  const args = process.argv.slice(2).filter((v) => !v.startsWith("--"));
+  const [command, a, b, c] = args;
+
+  const sets = (await ledger.listRuleSets(tenantId)).map((r) => RuleSet.parse(r));
+  const household = householdSet(sets);
+
+  /** Record the change, and publish it unless asked to hold. */
+  const change = async (rules: Rule[], what: string): Promise<void> => {
+    const [recorded] = await propose(
+      { ruleSets: ledger, categories: ledger },
+      tenantId,
+      [{ ...household, rules }],
+      { now: new Date(), by },
+    );
+    if (!recorded) return;
+
+    if (holding) {
+      console.log(`${what}\nproposed as ${HOUSEHOLD} v${recorded.version} — not yet in force`);
+      return;
+    }
+    await decide({ ruleSets: ledger }, tenantId, [recorded], { status: "effective" });
+    console.log(`${what}\npublished as ${HOUSEHOLD} v${recorded.version}  (${rules.length} rules)`);
+  };
 
   switch (command) {
     case "list": {
-      if (existing.length === 0) {
-        console.log("no custom rules — every category comes from the generic list");
+      if (household.rules.length === 0) {
+        console.log("no rules of your own — every category comes from the shipped patterns");
         return;
       }
-      for (const r of existing) {
-        console.log(`${r.category.padEnd(22)} ${r.pattern}${r.note ? `   # ${r.note}` : ""}`);
+      for (const r of household.rules) {
+        const kind = r.contributes.kind === "refine" ? " (refines)" : "";
+        console.log(
+          `${r.contributes.category.padEnd(22)} ${patternOf(r)}${kind}${r.note ? `   # ${r.note}` : ""}`,
+        );
       }
-      console.log(`\n${existing.length} rules`);
+      console.log(`\n${household.rules.length} rules, ${HOUSEHOLD} v${household.version}`);
       return;
     }
 
     case "add": {
       if (!a || !b) throw new Error(usage);
-      if (!isCategoryLabel(b)) throw new Error(`"${b}" is not a category.\n\n${usage}`);
       try {
         new RegExp(a, "i");
       } catch {
         throw new Error(`"${a}" is not a valid regular expression`);
       }
-      const rule: CustomRule = {
-        pattern: a,
-        category: b,
+      // The category is checked against the catalogue by `propose`, which knows
+      // what exists and what has been retired.
+      const rule: Rule = {
+        matcher: { kind: "merchant", pattern: a },
+        contributes: { kind: "assert", category: b },
+        appliesTo: "debits",
         ...(c ? { note: c } : {}),
-        addedAt: new Date().toISOString(),
       };
-      const next = [...existing.filter((r) => r.pattern !== a), rule];
-      await ledger.putCustomRules(tenantId, next);
-      console.log(`added: ${a} -> ${b}  (${next.length} rules)`);
+      await change([...household.rules.filter((r) => patternOf(r) !== a), rule], `added: ${a} -> ${b}`);
       return;
     }
 
     case "remove": {
       if (!a) throw new Error(usage);
-      const next = existing.filter((r) => r.pattern !== a);
-      if (next.length === existing.length) {
+      const next = household.rules.filter((r) => patternOf(r) !== a);
+      if (next.length === household.rules.length) {
         console.log(`no rule with pattern "${a}"`);
         return;
       }
-      await ledger.putCustomRules(tenantId, next);
-      console.log(`removed: ${a}  (${next.length} rules)`);
+      await change(next, `removed: ${a}`);
       return;
     }
 
     case "test": {
       if (!a) throw new Error(usage);
-      // Custom first, then generic — the same order the categoriser uses.
-      const mine = compileCustom(existing).find((r) => r.pattern.test(a));
-      if (mine) {
-        console.log(`"${a}"\n  -> ${mine.category}  (your rule: ${mine.pattern.source})`);
-        return;
+      // Through the real fold, over the real sets. A private copy of matching
+      // is how a command tells you one thing and the ledger does another.
+      const result = evaluate(sets, { dedupKey: "test", description: a, amount: -10_00, currency: "GBP" });
+      console.log(`"${a}"`);
+      if (result.effective) {
+        console.log(`  -> ${result.effective.category}   (${result.effective.setId} v${result.effective.version})`);
+      } else {
+        console.log(`  -> no rule matches; it stays uncategorised`);
       }
-      const generic = RULES.find((r) => r.pattern.test(a));
-      console.log(
-        generic
-          ? `"${a}"\n  -> ${generic.category}  (generic rule)`
-          : `"${a}"\n  -> no rule matches; it would go to the model, or Other`,
-      );
+      for (const s of result.sets) {
+        const said = s.category ?? "—";
+        const problems = s.problems.map((p) => p.kind).join(", ");
+        console.log(`     ${s.setId.padEnd(12)} ${said.padEnd(22)}${problems ? `  [${problems}]` : ""}`);
+      }
       return;
     }
 

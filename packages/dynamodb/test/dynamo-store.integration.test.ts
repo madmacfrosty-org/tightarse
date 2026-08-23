@@ -638,22 +638,11 @@ suite("control plane: settings, consents and the legacy rules row", () => {
     expect((await store.getSettings(TENANT))?.enrichment).toBe("rules");
   });
 
-  it("round-trips the household's own rules", async () => {
-    // The single-item row that predates versioned sets. Still the live path.
+  it("reads the legacy rules row, and says nothing for a household without one", async () => {
+    // Read-only now: it is the source the first seed converts, and deleting a
+    // source during a migration removes the only way to check the result. A
+    // household's rules are a versioned `household` set.
     expect(await store.getCustomRules(`${TENANT}-absent`)).toEqual([]);
-    const rules = [{ pattern: "^SOMESHOP", category: "Groceries", addedAt: "2026-08-18T00:00:00Z" }];
-    await store.putCustomRules(TENANT, rules);
-    expect(await store.getCustomRules(TENANT)).toEqual(rules);
-  });
-
-  it("replaces the rules wholesale rather than merging", async () => {
-    // A put replaces the row, so a caller that reads, edits and writes back is
-    // the only safe pattern — worth pinning, because a merge would silently
-    // resurrect a rule somebody deleted.
-    await store.putCustomRules(TENANT, [
-      { pattern: "^A", category: "Groceries", addedAt: "2026-08-18T00:00:00Z" },
-    ]);
-    expect(await store.getCustomRules(TENANT)).toHaveLength(1);
   });
 
   it("refuses to categorise a transaction that does not exist", async () => {

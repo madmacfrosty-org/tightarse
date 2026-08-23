@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { compileCustom, RULES } from "../src/categorisation/merchant-rules.js";
+import { RULES } from "../src/categorisation/merchant-rules.js";
 import { seedRuleSets } from "../src/categorisation/seed.js";
 import { evaluate } from "../src/categorisation/evaluate.js";
-import { isCategoryLabel } from "../src/categorisation/taxonomy.js";
 import type { Candidate } from "../src/categorisation/taxonomy.js";
 
 const cand = (description: string, over: Partial<Candidate> = {}): Candidate => ({
@@ -61,35 +60,5 @@ describe("brand names as they actually appear on statements", () => {
 
   it("leaves an unfamiliar merchant alone rather than guessing", () => {
     expect(categoryOf("ZZQX TRADING LTD")).toBeUndefined();
-  });
-});
-
-describe("compiling a household's own rules", () => {
-  /**
-   * Entered by hand, so one typo must not stop a whole run. Covered here since
-   * `rules-cli test` is the only caller left — the categorisation path stopped
-   * using these when rule sets replaced them.
-   */
-  const rule = (pattern: string, category: string) => ({
-    pattern,
-    category,
-    addedAt: "2026-01-01T00:00:00.000Z",
-  });
-
-  it("compiles a usable rule case-insensitively", () => {
-    const [compiled] = compileCustom([rule("somemart", "Groceries")]);
-    expect(compiled?.category).toBe("Groceries");
-    expect(compiled?.pattern.test("SOMEMART SUPERSTORE")).toBe(true);
-  });
-
-  it("drops a rule naming a category that does not exist, and keeps the rest", () => {
-    const compiled = compileCustom([rule("a", "Invented"), rule("b", "Groceries")]);
-    expect(compiled).toHaveLength(1);
-    expect(compiled[0]?.category).toBe("Groceries");
-  });
-
-  it("drops a pattern that will not compile rather than throwing", () => {
-    // One bad regex should not stop a household categorising anything.
-    expect(compileCustom([rule("([unclosed", "Groceries")])).toEqual([]);
   });
 });

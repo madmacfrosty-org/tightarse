@@ -44,12 +44,6 @@ export const CATEGORIES = [
 
 export type CategoryLabel = (typeof CATEGORIES)[number];
 
-const CATEGORY_SET: ReadonlySet<string> = new Set(CATEGORIES);
-
-export function isCategoryLabel(value: string): value is CategoryLabel {
-  return CATEGORY_SET.has(value);
-}
-
 /**
  * "Other" is a real answer, not a failure.
  *

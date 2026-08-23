@@ -281,9 +281,15 @@ export interface RuleSets {
     version: number,
     decision: { status: "effective" } | { status: "rejected"; because: string },
   ): Promise<void>;
-  /** The single-item rules that predate versioned sets. Migrating away. */
+  /**
+   * The single-item rules that predate versioned sets.
+   *
+   * Read-only now, and deliberately kept: it is the source the first seed
+   * converts, and deleting a source during a migration removes the only way to
+   * check the result. Nothing writes it — a household's rules are a versioned
+   * `household` set.
+   */
   getCustomRules(tenantId: string): Promise<CustomRule[]>;
-  putCustomRules(tenantId: string, rules: readonly CustomRule[]): Promise<void>;
 }
 
 /**
