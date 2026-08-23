@@ -92,7 +92,7 @@ function fakeRaw(objects: Record<string, unknown>) {
   };
 }
 
-const deps = (objects: Record<string, unknown>, pageSize?: number) => {
+const deps = (objects: Record<string, unknown>, _pageSize?: number) => {
   const { ledger, state } = fakeLedger();
   return {
     state,

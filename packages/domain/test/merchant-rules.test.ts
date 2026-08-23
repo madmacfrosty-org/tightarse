@@ -1,16 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { RULES } from "../src/categorisation/merchant-rules.js";
 import { seedRuleSets } from "../src/categorisation/seed.js";
 import { evaluate } from "../src/categorisation/evaluate.js";
 import type { Candidate } from "../src/categorisation/taxonomy.js";
-
-const cand = (description: string, over: Partial<Candidate> = {}): Candidate => ({
-  dedupKey: `n:${description}`,
-  description,
-  amount: -1299,
-  currency: "GBP",
-  ...over,
-});
 
 /**
  * The shipped patterns, driven the way they are actually used.

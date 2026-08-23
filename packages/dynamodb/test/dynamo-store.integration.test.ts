@@ -2,7 +2,6 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import {
-  dedupKey,
   type Transaction,
 } from "@tightarse/domain";
 import { DynamoStore } from "../src/dynamo-store";
@@ -26,7 +25,6 @@ import { resolveTestTarget } from "../src/test-table";
  */
 
 const TABLE = process.env["LEDGER_TEST_TABLE"];
-const ENDPOINT = process.env["LEDGER_TEST_ENDPOINT"];
 const TENANT = `itest-${Date.now()}`;
 
 /**
@@ -106,10 +104,9 @@ const txn = (over: Partial<Transaction> = {}): Transaction => ({
 
 suite("DynamoStore (integration)", () => {
   let ledger: DynamoStore;
-  let doc: DynamoDBDocumentClient;
 
   beforeAll(() => {
-    ({ ledger, doc } = testLedger());
+    ({ ledger } = testLedger());
   });
 
   it("round-trips transactions through a date range query", async () => {
@@ -227,10 +224,9 @@ suite("DynamoStore (integration)", () => {
 
 suite("DynamoStore account merge (integration)", () => {
   let ledger: DynamoStore;
-  let doc: DynamoDBDocumentClient;
 
   beforeAll(() => {
-    ({ ledger, doc } = testLedger());
+    ({ ledger } = testLedger());
   });
 
   it("does not lose a balance when account details are written afterwards", async () => {
@@ -284,13 +280,12 @@ suite("DynamoStore account merge (integration)", () => {
 });
 
 suite("household access", () => {
-  let doc: DynamoDBDocumentClient;
   let ledger: DynamoStore;
   const alice = `alice-${TENANT}@example.com`;
   const bob = `bob-${TENANT}@example.com`;
 
   beforeAll(() => {
-    ({ ledger, doc } = testLedger());
+    ({ ledger } = testLedger());
   });
 
   // Member rows live in their own partitions, so the other suites' sweeps by

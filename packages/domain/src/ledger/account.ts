@@ -3,7 +3,7 @@
  */
 
 import { z } from "zod";
-import { Amount, Currency } from "../money.js";
+import { Currency } from "../money.js";
 import { TenantId } from "../household/member.js";
 
 /**

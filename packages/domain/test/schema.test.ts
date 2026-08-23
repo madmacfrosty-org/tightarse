@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toMinorUnits, minorUnitExponent, assertSingleCurrency, dedupKey, BalanceReading } from "../src/index.js";
+import { toMinorUnits, minorUnitExponent, assertSingleCurrency, dedupKey } from "../src/index.js";
 
 describe("toMinorUnits", () => {
   it("handles the float representations that lose a penny under truncation", () => {

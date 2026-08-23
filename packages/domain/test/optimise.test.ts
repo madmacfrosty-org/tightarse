@@ -248,7 +248,6 @@ describe("recording a proposal", () => {
 });
 
 describe("deciding a proposal", () => {
-  const NOW = new Date("2026-03-01T09:00:00.000Z");
 
   function ruleSets() {
     const decisions: unknown[][] = [];

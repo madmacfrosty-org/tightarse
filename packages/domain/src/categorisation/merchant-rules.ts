@@ -1,6 +1,4 @@
-import type { CustomRule } from "../index.js";
 import type { CategoryLabel } from "./taxonomy.js";
-import type { Candidate, Classification } from "./taxonomy.js";
 
 /**
  * Deterministic merchant rules, applied before any model call.

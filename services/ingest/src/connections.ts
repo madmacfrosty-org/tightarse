@@ -1,4 +1,3 @@
-import type { TokenSet } from "@tightarse/truelayer";
 import type { Secrets } from "@tightarse/domain";
 
 /**

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { effectiveCategories, orderOf } from "../src/reporting/categories.js";
-import type { AssignedCategory, LedgerRow } from "../src/reporting/summary.js";
+import type { LedgerRow } from "../src/reporting/summary.js";
 import type { Row } from "../src/ports/outbound/index.js";
 
 /**

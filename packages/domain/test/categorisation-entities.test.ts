@@ -75,18 +75,20 @@ describe("a rule set", () => {
 
 describe("a categorisation", () => {
   it("always names the set and version, and may name no rule at all", () => {
-    // The provider's own classification has no rule we can name, which is why
-    // `rules` is a list with a default rather than a single optional reference.
-    const c = Categorisation.parse({
-      dedupKey: "d1",
-      timestamp: "2026-03-01T00:00:00Z",
-      category: "PURCHASE",
-      setId: "provider",
-      setVersion: 20260817,
-      version: 1,
-      status: "effective",
-      appliedAt: "2026-08-17T05:00:00Z",
-    });
+    // Parses without a rule reference: the provider's own classification has no
+    // rule anybody can name, and nothing invents one.
+    expect(() =>
+      Categorisation.parse({
+        dedupKey: "d1",
+        timestamp: "2026-03-01T00:00:00Z",
+        category: "PURCHASE",
+        setId: "provider",
+        setVersion: 20260817,
+        version: 1,
+        status: "effective",
+        appliedAt: "2026-08-17T05:00:00Z",
+      }),
+    ).not.toThrow();
   });
 
   it("refuses version zero, because versions are a history not an index", () => {

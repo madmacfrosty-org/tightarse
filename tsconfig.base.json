@@ -5,6 +5,13 @@
     "module": "node16",
     "moduleResolution": "node16",
     "strict": true,
+    // Nothing caught an unused import or variable until this went on, and that
+    // is how the repo accumulated a matcher engine, three predicates and two key
+    // builders that no caller reached — each found by hand rather than by a
+    // build. A declaration nobody uses is either a mistake or a deletion nobody
+    // finished.
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "noImplicitOverride": true,

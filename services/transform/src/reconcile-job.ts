@@ -15,7 +15,6 @@
  * Runs after the sync and after the categoriser, so it sees a settled ledger.
  */
 
-import type { DynamoStore } from "@tightarse/dynamodb";
 import { emit } from "@tightarse/metrics";
 import { rowKind, scanAll, type Row } from "./compare.js";
 import { reconcile } from "@tightarse/domain";

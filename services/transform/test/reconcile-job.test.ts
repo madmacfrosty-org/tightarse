@@ -8,7 +8,6 @@ import {
   reconciliationMetrics,
 } from "../src/reconcile-job";
 import { reconcile } from "@tightarse/domain";
-import type { Reading } from "@tightarse/domain";
 
 /**
  * The adapter half: turning stored rows into what the use case reads, and the
@@ -19,13 +18,6 @@ import type { Reading } from "@tightarse/domain";
  * account's transactions — and that first-seen survives the trip out of the
  * table, because that field is what tells a late settler from a missing one.
  */
-
-const reading = (accountId: string, asOf: string, balance: number, fetchedAt = asOf): Reading => ({
-  accountId,
-  asOf,
-  fetchedAt,
-  balance,
-});
 
 describe("what the scheduled run reads from the environment", () => {
   it("takes every value the deployment provides", () => {

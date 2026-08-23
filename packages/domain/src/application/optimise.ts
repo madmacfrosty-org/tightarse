@@ -20,7 +20,7 @@ import { candidateOf } from "./candidate.js";
 import { gatherEvidence, type Evidence } from "../categorisation/evidence.js";
 import { Category } from "../categorisation/category.js";
 import { RuleSet } from "../categorisation/rules.js";
-import type { Categories, Row, RuleProposer, RuleSets, Transactions } from "../ports/outbound/index.js";
+import type { Categories, RuleProposer, RuleSets, Transactions } from "../ports/outbound/index.js";
 import type { DateRange } from "../ports/index.js";
 
 /**

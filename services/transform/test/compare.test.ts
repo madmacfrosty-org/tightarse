@@ -5,7 +5,6 @@ import {
   isMatch,
   isTransformProduced,
   rowKind,
-  scanAll,
   type Row,
 } from "../src/compare";
 
