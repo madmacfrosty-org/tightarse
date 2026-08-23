@@ -219,13 +219,4 @@ export class DynamoRuleSets extends TableAdapter implements RuleSets {
     return ((res.Item as { rules?: CustomRule[] } | undefined)?.rules ?? []) as CustomRule[];
   }
 
-  async putCustomRules(tenantId: string, rules: readonly CustomRule[]): Promise<void> {
-    const { pk, sk } = keys.customRules(tenantId);
-    await this.doc.send(
-      new PutCommand({
-        TableName: this.table,
-        Item: { pk, sk, kind: "RULES", tenantId, rules, updatedAt: new Date().toISOString() },
-      }),
-    );
-  }
 }

@@ -1,5 +1,5 @@
 import type { CustomRule } from "../index.js";
-import { isCategoryLabel, type CategoryLabel } from "./taxonomy.js";
+import type { CategoryLabel } from "./taxonomy.js";
 import type { Candidate, Classification } from "./taxonomy.js";
 
 /**
@@ -109,27 +109,3 @@ export const RULES: readonly MerchantRule[] = [
 export const PROVIDER_RULES: Readonly<Record<string, CategoryLabel>> = {
   ATM: "Cash Withdrawal",
 };
-
-
-/**
- * Compile a household's own rules, skipping any that are unusable.
- *
- * A bad regex or an unknown category is dropped with a warning rather than
- * throwing: these are entered by hand, and one typo should not stop a whole
- * categorisation run.
- */
-export function compileCustom(rules: readonly CustomRule[]): MerchantRule[] {
-  const compiled: MerchantRule[] = [];
-  for (const r of rules) {
-    if (!isCategoryLabel(r.category)) {
-      console.warn(`skipping custom rule "${r.pattern}": unknown category "${r.category}"`);
-      continue;
-    }
-    try {
-      compiled.push({ pattern: new RegExp(r.pattern, "i"), category: r.category });
-    } catch {
-      console.warn(`skipping custom rule "${r.pattern}": not a valid regular expression`);
-    }
-  }
-  return compiled;
-}
