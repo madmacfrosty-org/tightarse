@@ -294,18 +294,22 @@ jobs:
   # No `if:` of its own. A job whose `needs` is skipped is skipped, so the
   # branch and event conditions on `deploy` govern this too, in one place.
   #
-  # `environment: prod` is the gate rather than decoration: that environment
-  # carries a required reviewer, and `tightarse-prod-github-deploy` trusts
-  # exactly `repo:madmacfrosty-org/tightarse:environment:prod` — a job that does
-  # not declare it cannot assume the role at all.
+  # `environment: prod` is NOT decoration and must not be removed as tidying.
+  # `tightarse-prod-github-deploy` trusts only OIDC subjects containing
+  # `environment:prod`, so a job without it cannot assume the role at all — the
+  # failure reads as a credentials error, not as a missing declaration.
   #
-  # Approval rather than automatic promotion, for one reason. Dev succeeding is a
-  # weaker signal than it looks while the two accounts differ in what they hold:
-  # whichever one owns the live bank connections is the one where a bad change
-  # costs something, and that ownership moves. Some changes are also ordered
-  # against acts that are not code — copying connection secrets, a redirect URI,
-  # flipping syncEnabled. One click preserves that sequencing; the job removes
-  # the drift either way.
+  # It carried a required reviewer until 23 August 2026. Removed because the
+  # approvals were ceremony: prod is promoted from a commit that has already
+  # passed build and mutation and already deployed to dev, so every approval so
+  # far was a click on a no-op. The gate cost attention on every merge and
+  # bought nothing that the gates before it had not.
+  #
+  # What that trades away, stated so it is a decision rather than a drift: prod
+  # holds the household's live bank connections and dev no longer does, so a
+  # change that is harmless against dev now reaches prod unattended. If that ever
+  # bites, the fix is a reviewer back on the prod environment — a settings
+  # change, not a code change, and nothing here needs touching.
   deploy-prod:
     needs: [deploy]
     runs-on: ubuntu-latest
