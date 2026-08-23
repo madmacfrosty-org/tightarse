@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   type Transaction,
 } from "@tightarse/domain";
-import { RowKind } from "../src/keys.js";
 import { categorisationItems, ruleSetItems, transactionItem, pendingItem } from "../src/items";
 
 const txn = (over: Partial<Transaction> = {}): Transaction => ({

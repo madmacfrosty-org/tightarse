@@ -17,18 +17,12 @@
 
 export const RowKind = {
   /**
-   * Sorts before TX and EN within a timestamp, so a categorisation arrives in
+   * Sorts before TX within a timestamp, so a categorisation arrives in
    * the same range query the API and the categoriser already make for
    * transactions. No new access pattern, no second read.
    */
   categorisation: "CAT",
   transaction: "TX",
-  /**
-   * A marker only. Enrichment rows are no longer written or read —
-   * categorisations replaced them — but the prefix exists in stored data and
-   * the sort order below depends on knowing where it sits.
-   */
-  enrichment: "EN",
 } as const;
 export type RowKind = (typeof RowKind)[keyof typeof RowKind];
 
@@ -42,7 +36,7 @@ export type RowKind = (typeof RowKind)[keyof typeof RowKind];
  * Transactions and their categorisations share one partition per tenant, with the row
  * kind placed AFTER the timestamp in the sort key. That ordering is the whole
  * trick: a single `between` on the sort key returns transactions and their
- * enrichments together, interleaved and adjacent, for any date range.
+ * categorisations together, interleaved and adjacent, for any date range.
  *
  * An earlier design bucketed the partition by month. That was wrong — DynamoDB
  * requires an exact partition-key match on every query, so a twelve-month view
@@ -54,12 +48,12 @@ export type RowKind = (typeof RowKind)[keyof typeof RowKind];
  * if writes approach 1,000 WCU against one partition key.
  *
  * There is deliberately no index for "transactions awaiting categorisation".
- * That was a sparse gsi2 carrying a marker on the transaction row, removed when
- * enrichment landed — but a plain put replaces the whole row, so replaying a
- * raw object re-added the marker and re-queued work that was already done.
- * Since replay is the entire point of the landing zone, that made the bug
- * routine rather than exotic. The backlog is now derived: read a range, which
- * returns transactions and enrichments together anyway, and diff in memory.
+ * That was a sparse gsi2 carrying a marker on the transaction row — but a plain
+ * put replaces the whole row, so replaying a raw object re-added the marker and
+ * re-queued work that was already done. Since replay is the entire point of the
+ * landing zone, that made the bug routine rather than exotic. The backlog is now
+ * derived: read a range, which returns transactions and their categorisations
+ * together anyway, and diff in memory.
  */
 export const keys = {
   account: (tenantId: string, accountId: string) => ({
@@ -145,7 +139,7 @@ export const keys = {
    * one. Per-set rows are also what make selective re-firing possible — a set
    * that has not changed does not need re-folding.
    *
-   * `CAT` sorts before `EN` and `TX` within a timestamp, so these arrive in the
+   * `CAT` sorts before `TX` within a timestamp, so these arrive in the
    * same range query the API and the categoriser already make.
    */
   categorisation: (tenantId: string, timestamp: string, dedup: string, setId: string) => ({

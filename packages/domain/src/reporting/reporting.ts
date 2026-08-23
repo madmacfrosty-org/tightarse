@@ -23,7 +23,7 @@ import type {
   TransactionsResult,
 } from "../index.js";
 import { effectiveCategories, orderOf } from "./categories.js";
-import { mergeCategories, summarise, toAccountState, type AssignedCategory, type LedgerRow } from "./summary.js";
+import { mergeCategories, summarise, toAccountState, type LedgerRow } from "./summary.js";
 import { daysBetween, netPositionSeries, type AccountFacts, type Movement } from "./balances.js";
 import { clampToCoverage, completeFrom, coverageOf, type AccountCoverage } from "./coverage.js";
 

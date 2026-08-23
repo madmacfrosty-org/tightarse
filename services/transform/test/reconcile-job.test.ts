@@ -8,7 +8,6 @@ import {
   reconciliationMetrics,
 } from "../src/reconcile-job";
 import { reconcile } from "@tightarse/domain";
-import type { Reading } from "@tightarse/domain";
 
 /**
  * The adapter half: turning stored rows into what the use case reads, and the
@@ -19,13 +18,6 @@ import type { Reading } from "@tightarse/domain";
  * account's transactions — and that first-seen survives the trip out of the
  * table, because that field is what tells a late settler from a missing one.
  */
-
-const reading = (accountId: string, asOf: string, balance: number, fetchedAt = asOf): Reading => ({
-  accountId,
-  asOf,
-  fetchedAt,
-  balance,
-});
 
 describe("what the scheduled run reads from the environment", () => {
   it("takes every value the deployment provides", () => {
@@ -53,7 +45,7 @@ describe("grouping a scan for reconciliation", () => {
     { pk: "T#frost", sk: "ACCOUNT#card-1", accountId: "card-1", isCard: true },
     { pk: "T#frost#BAL#acc-1", sk: "2026-01-01T05:00:00.000Z", accountId: "acc-1", asOf: "2026-01-01T05:00:00.000Z", fetchedAt: "2026-01-01T05:00:00.000Z", balance: 100 },
     { pk: "T#frost#TX", sk: "2026-01-02T00:00:00Z#TX#n:a", accountId: "acc-1", timestamp: "2026-01-02T00:00:00Z", amount: -50 },
-    { pk: "T#frost#TX", sk: "2026-01-02T00:00:00Z#EN#n:a", accountId: "acc-1", category: "Groceries" },
+    { pk: "T#frost#TX", sk: "2026-01-02T00:00:00Z#CAT#n:a#built-in", accountId: "acc-1", category: "groceries" },
     { pk: "T#frost", sk: "SETTINGS" },
   ];
 
@@ -67,7 +59,7 @@ describe("grouping a scan for reconciliation", () => {
     expect(g.movements.get("acc-1")).toHaveLength(1);
   });
 
-  it("leaves enrichments out, which share a partition with transactions", () => {
+  it("leaves categorisations out, which share a partition with transactions", () => {
     // They differ only by a marker in the sort key. Counting one as a movement
     // would report a break on an account that is perfectly fine.
     expect(groupForReconciliation(rows).movements.get("acc-1")).toEqual([

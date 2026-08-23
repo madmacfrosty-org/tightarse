@@ -5,7 +5,6 @@ import {
   isMatch,
   isTransformProduced,
   rowKind,
-  scanAll,
   type Row,
 } from "../src/compare";
 
@@ -31,7 +30,7 @@ const txn = (over: Partial<Row> = {}): Row => ({
 describe("telling one kind of row from another", () => {
   it.each([
     ["transaction", { pk: "T#frost#TX", sk: "2026-03-15T00:00:00Z#TX#n:abc" }],
-    ["enrichment", { pk: "T#frost#TX", sk: "2026-03-15T00:00:00Z#EN#n:abc" }],
+    ["categorisation", { pk: "T#frost#TX", sk: "2026-03-15T00:00:00Z#CAT#n:abc#built-in" }],
     ["account", { pk: "T#frost", sk: "ACCOUNT#acc-1" }],
     ["pending", { pk: "T#frost#PEND#acc-1", sk: "2026-03-15T00:00:00Z#p-1" }],
     ["consent", { pk: "T#frost", sk: "CONSENT#c-1" }],
@@ -42,13 +41,15 @@ describe("telling one kind of row from another", () => {
     expect(rowKind(row)).toBe(expected);
   });
 
-  it("separates a transaction from its enrichment, which share a partition", () => {
+  it("separates a transaction from its categorisation, which share a partition", () => {
     // They differ only by a marker in the sort key. Getting this wrong would
-    // compare enrichments as though a replay should have produced them.
+    // compare categorisations as though a replay should have produced them —
+    // a replay rebuilds the ledger from raw provider objects, and a category is
+    // not in one.
     const transaction = { pk: "T#frost#TX", sk: "2026-03-15T00:00:00Z#TX#n:abc" };
-    const enrichment = { pk: "T#frost#TX", sk: "2026-03-15T00:00:00Z#EN#n:abc" };
+    const categorisation = { pk: "T#frost#TX", sk: "2026-03-15T00:00:00Z#CAT#n:abc#built-in" };
     expect(isTransformProduced(transaction)).toBe(true);
-    expect(isTransformProduced(enrichment)).toBe(false);
+    expect(isTransformProduced(categorisation)).toBe(false);
   });
 });
 
@@ -56,7 +57,7 @@ describe("what gets compared", () => {
   const live: Row[] = [
     txn(),
     { pk: "T#frost", sk: "ACCOUNT#acc-1", displayName: "Current" },
-    { pk: "T#frost#TX", sk: "2026-03-15T00:00:00Z#EN#n:abc", category: "Groceries" },
+    { pk: "T#frost#TX", sk: "2026-03-15T00:00:00Z#CAT#n:abc#built-in", category: "groceries" },
     { pk: "T#frost", sk: "SETTINGS", enrichment: "rules" },
     { pk: "MEMBER#a@example.com", sk: "MEMBER" },
   ];
@@ -73,7 +74,7 @@ describe("what gets compared", () => {
   it("says what it skipped rather than filtering in silence", () => {
     // An unexplained subset is how a comparison stops meaning anything.
     const report = compareRows(live, [txn()]);
-    expect(report.skippedByKind).toEqual({ enrichment: 1, settings: 1, member: 1 });
+    expect(report.skippedByKind).toEqual({ categorisation: 1, settings: 1, member: 1 });
   });
 
   it("counts what it did compare, by kind", () => {
@@ -147,15 +148,15 @@ describe("the report", () => {
     // A replay cannot produce an enrichment — that comes from the categoriser,
     // not from a raw provider object. Leaving them out of the report without
     // saying so would make a reader think the comparison covered the whole table.
-    const enrichment = {
+    const categorisation = {
       pk: "T#frost#TX",
-      sk: "2026-03-15T00:00:00Z#EN#n:1",
-      kind: "EN",
-      category: "Groceries",
+      sk: "2026-03-15T00:00:00Z#CAT#n:1#built-in",
+      kind: "CAT",
+      category: "groceries",
     };
-    const text = formatReport(compareRows([txn(), enrichment], [txn(), enrichment]));
+    const text = formatReport(compareRows([txn(), categorisation], [txn(), categorisation]));
     expect(text).toContain("not produced by the transform");
-    expect(text).toContain("enrichment");
+    expect(text).toContain("categorisation");
   });
 
   it("truncates a long list rather than printing thousands of lines", () => {

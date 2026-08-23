@@ -31,7 +31,7 @@ export interface TransactionItem extends Record<string, unknown> {
  * rather than an investigation.
  *
  * No backlog marker is written. An earlier design put one here and removed it
- * when enrichment landed, but a plain put replaces the whole row — so replaying
+ * once, but a plain put replaces the whole row — so replaying
  * a raw object silently re-queued already-categorised transactions. The backlog
  * is derived instead, by diffing a range query that returns both kinds anyway.
  */
