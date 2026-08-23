@@ -45,9 +45,19 @@ export type Contribution = z.infer<typeof Contribution>;
 export const Rule = z.object({
   matcher: Matcher,
   contributes: Contribution,
-  /** Credits are excluded by default; an employer sharing a name with a
-   *  retailer once filed £62,868 of salary as Shopping. */
-  appliesTo: z.enum(["debits", "all"]).default("debits"),
+  /**
+   * Which direction the rule may match.
+   *
+   * Credits are excluded by default: an employer sharing a name with a retailer
+   * once filed £62,868 of salary as Shopping, and no pattern can tell a refund
+   * from income.
+   *
+   * `credits` exists because direction sometimes decides the category outright —
+   * interest is Income when received and Fees & Charges when paid, which is two
+   * rules over one matcher and cannot be said without it. Migrating the shipped
+   * patterns found 331 transactions that had lost their category for want of it.
+   */
+  appliesTo: z.enum(["debits", "credits", "all"]).default("debits"),
   note: z.string().optional(),
 });
 export type Rule = z.infer<typeof Rule>;

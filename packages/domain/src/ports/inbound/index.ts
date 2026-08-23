@@ -24,9 +24,13 @@ export interface CategoryTotal {
   readonly total: number;
   readonly count: number;
   /**
-   * True when the category is the provider's own payment type rather than one we
-   * produced. A bank's payment type is not a spending category, and counting it
-   * as one overstates how much of the ledger is actually categorised.
+   * True when every transaction in this category came from the provider's own
+   * payment type rather than a rule set. A bank's payment type is not a spending
+   * category, and counting it as one overstates how much of the ledger is
+   * actually categorised.
+   *
+   * Still a boolean here, because "which set" is not single-valued across a
+   * group. On a transaction it is `setId`, which says more.
    */
   readonly provisional: boolean;
 }
@@ -76,7 +80,14 @@ export interface CategorisedTransaction {
   readonly transactionType: string;
   readonly providerCategory?: string | undefined;
   readonly category: string;
-  readonly provisional: boolean;
+  /**
+   * Which rule set produced the category, `provider` where nothing did.
+   *
+   * Replaces a `provisional` boolean. Trust is a property of a set, so a client
+   * that knows the set knows everything the flag said and can say more — and it
+   * stops being something every consumer has to remember to check.
+   */
+  readonly setId: string;
 }
 
 /**

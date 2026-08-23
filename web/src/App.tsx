@@ -317,7 +317,7 @@ export function App({ session, api }: { session: Session; api: Api }) {
                   </td>
                   <td>{t.description}</td>
                   <td>
-                    <span className={`tag${t.provisional ? " provisional" : ""}`}>{t.category}</span>
+                    <span className={`tag${t.setId === "provider" ? " provisional" : ""}`}>{t.category}</span>
                   </td>
                   <td className="num" style={{ color: t.amount < 0 ? "var(--text-primary)" : "var(--in)" }}>
                     {money(t.amount, { sign: t.amount > 0 })}

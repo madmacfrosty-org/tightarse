@@ -246,6 +246,29 @@ describe("seeding the rules in service today", () => {
     expect(household?.rules[0]?.note).toBe("the corner shop");
   });
 
+  it("lets the household's own rules match credits, unlike the shipped ones", () => {
+    // No generic pattern can tell a refund from income. Somebody writing a rule
+    // for their own employer knows precisely which it is — and converting these
+    // as debits-only lost 185 income transactions their category.
+    const household = seedRuleSets({ now: NOW, custom }).find((s) => s.setId === "household");
+    expect(household?.rules.every((r) => r.appliesTo === "all")).toBe(true);
+
+    const builtIn = seedRuleSets({ now: NOW }).find((s) => s.setId === "built-in");
+    expect(builtIn?.rules.every((r) => r.appliesTo === "debits")).toBe(true);
+  });
+
+  it("seeds interest as two rules, because direction decides the category", () => {
+    const provider = seedRuleSets({ now: NOW }).find((s) => s.setId === "provider");
+    const interest = (provider?.rules ?? []).filter(
+      (r) => r.matcher.kind === "providerCategory" && r.matcher.value === "INTEREST",
+    );
+    expect(interest).toHaveLength(2);
+    expect(interest.map((r) => `${r.appliesTo}:${r.contributes.category}`).sort()).toEqual([
+      "credits:income",
+      "debits:fees-charges",
+    ]);
+  });
+
   it("produces sets that parse as the schema", () => {
     for (const s of seedRuleSets({ now: NOW, custom })) expect(() => RuleSet.parse(s)).not.toThrow();
   });

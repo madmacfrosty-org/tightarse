@@ -47,7 +47,6 @@ function print(report: CategoriseReport, opts: { write: boolean; from: string; t
   console.log(`  ${opts.write ? "written        " : "would change   "}  ${String(report.appended).padStart(6)}`);
   console.log(`  already correct  ${String(report.unchanged).padStart(6)}`);
   console.log(`  no rule matched  ${String(report.uncategorised).padStart(6)}`);
-  console.log(`  authored, left   ${String(report.protectedFromChange).padStart(6)}`);
   console.log(`  orphaned         ${String(report.orphaned).padStart(6)}`);
   console.log(`  conflicts        ${String(report.conflicts).padStart(6)}`);
   console.log(`  inert refines    ${String(report.inertRefines).padStart(6)}`);

@@ -23,7 +23,7 @@ import type {
   TransactionsResult,
 } from "../index.js";
 import { effectiveCategories, orderOf } from "./categories.js";
-import { mergeEnrichments, summarise, toAccountState, type EnrichmentRow, type LedgerRow } from "./summary.js";
+import { mergeEnrichments, summarise, toAccountState, type AssignedCategory, type LedgerRow } from "./summary.js";
 import { daysBetween, netPositionSeries, type AccountFacts, type Movement } from "./balances.js";
 import { clampToCoverage, completeFrom, coverageOf, type AccountCoverage } from "./coverage.js";
 
@@ -115,18 +115,13 @@ export async function summary(
   range: Range,
   opts: SummaryOptions = {},
 ): Promise<Summary> {
-  const [{ transactions, enrichments, categorisations }, sets] = await Promise.all([
+  const [{ transactions, categorisations }, sets] = await Promise.all([
     deps.ledger.listRange(tenantId, range),
     deps.ledger.listRuleSets(tenantId),
   ]);
   return summarise(
     transactions as unknown as LedgerRow[],
-    effectiveCategories(
-      transactions as unknown as LedgerRow[],
-      categorisations,
-      enrichments as unknown as EnrichmentRow[],
-      orderOf(sets),
-    ),
+    effectiveCategories(transactions as unknown as LedgerRow[], categorisations, orderOf(sets)),
     range,
     // `transfers: false` disables detection; the default enables it.
     opts.nettingTransfers === false ? { transfers: false } : {},
@@ -134,7 +129,7 @@ export async function summary(
 }
 
 export async function transactions(deps: Deps, tenantId: string, range: Range): Promise<TransactionsResult> {
-  const [{ transactions: txns, enrichments, categorisations }, sets] = await Promise.all([
+  const [{ transactions: txns, categorisations }, sets] = await Promise.all([
     deps.ledger.listRange(tenantId, range),
     deps.ledger.listRuleSets(tenantId),
   ]);
@@ -142,12 +137,7 @@ export async function transactions(deps: Deps, tenantId: string, range: Range): 
     range,
     transactions: mergeEnrichments(
       txns as unknown as LedgerRow[],
-      effectiveCategories(
-        txns as unknown as LedgerRow[],
-        categorisations,
-        enrichments as unknown as EnrichmentRow[],
-        orderOf(sets),
-      ),
+      effectiveCategories(txns as unknown as LedgerRow[], categorisations, orderOf(sets)),
     ),
   };
 }

@@ -93,8 +93,8 @@ describe("routing", () => {
     expect(body(res)["accounts"]).toEqual([{ accountId: "a1" }]);
   });
 
-  it("answers /transactions with the enrichment merged onto each row", async () => {
-    // The category comes from a separate enrichment row keyed to the
+  it("answers /transactions with the categorisation merged onto each row", async () => {
+    // The category comes from a separate categorisation row keyed to the
     // transaction. Returning the transactions unmerged loses every category on
     // the page while still looking like a successful response.
     listRange.mockResolvedValue({
@@ -108,13 +108,27 @@ describe("routing", () => {
           description: "SHOP",
         },
       ],
-      enrichments: [{ dedupKey: "k1", category: "Groceries" }],
-      categorisations: [],
+      enrichments: [],
+      categorisations: [
+        {
+          dedupKey: "k1",
+          timestamp: "2026-03-15T00:00:00Z",
+          category: "Groceries",
+          setId: "built-in",
+          setVersion: 2,
+          version: 1,
+          status: "effective",
+          appliedAt: "2026-03-16T00:00:00Z",
+        },
+      ],
     });
+    listRuleSets.mockResolvedValue([{ setId: "built-in", order: 2 }]);
     const res = await route(deps, event({ rawPath: "/v1/transactions" }) as never);
     const rows = body(res)["transactions"] as Array<Record<string, unknown>>;
     expect(rows).toHaveLength(1);
     expect(rows[0]!["category"]).toBe("Groceries");
+    // And says which set decided, which is what replaced the `provisional` flag.
+    expect(rows[0]!["setId"]).toBe("built-in");
   });
 
   it("returns the range it actually used alongside the transactions", async () => {

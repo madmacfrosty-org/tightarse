@@ -148,8 +148,9 @@
           "category": {
             "type": "string"
           },
-          "provisional": {
-            "$ref": "#/components/schemas/Provisional"
+          "setId": {
+            "type": "string",
+            "description": "Which rule set produced the category; `provider` where nothing did"
           }
         },
         "required": [
@@ -161,7 +162,7 @@
           "accountId",
           "transactionType",
           "category",
-          "provisional"
+          "setId"
         ],
         "additionalProperties": false
       },

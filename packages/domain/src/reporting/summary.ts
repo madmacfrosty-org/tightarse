@@ -5,6 +5,7 @@ import type {
   MonthTotal,
   Summary,
 } from "../index.js";
+import { PROVIDER_SET } from "../categorisation/provider.js";
 import { assertSingleCurrency } from "../index.js";
 import { detectTransfers, type TransferOptions } from "./transfers.js";
 
@@ -19,7 +20,7 @@ import { detectTransfers, type TransferOptions } from "./transfers.js";
  * of the application's own vocabulary. They are domain shapes; how they are spelled
  * on the wire is `wire.ts`'s problem.
  *
- * `LedgerRow` and `EnrichmentRow` stay below: they describe what comes back from
+ * `LedgerRow` and `AssignedCategory` stay below: they describe what comes back from
  * the ledger, which is an input to this file rather than a result.
  */
 // No re-export: these are declared in ports/inbound and reach consumers through
@@ -49,37 +50,44 @@ export interface LedgerRow {
   transactionType: string;
 }
 
-export interface EnrichmentRow {
+/**
+ * A category assigned to a transaction, and by which set.
+ *
+ * The set is here because trust is a property of a set, not a flag on a row —
+ * a client that knows a category came from the provider's own taxonomy knows
+ * everything the retired `provisional` boolean used to tell it, and can say
+ * more besides.
+ */
+export interface AssignedCategory {
   dedupKey: string;
   category: string;
+  setId: string;
 }
 
 
+
 /**
- * Category for a row: ours if the categoriser has produced one, otherwise the
- * provider's, marked provisional.
+ * Category for a row: what a rule set assigned, or the provider's own value.
  *
  * TrueLayer supplies no classification at all for First Direct, so
  * `providerCategory` is the coarse `transaction_category` — PURCHASE,
- * DIRECT_DEBIT and so on. Useful as a shape, not as a spending category.
+ * DIRECT_DEBIT and so on. Useful as a shape, not as a spending category, which
+ * is why it names its own set rather than passing as one of ours.
  */
-function categoryOf(
-  row: LedgerRow,
-  enriched: Map<string, EnrichmentRow>,
-): { category: string; provisional: boolean } {
-  const e = enriched.get(row.dedupKey);
-  if (e) return { category: e.category, provisional: false };
-  return { category: row.providerCategory ?? "UNCATEGORISED", provisional: true };
+function categoryOf(row: LedgerRow, assigned: Map<string, AssignedCategory>): { category: string; setId: string } {
+  const a = assigned.get(row.dedupKey);
+  if (a) return { category: a.category, setId: a.setId };
+  return { category: row.providerCategory ?? "UNCATEGORISED", setId: PROVIDER_SET };
 }
 
 export function summarise(
   transactions: readonly LedgerRow[],
-  enrichments: readonly EnrichmentRow[],
+  categorised: readonly AssignedCategory[],
   range: { from: string; to: string },
   opts: { transfers?: TransferOptions | false } = {},
 ): Summary {
   const currency = assertSingleCurrency(transactions);
-  const enriched = new Map(enrichments.map((e) => [e.dedupKey, e]));
+  const assigned = new Map(categorised.map((a) => [a.dedupKey, a]));
 
   // Transfers are excluded from income, spend and categories, but still counted
   // and reported — the money did move, and hiding it entirely would make
@@ -109,13 +117,15 @@ export function summarise(
     if (row.amount >= 0) income += row.amount;
     else spend += row.amount;
 
-    const { category, provisional } = categoryOf(row, enriched);
-    const c = categories.get(category) ?? { category, total: 0, count: 0, provisional };
+    const { category, setId } = categoryOf(row, assigned);
+    const fromProvider = setId === PROVIDER_SET;
+    const c = categories.get(category) ?? { category, total: 0, count: 0, provisional: fromProvider };
     c.total += row.amount;
     c.count += 1;
-    // Once any row in a category is properly enriched the group is no longer
-    // wholly provisional.
-    c.provisional = c.provisional && provisional;
+    // Still a boolean on the aggregate, because "which set" is not single-valued
+    // across a group. It now means every row here came from the provider's own
+    // value, rather than being a guess about whether anything categorised it.
+    c.provisional = c.provisional && fromProvider;
     categories.set(category, c);
 
     const month = row.timestamp.slice(0, 7);
@@ -141,19 +151,19 @@ export function summarise(
     internalTransfersNetted: opts.transfers !== false,
     transferCount: detection.keys.size,
     transferTotal: detection.totalMoved,
-    enrichedCount: transactions.filter((t) => enriched.has(t.dedupKey)).length,
+    enrichedCount: transactions.filter((t) => assigned.has(t.dedupKey)).length,
   };
 }
 
 /** Transactions with their category attached, newest first. */
 export function mergeEnrichments(
   transactions: readonly LedgerRow[],
-  enrichments: readonly EnrichmentRow[],
+  categorised: readonly AssignedCategory[],
 ): CategorisedTransaction[] {
-  const enriched = new Map(enrichments.map((e) => [e.dedupKey, e]));
+  const assigned = new Map(categorised.map((a) => [a.dedupKey, a]));
   return [...transactions]
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
-    .map((row) => ({ ...row, ...categoryOf(row, enriched) }));
+    .map((row) => ({ ...row, ...categoryOf(row, assigned) }));
 }
 
 /**

@@ -15,10 +15,6 @@ export function categorisationMetrics(report: CategoriseReport): Record<string, 
     CategorisationAppended: report.appended,
     CategorisationUnchanged: report.unchanged,
     CategorisationUncategorised: report.uncategorised,
-    // Left alone because an authored set produced them. Not a problem; a number
-    // that should be explicable rather than surprising when someone asks why a
-    // rule change did not reach a transaction.
-    CategorisationProtected: report.protectedFromChange,
     // A stored category nothing matches any more. Needs attention rather than
     // silence: keeping a category nobody can explain is worse than saying so.
     CategorisationOrphaned: report.orphaned,

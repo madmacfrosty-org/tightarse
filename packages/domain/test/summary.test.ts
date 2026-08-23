@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { summarise, mergeEnrichments, toAccountState, type LedgerRow, type EnrichmentRow } from "../src/reporting/summary.js";
+import { summarise, mergeEnrichments, toAccountState, type LedgerRow, type AssignedCategory } from "../src/reporting/summary.js";
 
 /**
  * Overrides for a test-data builder.
@@ -47,7 +47,7 @@ describe("summarise", () => {
   });
 
   it("prefers our category over the provider's and marks the difference", () => {
-    const enr: EnrichmentRow[] = [{ dedupKey: "n:1", category: "Groceries" }];
+    const enr: AssignedCategory[] = [{ dedupKey: "n:1", category: "Groceries", setId: "built-in" }];
     const s = summarise([row()], enr, range);
     expect(s.byCategory[0]!.category).toBe("Groceries");
     expect(s.byCategory[0]!.provisional).toBe(false);
@@ -111,11 +111,13 @@ describe("mergeEnrichments", () => {
   it("returns newest first with categories attached", () => {
     const merged = mergeEnrichments(
       [row({ timestamp: "2026-01-01T00:00:00Z" }), row({ dedupKey: "n:2", timestamp: "2026-06-01T00:00:00Z" })],
-      [{ dedupKey: "n:2", category: "Transport" }],
+      [{ dedupKey: "n:2", category: "Transport", setId: "built-in" }],
     );
     expect(merged[0]!.timestamp).toBe("2026-06-01T00:00:00Z");
     expect(merged[0]!.category).toBe("Transport");
-    expect(merged[1]!.provisional).toBe(true);
+    // Nothing assigned it, so it falls back to the provider's own value and
+    // says so by naming that set rather than by a flag.
+    expect(merged[1]!.setId).toBe("provider");
   });
 });
 

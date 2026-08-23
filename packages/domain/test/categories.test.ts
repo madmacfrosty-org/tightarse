@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { effectiveCategories, orderOf } from "../src/reporting/categories.js";
-import type { EnrichmentRow, LedgerRow } from "../src/reporting/summary.js";
+import type { AssignedCategory, LedgerRow } from "../src/reporting/summary.js";
 import type { Row } from "../src/ports/outbound/index.js";
 
 /**
@@ -38,40 +38,36 @@ const order = [
   { setId: "built-in", order: 2 },
 ];
 
-describe("preferring a categorisation over an enrichment", () => {
-  it("takes the categorisation where a transaction has both", () => {
-    // The categorisation is the one with provenance: it names the set and
-    // version that produced it, and can be re-derived.
-    const out = effectiveCategories([tx("d1")], [cat("d1", "fuel")], [{ dedupKey: "d1", category: "groceries" }], order);
-    expect(out).toEqual([{ dedupKey: "d1", category: "fuel" }]);
+describe("what a report shows", () => {
+  it("takes what a rule set assigned, naming the set", () => {
+    const out = effectiveCategories([tx("d1")], [cat("d1", "fuel")], order);
+    expect(out).toEqual([{ dedupKey: "d1", category: "fuel", setId: "built-in" }]);
   });
 
-  it("keeps the enrichment where nothing has categorised the transaction yet", () => {
-    // Deliberately additive. Removing the old path in the same change as
-    // switching the writer would leave a window with nothing to show.
-    const out = effectiveCategories([tx("d1")], [], [{ dedupKey: "d1", category: "groceries" }], order);
-    expect(out).toEqual([{ dedupKey: "d1", category: "groceries" }]);
+  it("says nothing for a transaction no rule set has categorised", () => {
+    // The enrichment rows the old mechanism wrote are no longer read: they are
+    // answers no current rule produces and nothing can explain. Uncategorised
+    // is the true answer, and it is the one that prompts a fix.
+    expect(effectiveCategories([tx("d1")], [], order)).toEqual([]);
   });
 
   it("says nothing about a transaction neither has touched", () => {
-    expect(effectiveCategories([tx("d1")], [], [], order)).toEqual([]);
+    expect(effectiveCategories([tx("d1")], [], order)).toEqual([]);
   });
 
   it("takes the most trusted set when several have an opinion", () => {
     const out = effectiveCategories(
       [tx("d1")],
       [cat("d1", "shopping", { setId: "household" }), cat("d1", "fuel")],
-      [],
       order,
     );
-    expect(out).toEqual([{ dedupKey: "d1", category: "shopping" }]);
+    expect(out).toEqual([{ dedupKey: "d1", category: "shopping", setId: "household" }]);
   });
 
   it("takes the newest version within a set", () => {
     const out = effectiveCategories(
       [tx("d1")],
       [cat("d1", "fuel", { version: 1 }), cat("d1", "transport", { version: 2 })],
-      [],
       order,
     );
     expect(out[0]?.category).toBe("transport");
@@ -81,7 +77,6 @@ describe("preferring a categorisation over an enrichment", () => {
     const out = effectiveCategories(
       [tx("d1")],
       [cat("d1", "fuel", { version: 1 }), cat("d1", "transport", { version: 2, status: "proposed" })],
-      [],
       order,
     );
     expect(out[0]?.category).toBe("fuel");
@@ -93,13 +88,13 @@ describe("preferring a categorisation over an enrichment", () => {
     // already falls back to it and marks it provisional, which is the honest
     // reading; promoting it here would quietly call it certain.
     const withProvider = tx("d1", { providerCategory: "PURCHASE" } as never);
-    expect(effectiveCategories([withProvider], [], [], order)).toEqual([]);
+    expect(effectiveCategories([withProvider], [], order)).toEqual([]);
   });
 
   it("shows nothing when the only version stored is proposed", () => {
     // A proposal must not change what is displayed, so a transaction whose only
     // categorisation is proposed reads as uncategorised rather than as decided.
-    const out = effectiveCategories([tx("d1")], [cat("d1", "fuel", { status: "proposed" })], [], order);
+    const out = effectiveCategories([tx("d1")], [cat("d1", "fuel", { status: "proposed" })], order);
     expect(out).toEqual([]);
   });
 
@@ -107,14 +102,14 @@ describe("preferring a categorisation over an enrichment", () => {
     // A range query returns whatever shares the partition, and one bad row must
     // not stop a household seeing its spending.
     const junk = { pk: "T#frost#TX", sk: "nonsense" } as Row;
-    const out = effectiveCategories([tx("d1")], [junk, cat("d1", "fuel")], [], order);
-    expect(out).toEqual([{ dedupKey: "d1", category: "fuel" }]);
+    const out = effectiveCategories([tx("d1")], [junk, cat("d1", "fuel")], order);
+    expect(out).toEqual([{ dedupKey: "d1", category: "fuel", setId: "built-in" }]);
   });
 
   it("leaves a set it has no ranking for behind one it does", () => {
     // Ranking last rather than dropping: a categorisation invisible because
     // someone forgot to rank its set is a silent failure.
-    const out = effectiveCategories([tx("d1")], [cat("d1", "fuel"), cat("d1", "other", { setId: "mystery" })], [], order);
+    const out = effectiveCategories([tx("d1")], [cat("d1", "fuel"), cat("d1", "other", { setId: "mystery" })], order);
     expect(out[0]?.category).toBe("fuel");
   });
 });

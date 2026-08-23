@@ -110,11 +110,28 @@ export function builtInRules(): Rule[] {
  * description is usually a location rather than a merchant.
  */
 export function providerRules(): Rule[] {
-  return Object.entries(PROVIDER_RULES).map(([value, label]) => ({
+  const rules: Rule[] = Object.entries(PROVIDER_RULES).map(([value, label]) => ({
     matcher: { kind: "providerCategory" as const, value },
     contributes: { kind: "assert" as const, category: slugFor(label) },
     appliesTo: "debits" as const,
   }));
+
+  // Interest is Income when received and Fees & Charges when paid. Direction
+  // decides, not the label — which is two rules over one matcher, and the
+  // reason `appliesTo` has a `credits` option at all.
+  rules.push(
+    {
+      matcher: { kind: "providerCategory", value: "INTEREST" },
+      contributes: { kind: "assert", category: slugFor("Income") },
+      appliesTo: "credits",
+    },
+    {
+      matcher: { kind: "providerCategory", value: "INTEREST" },
+      contributes: { kind: "assert", category: slugFor("Fees & Charges") },
+      appliesTo: "debits",
+    },
+  );
+  return rules;
 }
 
 /** The household's own rules, which name categories by label today. */
@@ -122,7 +139,14 @@ export function householdRules(custom: readonly CustomRule[]): Rule[] {
   return custom.map((r) => ({
     matcher: { kind: "merchant" as const, pattern: r.pattern },
     contributes: { kind: "assert" as const, category: slugFor(r.category) },
-    appliesTo: "debits" as const,
+    // `all`, unlike the shipped patterns. A generic rule must not match credits
+    // because no pattern can tell a refund from income — but somebody writing a
+    // rule for their own employer knows precisely which it is, and that is the
+    // one case where the author has context the pattern lacks.
+    //
+    // The first migration converted these as debits-only and lost 185 income
+    // transactions their category, which is how this was found.
+    appliesTo: "all" as const,
     ...(r.note === undefined ? {} : { note: r.note }),
   }));
 }

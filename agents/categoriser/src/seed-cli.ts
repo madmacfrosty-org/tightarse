@@ -2,7 +2,8 @@
  * Seed the categorisation model: categories, and the rules in service today.
  *
  *   TENANT=frost TABLE=<name> npm run seed -w @tightarse/categoriser
- *   ... -- --write        actually write
+ *   ... -- --write           record the proposal
+ *   ... -- --write --accept  record it and publish it
  *
  * Dry by default, and deliberately the wrong way round from the other commands.
  * Applying rules is reversible — re-application is total and idempotent, so a
@@ -16,7 +17,7 @@
  */
 
 import { DynamoStore } from "@tightarse/dynamodb";
-import { SEED_CATEGORIES, seedRuleSets } from "@tightarse/domain";
+import { decide, propose, SEED_CATEGORIES, seedRuleSets } from "@tightarse/domain";
 
 function required(name: string): string {
   const v = process.env[name];
@@ -66,9 +67,25 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Categories first: a proposal naming one that does not exist is refused, and
+  // on a first run none of them do.
   for (const c of SEED_CATEGORIES) await ledger.putCategory(tenantId, c);
-  for (const s of sets) await ledger.putRuleSetVersion(tenantId, s);
-  console.log(`\nwrote ${SEED_CATEGORIES.length} categories and ${sets.length} rule sets`);
+
+  // Through the same door as every other rule change, so re-seeding after a fix
+  // writes the next version rather than colliding with a published one.
+  const recorded = await propose({ ruleSets: ledger, categories: ledger }, tenantId, sets, {
+    now: new Date(),
+    by: `seed:${process.env["USER"] ?? "operator"}`,
+  });
+  console.log(`\nwrote ${SEED_CATEGORIES.length} categories`);
+  for (const r of recorded) console.log(`  ${r.setId.padEnd(12)} v${r.version} proposed  ${r.rules} rules`);
+
+  if (!process.argv.includes("--accept")) {
+    console.log(`\nProposed, not in force. Re-run with --write --accept to publish.`);
+    return;
+  }
+  const decided = await decide({ ruleSets: ledger }, tenantId, recorded, { status: "effective" });
+  for (const d of decided) console.log(`  ${d.setId.padEnd(12)} v${d.version} is now effective`);
 }
 
 main().catch((err: unknown) => {
