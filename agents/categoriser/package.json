@@ -13,7 +13,8 @@
     "test:coverage": "vitest run --coverage",
     "test:mutation": "stryker run",
     "seed": "tsx src/seed-cli.ts",
-    "categorise": "tsx src/categorise-cli.ts"
+    "categorise": "tsx src/categorise-cli.ts",
+    "optimise": "tsx src/optimise-cli.ts"
   },
   "dependencies": {
     "@tightarse/domain": "*",
