@@ -5,6 +5,7 @@
  *   TABLE=<name> npm run rules -w @tightarse/categoriser -- add "<regex>" "<category-id>" ["note"]
  *   TABLE=<name> npm run rules -w @tightarse/categoriser -- remove "<regex>"
  *   TABLE=<name> npm run rules -w @tightarse/categoriser -- test "some description"
+ *   TABLE=<name> npm run rules -w @tightarse/categoriser -- override "<dedupKey>" "<category-id>"
  *   ... -- --propose            record the change without publishing it
  *
  * These live in the table, never in the repository. The shipped patterns are
@@ -23,6 +24,8 @@ import { DynamoStore } from "@tightarse/dynamodb";
 import {
   decide,
   evaluate,
+  overrideRule,
+  overridesSet,
   propose,
   RuleSet,
   type Rule,
@@ -33,6 +36,7 @@ const usage = `usage:
   rules add "<regex>" "<category-id>" ["note"]
   rules remove "<regex>"
   rules test "<description>"
+  rules override "<dedupKey>" "<category-id>" ["note"]
 
   --propose   record the change without publishing it`;
 
@@ -135,6 +139,34 @@ async function main(): Promise<void> {
         return;
       }
       await change(next, `removed: ${a}`);
+      return;
+    }
+
+    case "override": {
+      if (!a || !b) throw new Error(usage);
+      // A correction is a rule with a transaction matcher, in its own authored
+      // set above everything. One mechanism, one history, one place to ask why
+      // a transaction says what it does — and generalising it later is moving
+      // the rule down a set with its matcher widened.
+      const overrides = overridesSet(sets, new Date());
+      const rule = overrideRule(a, b, c);
+      const next = [
+        ...overrides.rules.filter((r) => !(r.matcher.kind === "transaction" && r.matcher.dedupKey === a)),
+        rule,
+      ];
+      const [recorded] = await propose(
+        { ruleSets: ledger, categories: ledger },
+        tenantId,
+        [{ ...overrides, rules: next }],
+        { now: new Date(), by },
+      );
+      if (!recorded) return;
+      if (holding) {
+        console.log(`corrected ${a} -> ${b}\nproposed as overrides v${recorded.version} — not yet in force`);
+        return;
+      }
+      await decide({ ruleSets: ledger }, tenantId, [recorded], { status: "effective" });
+      console.log(`corrected ${a} -> ${b}\npublished as overrides v${recorded.version}  (${next.length} corrections)`);
       return;
     }
 
