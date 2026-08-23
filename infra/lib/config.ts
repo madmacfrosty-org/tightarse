@@ -220,8 +220,11 @@ const SETTINGS: Record<EnvName, EnvSettings> = {
     hostedUiPrefix: "tightarse-dev-068475",
     hostedUiPrefixV2: "tightarse-dev-068475-b",
     siteUrl: "https://d235jlz4kj7lqs.cloudfront.net",
-    // Set false at the cutover, in the deploy that hands syncing to prod.
-    syncEnabled: true,
+    // False since the cutover on 23 August 2026. Prod holds the connections and
+    // is the only deployment that may refresh them; a dev refresh would spend a
+    // token prod is holding, and the connection would die days later. See the
+    // reasoning on EnvSettings.syncEnabled and #43.
+    syncEnabled: false,
     rawRetentionDays: 30,
     // No IA transition: 30 days is inside IA's minimum billing duration.
   },

@@ -101,13 +101,16 @@ describe("sync ownership", () => {
     return steps?.Properties?.Environment?.Variables?.SYNC_ENABLED;
   }
 
-  it("tells the sync whether this deployment may refresh a connection", () => {
-    // A refresh token rotates on use and invalidates its predecessor, so two
-    // deployments holding one connection destroy it — the loser writes back a
-    // token the winner has already spent. The flag is how exactly one
-    // deployment is nominated, and it has to reach the function to mean
-    // anything.
-    expect(syncEnabledOf(ingest)).toBe("true");
+  it("nominates prod, and only prod, to refresh the connections", () => {
+    // Which deployment owns the household's connections, stated where a change
+    // to it cannot be incidental. Prod took them over on 23 August 2026; dev
+    // holds copies of the same secrets and must never spend one, because a
+    // refresh token can rotate on use and the loser writes back a token the
+    // winner has already spent.
+    //
+    // If this fails, ownership has moved. That is a decision, not a detail:
+    // change it here on purpose, or find out why something changed it for you.
+    expect(syncEnabledOf(ingest)).toBe("false");
     expect(syncEnabledOf(prod.ingest)).toBe("true");
   });
 
