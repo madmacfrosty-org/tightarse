@@ -21,12 +21,14 @@
 
 import { DynamoStore } from "@tightarse/dynamodb";
 import {
+  candidateOf,
   currentSets,
   decide,
   mayApproveAutomatically,
   noProposals,
   optimise,
   propose,
+  reviewOverrides,
   type OptimiseReport,
   type RuleProposer,
 } from "@tightarse/domain";
@@ -61,6 +63,21 @@ async function main(): Promise<void> {
   );
 
   print(report);
+
+  // Corrections, judged against what the rules would say without them. Here
+  // rather than in `rules`, because it needs the corpus.
+  const sets = (await ledger.listRuleSets(tenantId)).map((r) => RuleSet.parse(r));
+  const { transactions } = await ledger.listRange(tenantId, { from, to });
+  const review = reviewOverrides(sets, transactions.map(candidateOf));
+  if (review.total > 0) {
+    console.log(`\n${review.total} corrections:`);
+    console.log(`  redundant      ${String(review.redundant.length).padStart(5)}  the rules now agree`);
+    console.log(`  contradicted   ${String(review.contradicted.length).padStart(5)}  a rule is wrong`);
+    console.log(`  orphaned       ${String(review.orphaned.length).padStart(5)}  no such transaction in range`);
+    for (const c of review.contradicted.slice(0, 10)) {
+      console.log(`    ${c.dedupKey}  you said ${c.corrected}, ${c.saidBy} says ${c.rulesSay}`);
+    }
+  }
 
   if (report.proposed.length === 0) return;
 
