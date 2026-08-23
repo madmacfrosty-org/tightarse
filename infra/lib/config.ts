@@ -171,6 +171,30 @@ export interface EnvSettings {
    * human.
    */
   readonly web?: { readonly domainName: string; readonly certificateArn: string };
+  /**
+   * Whether this deployment refreshes bank connections.
+   *
+   * A connection's refresh token rotates on every use and the previous one is
+   * invalidated, so two deployments holding the same connection destroy it: the
+   * second to refresh presents a token the first has already spent, and both
+   * write back what they got. `connections.ts` describes the result as the
+   * difference between a connection that keeps working and one that dies
+   * quietly a few days later.
+   *
+   * The cutover therefore needs exactly one deployment syncing at a time, and
+   * this is how that is stated. It gates the refresh, not the connect flow —
+   * establishing a connection creates a token rather than spending one, and a
+   * deployment that cannot connect could never be set up at all.
+   *
+   * Deliberately not `events.Rule.enabled`. Disabling the schedule stops the
+   * daily trigger and leaves a manual execution free to refresh; this sits in
+   * the path that touches the token, so every route through it is covered.
+   * Deliberately not a runtime toggle either: a value flipped in a console is
+   * drift, and the next deploy silently reverts it with nothing in the diff to
+   * say so. `aws events disable-rule` remains available as an emergency brake,
+   * which is safe precisely because the durable answer lives here.
+   */
+  readonly syncEnabled: boolean;
   /** How long raw landing-zone objects are kept. See the retention notes on #15. */
   readonly rawRetentionDays: number;
   /**
@@ -196,6 +220,8 @@ const SETTINGS: Record<EnvName, EnvSettings> = {
     hostedUiPrefix: "tightarse-dev-068475",
     hostedUiPrefixV2: "tightarse-dev-068475-b",
     siteUrl: "https://d235jlz4kj7lqs.cloudfront.net",
+    // Set false at the cutover, in the deploy that hands syncing to prod.
+    syncEnabled: true,
     rawRetentionDays: 30,
     // No IA transition: 30 days is inside IA's minimum billing duration.
   },
@@ -223,6 +249,7 @@ const SETTINGS: Record<EnvName, EnvSettings> = {
      * pointed at it.
      */
     siteUrl: "https://tightarse.madmacfrosty.co.uk",
+    syncEnabled: true,
     // Long enough to survive a transform rewrite, not indefinite.
     rawRetentionDays: 365,
     rawTransitionToIaDays: 30,

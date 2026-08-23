@@ -53,7 +53,7 @@ function fakes(
    */
   const config: Pick<
     StepDeps,
-    "tenantId" | "rawBucket" | "providerEnvironment" | "deploymentEnvironment"
+    "tenantId" | "rawBucket" | "providerEnvironment" | "deploymentEnvironment" | "syncEnabled"
   > = {
     tenantId: "frost",
     rawBucket: "raw-bucket",
@@ -61,6 +61,7 @@ function fakes(
     // accidentally reading the other.
     providerEnvironment: "live",
     deploymentEnvironment: "dev",
+    syncEnabled: true,
   };
 
   const deps = {
@@ -153,9 +154,44 @@ describe("listConnections", () => {
     const out = await listConnections(deps, { input: { connectionId: "conn-2" } });
     expect(out.connections.map((c) => c.connectionId)).toEqual(["conn-2"]);
   });
+
+  it("reports nothing to sync on a deployment that has handed syncing over", async () => {
+    // Two deployments refreshing one connection destroy it: the token rotates
+    // and the loser holds a spent one. An empty list makes the daily run an
+    // ordinary empty execution rather than a failure to investigate.
+    const { deps } = fakes();
+    const out = await listConnections({ ...deps, syncEnabled: false }, {});
+    expect(out.connections).toEqual([]);
+  });
+
+  it("says so in a metric, because every alarm here reads absence as health", async () => {
+    // ItemsFailed and BalanceStalenessSeconds treat missing data as not
+    // breaching, ConsentDaysRemaining as missing. Without this emission a
+    // deployment that is switched off and one that is quietly broken produce
+    // identical CloudWatch — and the consent alarm is what stops a feed lapsing
+    // unnoticed at 90 days.
+    const emitted: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((l: string) => emitted.push(l));
+    const { deps } = fakes();
+    await listConnections({ ...deps, syncEnabled: false }, {});
+    spy.mockRestore();
+    const doc = emitted.map((l) => JSON.parse(l)).find((d) => "SyncSuppressed" in d);
+    expect(doc?.SyncSuppressed).toBe(1);
+  });
 });
 
 describe("refreshAndList", () => {
+  it("refuses outright when this deployment has handed syncing over", async () => {
+    // The daily run cannot reach here — it gets an empty list. Reaching it means
+    // the step was invoked directly, and refreshing would spend a token the
+    // other deployment now owns. There is no legitimate caller to return a
+    // skip to, so this fails loudly instead.
+    const { deps } = fakes();
+    await expect(
+      refreshAndList({ ...deps, syncEnabled: false }, { connection: connection() }),
+    ).rejects.toThrow(/Refusing to refresh/);
+  });
+
   it("persists a rotated refresh token before doing anything else", async () => {
     // A rotated token that is not saved kills the connection on the next run.
     const { deps, updated } = fakes();
@@ -479,6 +515,19 @@ describe("the two environments", () => {
     expect(stepEnvironments({}).deploymentEnvironment).toBe("dev");
   });
 
+  it("treats an unset SYNC_ENABLED as enabled", () => {
+    // The safe default is the behaviour every deployment had before the flag
+    // existed. Defaulting to disabled would stop a sync silently on any
+    // deployment that missed the variable, and nothing would say so: every
+    // alarm on this sync treats missing data as health.
+    expect(stepEnvironments({}).syncEnabled).toBe(true);
+    expect(stepEnvironments({ SYNC_ENABLED: "true" }).syncEnabled).toBe(true);
+  });
+
+  it("disables syncing only on the exact string false", () => {
+    expect(stepEnvironments({ SYNC_ENABLED: "false" }).syncEnabled).toBe(false);
+  });
+
   it("reports sandbox only when TL_ENV says so", () => {
     expect(stepEnvironments({ TL_ENV: "sandbox" }).providerEnvironment).toBe("sandbox");
   });
@@ -496,6 +545,11 @@ describe("the two environments", () => {
     expect(stepEnvironments({ TL_ENV: "live", ENVIRONMENT: "prod" })).toEqual({
       providerEnvironment: "live",
       deploymentEnvironment: "prod",
+      // Whole-object rather than field-by-field, deliberately: it is what
+      // caught the two environments being conflated, and it fails when a new
+      // field arrives so nobody adds one without deciding what it should be
+      // here.
+      syncEnabled: true,
     });
   });
 });

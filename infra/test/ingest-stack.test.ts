@@ -91,6 +91,36 @@ describe("schedules", () => {
   });
 });
 
+describe("sync ownership", () => {
+  /** SYNC_ENABLED as the deployed steps function would read it. */
+  function syncEnabledOf(t: ReturnType<typeof templates>["ingest"]): string | undefined {
+    const fns = Object.values(t.findResources("AWS::Lambda::Function"));
+    const steps = fns.find((f: any) =>
+      JSON.stringify(f.Properties?.Environment?.Variables ?? {}).includes("CONNECTION_SECRET_PREFIX"),
+    ) as any;
+    return steps?.Properties?.Environment?.Variables?.SYNC_ENABLED;
+  }
+
+  it("tells the sync whether this deployment may refresh a connection", () => {
+    // A refresh token rotates on use and invalidates its predecessor, so two
+    // deployments holding one connection destroy it — the loser writes back a
+    // token the winner has already spent. The flag is how exactly one
+    // deployment is nominated, and it has to reach the function to mean
+    // anything.
+    expect(syncEnabledOf(ingest)).toBe("true");
+    expect(syncEnabledOf(prod.ingest)).toBe("true");
+  });
+
+  it("carries the setting through rather than hard-coding it", () => {
+    // Synthesised from a settings object that says false, because the value
+    // that matters is the one nobody has deployed yet: the cutover deploy. A
+    // test pinned to today's `true` would pass just as happily against a
+    // literal.
+    const off = templates({}, { syncEnabled: false });
+    expect(syncEnabledOf(off.ingest)).toBe("false");
+  });
+});
+
 describe("lambda sizing", () => {
   it("stays within the new-account memory quota", () => {
     // 512 is the ceiling until the account's Lambda quota is raised; 1024 was
