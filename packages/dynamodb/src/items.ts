@@ -3,7 +3,6 @@ import {
   type Account,
   type Consent,
   type Transaction,
-  type TransactionEnrichment,
   type RuleSet,
   type Categorisation,
 } from "@tightarse/domain";
@@ -55,11 +54,6 @@ export function transactionItem(
     ...(opts.sourceObject ? { sourceObject: opts.sourceObject } : {}),
     ingestedAt: opts.ingestedAt ?? new Date().toISOString(),
   };
-}
-
-export function enrichmentItem(e: TransactionEnrichment): Record<string, unknown> {
-  const { pk, sk } = keys.enrichment(e.tenantId, e.timestamp, e.dedupKey);
-  return { pk, sk, kind: RowKind.enrichment, ...e };
 }
 
 /**

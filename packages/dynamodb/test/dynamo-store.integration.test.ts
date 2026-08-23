@@ -185,79 +185,9 @@ suite("DynamoStore (integration)", () => {
     expect(row!["amount"]).toBe(-1250);
   });
 
-  it("returns a transaction and its enrichment from one query, adjacent", async () => {
-    const t = txn({ normalisedProviderTransactionId: "enr", timestamp: "2026-06-10T00:00:00Z" });
-    await ledger.putTransactions([t]);
-    await ledger.putEnrichment({
-      tenantId: TENANT,
-      dedupKey: dedupKey(t),
-      timestamp: "2026-06-10T00:00:00Z",
-      category: "Groceries",
-      producedBy: "itest",
-      producedAt: new Date().toISOString(),
-    });
 
-    const res = await ledger.listRange(TENANT, { from: "2026-06-01", to: "2026-07-01" });
-    expect(res.transactions).toHaveLength(1);
-    expect(res.enrichments).toHaveLength(1);
-    expect(res.enrichments[0]!["category"]).toBe("Groceries");
-  });
 
-  it("drops a transaction from the backlog once enriched", async () => {
-    const range = { from: "2026-07-01", to: "2026-08-01" };
-    const t = txn({ normalisedProviderTransactionId: "backlog", timestamp: "2026-07-04T00:00:00Z" });
-    await ledger.putTransactions([t]);
 
-    const before = await ledger.listToEnrich(TENANT, range);
-    expect(before.some((r) => r["dedupKey"] === dedupKey(t))).toBe(true);
-
-    await ledger.putEnrichment({
-      tenantId: TENANT,
-      dedupKey: dedupKey(t),
-      timestamp: "2026-07-04T00:00:00Z",
-      category: "Transport",
-      producedBy: "itest",
-      producedAt: new Date().toISOString(),
-    });
-
-    expect(await ledger.listToEnrich(TENANT, range)).toHaveLength(0);
-  });
-
-  it("does NOT re-queue an enriched transaction when its raw object is replayed", async () => {
-    // The regression this whole design exists to prevent. Replay is the point
-    // of the landing zone, so re-queueing on replay would make a full re-run of
-    // the categoriser the normal case — at LLM cost, and overwriting any
-    // hand-corrected category with the model's original answer.
-    const range = { from: "2026-10-01", to: "2026-11-01" };
-    const t = txn({ normalisedProviderTransactionId: "replay", timestamp: "2026-10-10T00:00:00Z" });
-
-    await ledger.putTransactions([t]);
-    await ledger.putEnrichment({
-      tenantId: TENANT,
-      dedupKey: dedupKey(t),
-      timestamp: "2026-10-10T00:00:00Z",
-      category: "Groceries",
-      producedBy: "itest",
-      producedAt: new Date().toISOString(),
-    });
-    expect(await ledger.listToEnrich(TENANT, range)).toHaveLength(0);
-
-    await ledger.putTransactions([t]);
-    expect(await ledger.listToEnrich(TENANT, range)).toHaveLength(0);
-  });
-
-  it("refuses an enrichment for a transaction that does not exist", async () => {
-    await expect(
-      ledger.putEnrichment({
-        tenantId: TENANT,
-        dedupKey: "n:ghost",
-        timestamp: "2026-01-01T00:00:00Z",
-        category: "Nothing",
-        producedBy: "itest",
-        producedAt: new Date().toISOString(),
-      }),
-    ).rejects.toThrow();
-  });
 
   it("serves per-account history from gsi1", async () => {
     await ledger.putTransactions([
@@ -645,21 +575,6 @@ suite("control plane: settings, consents and the legacy rules row", () => {
     expect(await store.getCustomRules(`${TENANT}-absent`)).toEqual([]);
   });
 
-  it("refuses to categorise a transaction that does not exist", async () => {
-    // Enforced by a condition on the write rather than by a check beforehand,
-    // which is the right place: only the datastore can make "the transaction is
-    // still there" and "the enrichment is written" one atomic decision.
-    await expect(
-      store.putEnrichment({
-        tenantId: TENANT,
-        dedupKey: "no-such-transaction",
-        timestamp: "2026-05-01T00:00:00Z",
-        category: "Groceries",
-        producedBy: "rules@v2",
-        producedAt: "2026-08-18T00:00:00Z",
-      }),
-    ).rejects.toThrow();
-  });
 
   it("records a consent and lists it", async () => {
     await store.putConsent({
@@ -674,34 +589,6 @@ suite("control plane: settings, consents and the legacy rules row", () => {
     expect(consents.map((c) => c["consentId"])).toContain(`conn-${TENANT}`);
   });
 
-  it("deletes only the enrichments a given producer made", async () => {
-    // The blast radius that matters: a model change should invalidate its own
-    // output wholesale and leave every other generation alone.
-    const range = { from: "2026-05-01", to: "2026-05-02" };
-    const t: Transaction = {
-      tenantId: TENANT,
-      accountId: "del",
-      status: "settled",
-      currency: "GBP",
-      transactionId: "del-1",
-      timestamp: "2026-05-01T00:00:00Z",
-      amount: -1_00,
-      description: "x",
-      transactionType: "DEBIT",
-      providerTransactionId: "del-1",
-    };
-    const u: Transaction = { ...t, transactionId: "del-2", providerTransactionId: "del-2", amount: -2_00 };
-    await store.putTransactions([t, u]);
-    const key = dedupKey(t);
-    await store.putEnrichment({ tenantId: TENANT, dedupKey: key, timestamp: t.timestamp, category: "Groceries", producedBy: "rules@v2", producedAt: "2026-08-18T00:00:00Z" });
-    await store.putEnrichment({ tenantId: TENANT, dedupKey: dedupKey(u), timestamp: u.timestamp, category: "Fuel", producedBy: "model@v1", producedAt: "2026-08-18T00:00:00Z" });
-
-    const removed = await store.deleteEnrichments(TENANT, range, "rules@v2");
-    expect(removed.deleted).toBe(1);
-
-    const { enrichments } = await store.listRange(TENANT, range);
-    expect(enrichments.map((e) => e["producedBy"])).toEqual(["model@v1"]);
-  });
 });
 
 suite("the category catalogue", () => {

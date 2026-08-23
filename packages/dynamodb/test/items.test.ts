@@ -1,10 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   type Transaction,
-  type TransactionEnrichment,
 } from "@tightarse/domain";
 import { RowKind } from "../src/keys.js";
-import { categorisationItems, ruleSetItems, transactionItem, enrichmentItem, pendingItem } from "../src/items";
+import { categorisationItems, ruleSetItems, transactionItem, pendingItem } from "../src/items";
 
 const txn = (over: Partial<Transaction> = {}): Transaction => ({
   tenantId: "frost",
@@ -49,25 +48,6 @@ describe("transactionItem", () => {
   });
 });
 
-describe("enrichmentItem", () => {
-  it("lands in the same partition and at the same timestamp as its transaction", () => {
-    const t = transactionItem(txn());
-    const e: TransactionEnrichment = {
-      tenantId: "frost",
-      dedupKey: "n:stable-id",
-      timestamp: "2026-08-08T00:00:00Z",
-      category: "Groceries",
-      producedBy: "test",
-      producedAt: "2026-08-09T00:00:00Z",
-    };
-    const item = enrichmentItem(e);
-    expect(item["pk"]).toBe(t.pk);
-    // Same timestamp prefix, different kind marker — that adjacency is what
-    // lets one range query return both.
-    expect(String(item["sk"]).startsWith("2026-08-08T00:00:00Z")).toBe(true);
-    expect(String(item["sk"])).toContain(`#${RowKind.enrichment}#`);
-  });
-});
 
 describe("pendingItem", () => {
   it("carries a TTL so a stopped sync does not leave stale rows looking live", () => {

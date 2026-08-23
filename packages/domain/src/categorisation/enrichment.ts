@@ -1,4 +1,16 @@
 /**
+ * What survives of the enrichment era.
+ *
+ * Both are still live and both keep their names because the names describe the
+ * data: `EnrichmentMode` is the household setting literally called `enrichment`,
+ * and `CustomRule` is the shape of the legacy rules row, which is read once by
+ * the seed and never written.
+ *
+ * The enrichment ROWS, their port and their adapter are gone — categorisations
+ * replaced them. Nothing here writes anything.
+ */
+
+/**
  * The categorisation model being replaced, and the household's own overrides.
  *
  * `TransactionEnrichment` is the live path; `Categorisation` in this directory is
@@ -8,23 +20,6 @@
 import { z } from "zod";
 import { TenantId } from "../household/member.js";
 
-/**
- * Agent output lives in its own item type and never mutates a Transaction.
- * The ledger is deterministic; derived data is separate and re-computable.
- */
-export const TransactionEnrichment = z.object({
-  tenantId: TenantId,
-  /** Identifies the transaction. Not `transactionId` — that is unstable. */
-  dedupKey: z.string().min(1),
-  /** Copied from the transaction so the enrichment's key can be derived
-   *  without reading it back. */
-  timestamp: z.string().datetime(),
-  category: z.string(),
-  /** Which agent/model produced this, so it can be invalidated wholesale. */
-  producedBy: z.string(),
-  producedAt: z.string().datetime(),
-});
-export type TransactionEnrichment = z.infer<typeof TransactionEnrichment>;
 
 /**
  * How a household's transactions get categorised.
@@ -35,6 +30,14 @@ export type TransactionEnrichment = z.infer<typeof TransactionEnrichment>;
  *
  * Explicit rather than implied by whether the categoriser has run, so "no
  * categories" is a stated choice rather than an unfinished job.
+ */
+/**
+ * Whether to categorise this household at all.
+ *
+ * `model` is a legacy value: nothing has classified with a model since that path
+ * was deleted, and rules are the only thing categorisation does. Kept so stored
+ * settings still parse — a household that chose it gets its rules applied, which
+ * is what it was asking for.
  */
 export const EnrichmentMode = z.enum(["off", "rules", "model"]);
 export type EnrichmentMode = z.infer<typeof EnrichmentMode>;

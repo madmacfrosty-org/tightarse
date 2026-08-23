@@ -156,7 +156,7 @@ export function summarise(
 }
 
 /** Transactions with their category attached, newest first. */
-export function mergeEnrichments(
+export function mergeCategories(
   transactions: readonly LedgerRow[],
   categorised: readonly AssignedCategory[],
 ): CategorisedTransaction[] {
