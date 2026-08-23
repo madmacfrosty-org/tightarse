@@ -50,6 +50,14 @@ export interface StepDeps {
    * `infra/lib/ingest-stack.ts` watched "dev". Three alarms could not fire, and
    * because they treat missing data as not breaching they looked healthy.
    */
+  /**
+   * Whether this deployment may refresh a connection.
+   *
+   * False on a deployment that has handed syncing over. See the reasoning on
+   * `EnvSettings.syncEnabled` in infra/lib/config.ts: two deployments refreshing
+   * one connection destroy it.
+   */
+  readonly syncEnabled: boolean;
   readonly providerEnvironment: string;
   /**
    * "dev" or "prod" — the deployment, and what the alarms dimension on.
@@ -85,6 +93,7 @@ export function required(name: string): string {
 export function stepEnvironments(env: NodeJS.ProcessEnv): {
   providerEnvironment: string;
   deploymentEnvironment: string;
+  syncEnabled: boolean;
 } {
   return {
     // Which TrueLayer environment the data came from, recorded in the raw
@@ -93,6 +102,13 @@ export function stepEnvironments(env: NodeJS.ProcessEnv): {
     // The deployment, and what every alarm dimensions on. Defaults rather than
     // being left unset: an undefined dimension matches no alarm at all.
     deploymentEnvironment: env["ENVIRONMENT"] ?? "dev",
+    // Absent means enabled, which is what every deployment did before this
+    // existed. The other default is worse: an unset variable would stop the
+    // sync silently, and no alarm would say so — ItemsFailed and
+    // BalanceStalenessSeconds treat missing data as not breaching, and
+    // ConsentDaysRemaining as missing. Both environments set it explicitly, so
+    // this default never applies to anything deployed.
+    syncEnabled: env["SYNC_ENABLED"] !== "false",
   };
 }
 
@@ -142,6 +158,21 @@ export async function listConnections(
   deps: StepDeps,
   args: { input?: { connectionId?: string } },
 ): Promise<{ connections: Connection[] }> {
+  // A deployment that has handed syncing over reports nothing to sync, so the
+  // run is an ordinary empty one rather than a failure. Emitted rather than
+  // silent: every alarm on this sync treats absence as health, so "switched
+  // off" and "quietly broken" would otherwise look identical in CloudWatch —
+  // including ConsentDaysRemaining, which is the one that stops a consent
+  // lapsing unnoticed at 90 days.
+  if (!deps.syncEnabled) {
+    emit({
+      namespace: METRIC_NAMESPACE,
+      environment: deps.deploymentEnvironment,
+      metrics: { SyncSuppressed: 1 },
+      properties: { reason: "syncEnabled is false for this deployment" },
+    });
+    return { connections: [] };
+  }
   const all = await deps.connections.list(deps.tenantId);
   return { connections: selectConnections(all, args?.input) };
 }
@@ -196,6 +227,18 @@ export async function refreshAndList(
   deps: StepDeps,
   input: { connection: Connection },
 ): Promise<RefreshOutput> {
+  // Unreachable by the daily run, which gets an empty list above. Reached only
+  // by invoking this step directly, and that is worth failing loudly for: a
+  // refresh here spends a token the other deployment now owns, which is the
+  // one mistake this flag exists to prevent. Throwing rather than returning a
+  // skip, because there is no legitimate caller to return to.
+  if (!deps.syncEnabled) {
+    throw new Error(
+      "Refusing to refresh: syncEnabled is false for this deployment. " +
+        "Another deployment owns these connections, and refreshing here would " +
+        "invalidate the refresh token it holds.",
+    );
+  }
   const startedAt = new Date().toISOString();
   const conns = deps.connections;
   const { connection } = input;

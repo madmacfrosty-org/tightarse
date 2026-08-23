@@ -159,6 +159,9 @@ export class IngestStack extends cdk.Stack {
         CONNECTION_SECRET_PREFIX: connectionPrefix,
         CLIENT_SECRET_ID: clientSecret.secretName,
         ALERT_TOPIC_ARN: alerts.topicArn,
+        // Whether this deployment may refresh a connection. See the reasoning
+        // on EnvSettings.syncEnabled — only one deployment may, ever.
+        SYNC_ENABLED: String(settings.syncEnabled),
         // Dimensions this function's metrics. Without it the sync emitted under
         // the TrueLayer environment — "live" — while every alarm below watches
         // the deployment, so none of them could fire.
