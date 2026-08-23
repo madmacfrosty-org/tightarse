@@ -10,15 +10,7 @@
  * replaced them. Nothing here writes anything.
  */
 
-/**
- * The categorisation model being replaced, and the household's own overrides.
- *
- * `TransactionEnrichment` is the live path; `Categorisation` in this directory is
- * what supersedes it. Both exist while the changeover runs.
- */
-
 import { z } from "zod";
-
 
 /**
  * How a household's transactions get categorised.

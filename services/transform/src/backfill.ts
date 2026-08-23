@@ -32,7 +32,7 @@
  *   - `putAccount` and `putBalances` are partial updates to one item touching
  *     mostly disjoint attributes; they overlap only on `currency`, where both
  *     write the same value
- *   - enrichments are produced by the categoriser, not here, so they are never
+ *   - categorisations are produced by the categoriser, not here, so they are never
  *     replayed
  *
  * The one exception is `replacePending`, which replaces a whole set, so the

@@ -36,7 +36,7 @@ export type RowKind = (typeof RowKind)[keyof typeof RowKind];
  * Transactions and their categorisations share one partition per tenant, with the row
  * kind placed AFTER the timestamp in the sort key. That ordering is the whole
  * trick: a single `between` on the sort key returns transactions and their
- * enrichments together, interleaved and adjacent, for any date range.
+ * categorisations together, interleaved and adjacent, for any date range.
  *
  * An earlier design bucketed the partition by month. That was wrong — DynamoDB
  * requires an exact partition-key match on every query, so a twelve-month view
@@ -48,12 +48,12 @@ export type RowKind = (typeof RowKind)[keyof typeof RowKind];
  * if writes approach 1,000 WCU against one partition key.
  *
  * There is deliberately no index for "transactions awaiting categorisation".
- * That was a sparse gsi2 carrying a marker on the transaction row, removed when
- * enrichment landed — but a plain put replaces the whole row, so replaying a
- * raw object re-added the marker and re-queued work that was already done.
- * Since replay is the entire point of the landing zone, that made the bug
- * routine rather than exotic. The backlog is now derived: read a range, which
- * returns transactions and enrichments together anyway, and diff in memory.
+ * That was a sparse gsi2 carrying a marker on the transaction row — but a plain
+ * put replaces the whole row, so replaying a raw object re-added the marker and
+ * re-queued work that was already done. Since replay is the entire point of the
+ * landing zone, that made the bug routine rather than exotic. The backlog is now
+ * derived: read a range, which returns transactions and their categorisations
+ * together anyway, and diff in memory.
  */
 export const keys = {
   account: (tenantId: string, accountId: string) => ({

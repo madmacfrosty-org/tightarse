@@ -27,7 +27,7 @@ export function orderOf(sets: readonly Row[]): SetOrder[] {
 }
 
 /**
- * One category per transaction, preferring a categorisation over an enrichment.
+ * One category per transaction, from whichever rule set outranks the rest.
  *
  * The provider's own is left out on purpose. It is derived from the transaction
  * rather than stored, and the reporting path already falls back to it — marking
