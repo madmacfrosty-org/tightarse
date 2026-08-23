@@ -17,18 +17,12 @@
 
 export const RowKind = {
   /**
-   * Sorts before TX and EN within a timestamp, so a categorisation arrives in
+   * Sorts before TX within a timestamp, so a categorisation arrives in
    * the same range query the API and the categoriser already make for
    * transactions. No new access pattern, no second read.
    */
   categorisation: "CAT",
   transaction: "TX",
-  /**
-   * A marker only. Enrichment rows are no longer written or read —
-   * categorisations replaced them — but the prefix exists in stored data and
-   * the sort order below depends on knowing where it sits.
-   */
-  enrichment: "EN",
 } as const;
 export type RowKind = (typeof RowKind)[keyof typeof RowKind];
 
@@ -145,7 +139,7 @@ export const keys = {
    * one. Per-set rows are also what make selective re-firing possible — a set
    * that has not changed does not need re-folding.
    *
-   * `CAT` sorts before `EN` and `TX` within a timestamp, so these arrive in the
+   * `CAT` sorts before `TX` within a timestamp, so these arrive in the
    * same range query the API and the categoriser already make.
    */
   categorisation: (tenantId: string, timestamp: string, dedup: string, setId: string) => ({

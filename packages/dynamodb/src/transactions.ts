@@ -67,19 +67,18 @@ const PENDING_TTL_SECONDS = 7 * 24 * 60 * 60;
 /** The DynamoDB adapter for the `Transactions` port. */
 export class DynamoTransactions extends TableAdapter implements Transactions {
   /**
-   * Transactions and their enrichments for a date range, in one query.
+   * Transactions and their categorisations for a date range, in one query.
    *
    * This is the dashboard's primary read. The row kind sits after the timestamp
    * in the sort key precisely so a single `between` spans both — an earlier
    * month-partitioned design needed one query per month and could not return
-   * enrichments alongside without a second pass.
+   * categorisations alongside without a second pass.
    */
   async listRange(
     tenantId: string,
     range: DateRange,
   ): Promise<{
     transactions: Record<string, unknown>[];
-    enrichments: Record<string, unknown>[];
     categorisations: Record<string, unknown>[];
   }> {
     const rows = await this.queryAll({
@@ -97,7 +96,6 @@ export class DynamoTransactions extends TableAdapter implements Transactions {
 
     return {
       transactions: rows.filter((r) => r["kind"] === RowKind.transaction),
-      enrichments: rows.filter((r) => r["kind"] === RowKind.enrichment),
       // Free: categorisations sort into the same partition between the same
       // bounds, so a batch of transactions arrives with its categorisations
       // already attached. This is what makes batch processing one read.
