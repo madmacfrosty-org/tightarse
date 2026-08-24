@@ -5,16 +5,61 @@ import { templates } from "./harness";
 const { api, web, stacks } = templates();
 
 describe("api", () => {
-  it("puts a JWT authoriser on every route", () => {
-    // The household comes from a verified claim and never from the request. A
-    // route added without an authoriser is an unauthenticated read of somebody
-    // else's ledger, which is the one failure this design cannot tolerate.
+  it("authorises every route, with nothing left open", () => {
+    // A route added without an authoriser is an unauthenticated read of
+    // somebody else's ledger, which is the one failure this design cannot
+    // tolerate. Two models are permitted and nothing else: a verified Cognito
+    // claim, or a signed AWS principal.
     const routes = api.findResources("AWS::ApiGatewayV2::Route");
     expect(Object.keys(routes).length).toBeGreaterThan(0);
     for (const [id, r] of Object.entries(routes)) {
       const props = (r as any).Properties;
-      expect(props.AuthorizationType, `route ${id} (${props.RouteKey})`).toBe("JWT");
-      expect(props.AuthorizerId, `route ${id} (${props.RouteKey})`).toBeDefined();
+      expect(["JWT", "AWS_IAM"], `route ${id} (${props.RouteKey})`).toContain(props.AuthorizationType);
+      if (props.AuthorizationType === "JWT") {
+        expect(props.AuthorizerId, `route ${id} (${props.RouteKey})`).toBeDefined();
+      }
+    }
+  });
+
+  it("puts the dashboard's routes behind Cognito and the categorisation routes behind SigV4", () => {
+    // Spelled out per route rather than counted. The failure worth catching is
+    // a browser route silently acquiring IAM auth — or worse, a categorisation
+    // route acquiring JWT auth and then reading its household from an
+    // environment variable while a bearer token says otherwise.
+    const byKey = Object.fromEntries(
+      Object.values(api.findResources("AWS::ApiGatewayV2::Route")).map((r: any) => [
+        r.Properties.RouteKey,
+        r.Properties.AuthorizationType,
+      ]),
+    );
+
+    expect(byKey["GET /v1/summary"]).toBe("JWT");
+    expect(byKey["GET /v1/transactions"]).toBe("JWT");
+    expect(byKey["GET /v1/accounts"]).toBe("JWT");
+    expect(byKey["GET /v1/balances"]).toBe("JWT");
+    expect(byKey["GET /v1/connect/start"]).toBe("JWT");
+    expect(byKey["GET /v1/connect/callback"]).toBe("JWT");
+    expect(byKey["GET /v1/categorisation/gaps"]).toBe("AWS_IAM");
+  });
+
+  it("gives the categorisation handler its own function, and read-only at that", () => {
+    // A separate function because it resolves the household from the
+    // environment rather than from a claim, and because proposals will need to
+    // write. Widening the dashboard's function to allow that would put a
+    // mutation path behind every GET the browser makes.
+    const fns = api.findResources("AWS::Lambda::Function");
+    const ids = Object.keys(fns);
+    expect(ids.filter((i) => i.startsWith("CategorisationHandler"))).toHaveLength(1);
+
+    const [id] = ids.filter((i) => i.startsWith("CategorisationHandler"));
+    expect((fns[id!] as any).Properties.Environment.Variables.TENANT_ID).toBe("frost");
+
+    const actions = Object.values(api.findResources("AWS::IAM::Policy"))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement)
+      .flatMap((st: any) => (Array.isArray(st.Action) ? st.Action : [st.Action]))
+      .filter((a: unknown): a is string => typeof a === "string");
+    for (const action of actions.filter((a) => a.startsWith("dynamodb:"))) {
+      expect(action, `${action} is a write`).not.toMatch(/Put|Update|Delete|Write/);
     }
   });
 
@@ -40,6 +85,7 @@ describe("api", () => {
     expect(keys).toEqual([
       "GET /v1/accounts",
       "GET /v1/balances",
+      "GET /v1/categorisation/gaps",
       "GET /v1/connect/callback",
       "GET /v1/connect/start",
       "GET /v1/summary",

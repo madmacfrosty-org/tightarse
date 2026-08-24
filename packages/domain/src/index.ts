@@ -60,4 +60,5 @@ export {
   type CategoriseReport,
 } from "./application/categorise.js";
 export * from "./application/reconcile.js";
+export * from "./application/inspect.js";
 export * from "./ports/index.js";

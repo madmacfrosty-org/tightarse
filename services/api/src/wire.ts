@@ -25,11 +25,12 @@
 
 import type {
   AccountsResponse,
+  BacklogResponse,
   BalancesResponse,
   SummaryResponse,
   TransactionsResponse,
 } from "@tightarse/api-contract";
-import type { AccountsResult, BalancesResult, Summary, TransactionsResult } from "@tightarse/domain";
+import type { AccountsResult, Backlog, BalancesResult, Summary, TransactionsResult } from "@tightarse/domain";
 
 export const asSummary = (s: Summary): SummaryResponse => ({
   ...s,
@@ -51,3 +52,42 @@ export const asBalances = (b: BalancesResult): BalancesResponse => ({
   range: b.range,
   points: [...b.points],
 });
+
+/**
+ * The backlog, as the wire spells it.
+ *
+ * A pass-through in shape but not in kind: the domain's `Backlog` is free to
+ * change with the application's needs, and this is a promise to whatever is
+ * already calling. The range is echoed back so a caller can tell what was
+ * actually served from what it asked for.
+ */
+export function asBacklog(range: { from: string; to: string }, backlog: Backlog): BacklogResponse {
+  return {
+    range,
+    descriptions: backlog.descriptions.map((d) => ({
+      description: d.description,
+      transactions: d.transactions,
+      outgoing: d.outgoing,
+      firstSeen: d.firstSeen,
+      lastSeen: d.lastSeen,
+      uncategorised: d.uncategorised,
+      categories: d.categories.map((c) => ({ category: c.category, transactions: c.transactions })),
+    })),
+    recurrences: backlog.recurrences.map((r) => ({
+      amount: r.amount,
+      cadence: r.cadence,
+      transactions: r.transactions,
+      outgoing: r.outgoing,
+      descriptions: [...r.descriptions],
+      firstSeen: r.firstSeen,
+      lastSeen: r.lastSeen,
+      uncategorised: r.uncategorised,
+    })),
+    gaps: backlog.gaps.map((g) => ({
+      description: g.description,
+      transactions: g.transactions,
+      outgoing: g.outgoing,
+    })),
+    scanned: backlog.scanned,
+  };
+}
