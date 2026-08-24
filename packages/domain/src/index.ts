@@ -30,6 +30,7 @@ export * from "./categorisation/evaluate.js";
 export * from "./categorisation/overrides.js";
 export * from "./categorisation/evidence.js";
 export * from "./categorisation/corpus.js";
+export * from "./categorisation/preview.js";
 export * from "./categorisation/taxonomy.js";
 export * from "./categorisation/category.js";
 export * from "./categorisation/seed.js";
