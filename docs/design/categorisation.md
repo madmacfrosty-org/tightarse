@@ -372,7 +372,9 @@ small curated ones can stay documents. Decide deliberately.
 - An approval queue. The `proposed` status exists so the shape is right, but
   everything defaults to taking the latest until there is a reason not to.
   Approval queues get abandoned, and an abandoned one leaves transactions in
-  limbo.
+  limbo. Superseded in part by
+  [rule optimisation](rule-optimisation.md#what-this-supersedes): a model
+  proposing rules from outside the account is the reason not to.
 
 ## Migration
 
