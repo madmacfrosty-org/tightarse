@@ -35,6 +35,14 @@ export interface RuleReach {
 export interface Gap {
   readonly description: string;
   readonly transactions: number;
+  /**
+   * Money that left the household under it, positive minor units.
+   *
+   * Rules are worth writing in order of value, not frequency. The two orderings
+   * disagree about most of their leading entries, because frequent gaps are
+   * small recurring spends and valuable ones are not.
+   */
+  readonly outgoing: number;
 }
 
 export interface Evidence {
@@ -84,7 +92,7 @@ export function gatherEvidence(sets: readonly RuleSet[], corpus: readonly Candid
   const reach = new Map<string, { setId: string; index: number; transactions: number; merchants: Set<string> }>();
   const conflicts = new Map<string, { setId: string; categories: string[]; rules: number[]; transactions: number; example: string }>();
   const inert = new Map<string, InertRefine & { transactions: number }>();
-  const gaps = new Map<string, number>();
+  const gaps = new Map<string, { transactions: number; outgoing: number }>();
 
   for (const set of sets) {
     set.rules.forEach((_rule, index) => {
@@ -148,7 +156,12 @@ export function gatherEvidence(sets: readonly RuleSet[], corpus: readonly Candid
       }
     }
 
-    if (!matchedAnything) gaps.set(candidate.description, (gaps.get(candidate.description) ?? 0) + 1);
+    if (!matchedAnything) {
+      const gap = gaps.get(candidate.description) ?? { transactions: 0, outgoing: 0 };
+      gap.transactions += 1;
+      if (candidate.amount < 0) gap.outgoing += -candidate.amount;
+      gaps.set(candidate.description, gap);
+    }
   }
 
   return {
@@ -161,8 +174,8 @@ export function gatherEvidence(sets: readonly RuleSet[], corpus: readonly Candid
     conflicts: [...conflicts.values()].sort((a, b) => b.transactions - a.transactions),
     inertRefines: [...inert.values()].sort((a, b) => b.transactions - a.transactions),
     gaps: [...gaps.entries()]
-      .map(([description, transactions]) => ({ description, transactions }))
-      .sort((a, b) => b.transactions - a.transactions || a.description.localeCompare(b.description)),
+      .map(([description, g]) => ({ description, transactions: g.transactions, outgoing: g.outgoing }))
+      .sort((a, b) => b.outgoing - a.outgoing || a.description.localeCompare(b.description)),
     scanned: corpus.length,
   };
 }

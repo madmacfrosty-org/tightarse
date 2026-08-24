@@ -151,12 +151,27 @@ describe("inert refines", () => {
 });
 
 describe("the gaps", () => {
-  it("collects what nothing matched, commonest first", () => {
+  it("collects what nothing matched, costliest first", () => {
     const sets = [set("built-in", 2, [asserts("somemart", "groceries")])];
     const corpus = [tx("UNKNOWN A"), tx("UNKNOWN B"), tx("UNKNOWN B"), tx("SOMEMART")];
     const e = gatherEvidence(sets, corpus);
-    expect(e.gaps[0]).toEqual({ description: "UNKNOWN B", transactions: 2 });
+    expect(e.gaps[0]).toEqual({ description: "UNKNOWN B", transactions: 2, outgoing: 20_00 });
     expect(e.gaps.map((g) => g.description)).not.toContain("SOMEMART");
+  });
+
+  it("ranks by value, not by how often something happened", () => {
+    // The orderings genuinely disagree: frequent gaps are small recurring
+    // spends, and a rule is worth writing for the money it accounts for.
+    const sets = [set("built-in", 2, [])];
+    const corpus = [tx("FREQUENT", -1_00), tx("FREQUENT", -1_00), tx("FREQUENT", -1_00), tx("EXPENSIVE", -400_00)];
+    const e = gatherEvidence(sets, corpus);
+    expect(e.gaps.map((g) => g.description)).toEqual(["EXPENSIVE", "FREQUENT"]);
+  });
+
+  it("counts a credit as a sighting but not as money leaving", () => {
+    const sets = [set("built-in", 2, [])];
+    const e = gatherEvidence(sets, [tx("REFUND", 25_00), tx("REFUND", -5_00)]);
+    expect(e.gaps[0]).toEqual({ description: "REFUND", transactions: 2, outgoing: 5_00 });
   });
 
   it("counts a transaction matched by any set as covered, not just the winning one", () => {
@@ -166,7 +181,7 @@ describe("the gaps", () => {
     expect(gatherEvidence(sets, [tx("SOMEMART")]).gaps).toEqual([]);
   });
 
-  it("orders equal counts by description, so two runs agree", () => {
+  it("orders equal values by description, so two runs agree", () => {
     const sets = [set("built-in", 2, [])];
     const e = gatherEvidence(sets, [tx("BBB"), tx("AAA")]);
     expect(e.gaps.map((g) => g.description)).toEqual(["AAA", "BBB"]);
