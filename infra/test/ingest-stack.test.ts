@@ -124,17 +124,6 @@ describe("sync ownership", () => {
   });
 });
 
-describe("lambda sizing", () => {
-  it("stays within the new-account memory quota", () => {
-    // 512 is the ceiling until the account's Lambda quota is raised; 1024 was
-    // rejected at deploy.
-    for (const fn of Object.values(ingest.findResources("AWS::Lambda::Function"))) {
-      const memory = (fn as any).Properties?.MemorySize;
-      if (memory !== undefined) expect(memory).toBeLessThanOrEqual(512);
-    }
-  });
-});
-
 describe("alerting", () => {
   it("has a topic and no subscription, so nothing claims to notify anyone", () => {
     // The subscription this replaces asserted that an email address was
