@@ -16,6 +16,8 @@
 
 import type { DateRange } from "../index.js";
 import type { AccountId } from "../../ledger/account.js";
+import type { DescriptionSummary, Recurrence } from "../../categorisation/corpus.js";
+import type { Gap } from "../../categorisation/evidence.js";
 
 /** A category and what it came to over a range. */
 export interface CategoryTotal {
@@ -183,6 +185,34 @@ export interface SummaryOptions {
    * transfer detection is finding real pairs rather than coincidences.
    */
   readonly nettingTransfers?: boolean;
+}
+
+/**
+ * What the rules do not cover, and the shapes a rule could be written against.
+ *
+ * Holds descriptions, which are household data. For a terminal, an authorised
+ * API response or a proposer in memory — never for a file.
+ */
+export interface Backlog {
+  /** Every distinct description, costliest first. */
+  readonly descriptions: readonly DescriptionSummary[];
+  /** Amounts arriving on a beat, which is how a payment whose reference changes every month stays findable. */
+  readonly recurrences: readonly Recurrence[];
+  /** What nothing matched, costliest first. */
+  readonly gaps: readonly Gap[];
+  readonly scanned: number;
+}
+
+/**
+ * Describing what the rules do not cover.
+ *
+ * Separate from `Reporting` because it answers a different question for a
+ * different reader: reporting says what the household spent, this says what the
+ * rules have failed to explain.
+ */
+export interface Inspection {
+  /** Everything a proposer needs about one household's ledger over a range. */
+  backlog(tenantId: string, range: DateRange): Promise<Backlog>;
 }
 
 /**

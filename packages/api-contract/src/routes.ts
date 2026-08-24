@@ -10,7 +10,14 @@
  */
 
 import { z } from "zod";
-import { AccountsResponse, BalancesResponse, IsoDate, SummaryResponse, TransactionsResponse } from "./index.js";
+import {
+  AccountsResponse,
+  BacklogResponse,
+  BalancesResponse,
+  IsoDate,
+  SummaryResponse,
+  TransactionsResponse,
+} from "./index.js";
 
 /**
  * The version prefix every path carries.
@@ -134,6 +141,37 @@ export const ROUTES: readonly Route[] = [
       "its identity fields and its isCard flag; absent isCard means NOT YET KNOWN, not false.",
     query: [],
     response: { name: "AccountsResponse", schema: AccountsResponse },
+  },
+];
+
+/**
+ * The categorisation routes, which are signed rather than bearer-authorised.
+ *
+ * Kept out of `ROUTES` on purpose. Everything in that list is authorised by a
+ * Cognito JWT and appears in the OpenAPI document a browser client is generated
+ * from; these are authorised by SigV4, so a client generated from that document
+ * could not call them and publishing them there would promise otherwise.
+ *
+ * They are listed here because this file is where paths live — the gateway and
+ * anything else that serves them read from one place, so a route added to the
+ * infrastructure and forgotten here cannot happen.
+ *
+ * They join `ROUTES` when the browser can call them, which needs a decision
+ * about how a signed-in household member reaches a signed route and is not one
+ * to make in passing.
+ */
+export const CATEGORISATION_ROUTES: readonly Route[] = [
+  {
+    method: "get",
+    path: "/categorisation/gaps",
+    summary: "What the rules do not yet cover",
+    description:
+      "Every distinct description with what it cost and what the rules currently make of it, amounts " +
+      "arriving on a regular beat, and the unmatched backlog — each costliest first. Categories are " +
+      "derived by evaluating the rules as they stand, not read from the last application, so a gap " +
+      "here is a gap now. Returns the whole range: there is no pagination.",
+    query: range,
+    response: { name: "BacklogResponse", schema: BacklogResponse },
   },
 ];
 

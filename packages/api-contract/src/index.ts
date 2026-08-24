@@ -248,6 +248,69 @@ export const AccountsResponse = z.object({
 });
 export type AccountsResponse = z.infer<typeof AccountsResponse>;
 
+// ------------------------------------------------------------- categorisation
+
+/**
+ * What the rules do not yet cover.
+ *
+ * Descriptions are household data, so this is served only to an authorised
+ * caller and is deliberately absent from the browser-facing document: these
+ * routes are signed with SigV4, not a bearer token. See `CATEGORISATION_ROUTES`.
+ */
+export const CategoryTallyView = z.object({
+  category: z.string().describe("The category identifier the rules produce"),
+  transactions: z.number().int().nonnegative(),
+});
+export type CategoryTallyView = z.infer<typeof CategoryTallyView>;
+
+export const DescriptionView = z.object({
+  description: z.string(),
+  transactions: z.number().int().nonnegative(),
+  outgoing: minorUnits("Money that left the household under this description"),
+  firstSeen: z.string().describe("Booking timestamp of the earliest sighting, ISO-8601"),
+  lastSeen: z.string().describe("Booking timestamp of the latest sighting, ISO-8601"),
+  uncategorised: z.number().int().nonnegative().describe("Sightings the rules currently give no category"),
+  categories: z
+    .array(CategoryTallyView)
+    .describe("What the rules make of it now. More than one entry means it is categorised inconsistently."),
+});
+export type DescriptionView = z.infer<typeof DescriptionView>;
+
+export const Cadence = z
+  .enum(["weekly", "fortnightly", "four-weekly", "monthly", "quarterly", "annual"])
+  .describe("The beat a repeated amount keeps");
+export type Cadence = z.infer<typeof Cadence>;
+
+export const RecurrenceView = z.object({
+  amount: minorUnits("The repeated amount, signed so a recurring credit stays distinguishable"),
+  cadence: Cadence,
+  transactions: z.number().int().nonnegative(),
+  outgoing: minorUnits("Money that left the household across the whole series"),
+  descriptions: z
+    .array(z.string())
+    .describe("Every description this amount arrived under. More than one is the case this exists for."),
+  firstSeen: z.string(),
+  lastSeen: z.string(),
+  uncategorised: z.number().int().nonnegative(),
+});
+export type RecurrenceView = z.infer<typeof RecurrenceView>;
+
+export const GapView = z.object({
+  description: z.string(),
+  transactions: z.number().int().nonnegative(),
+  outgoing: minorUnits("Money that left the household under it"),
+});
+export type GapView = z.infer<typeof GapView>;
+
+export const BacklogResponse = z.object({
+  range: DateRange,
+  descriptions: z.array(DescriptionView).describe("Every distinct description, costliest first"),
+  recurrences: z.array(RecurrenceView).describe("Amounts arriving on a beat, costliest first"),
+  gaps: z.array(GapView).describe("What nothing matched, costliest first"),
+  scanned: z.number().int().nonnegative(),
+});
+export type BacklogResponse = z.infer<typeof BacklogResponse>;
+
 // The paths, the version and the compatibility promise (#26, #27).
 //
 // Named explicitly rather than `export *`. This package builds to CommonJS, and
@@ -258,6 +321,7 @@ export type AccountsResponse = z.infer<typeof AccountsResponse>;
 export {
   API_VERSION,
   COMPATIBILITY_PROMISE,
+  CATEGORISATION_ROUTES,
   CONNECT_PATHS,
   ROUTES,
   pathFor,

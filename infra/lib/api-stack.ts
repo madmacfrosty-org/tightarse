@@ -7,7 +7,7 @@ import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
 import type * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import type { Identity } from "./data-stack.js";
-import { CONNECT_PATHS, ROUTES, pathFor } from "@tightarse/api-contract";
+import { CATEGORISATION_ROUTES, CONNECT_PATHS, ROUTES, pathFor } from "@tightarse/api-contract";
 import { Construct } from "constructs";
 import * as path from "node:path";
 import { config, type EnvSettings } from "./config";
@@ -138,6 +138,62 @@ export class ApiStack extends cdk.Stack {
           authorizer,
         });
       }
+    }
+
+    // Categorisation, behind SigV4 rather than the Cognito authoriser.
+    //
+    // A separate function on purpose. The household comes from the environment
+    // here, because a signed request carries an AWS principal and no household
+    // claim — and a single handler holding both models would be one mistake
+    // away from honouring an environment tenant on a bearer-token route.
+    //
+    // The caller is an AWS principal in this account, which can already read
+    // the table directly. So this grants no access that did not exist; what it
+    // adds is a surface that speaks the application's language rather than
+    // DynamoDB's, which is the surface the dashboard will eventually need too.
+    const categorisation = new NodejsFunction(this, "CategorisationHandler", {
+      entry: path.join(__dirname, "../../services/api/src/categorisation.ts"),
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_22_X,
+      architecture: lambda.Architecture.ARM_64,
+      memorySize: 1024,
+      // It reads the whole ledger and evaluates every rule against every
+      // transaction, twice over. Seconds, not milliseconds, and deliberately
+      // so: nothing is cached, because a stale reach figure in front of someone
+      // approving a rule is worse than a slow one.
+      timeout: cdk.Duration.seconds(60),
+      environment: {
+        TABLE_NAME: table.tableName,
+        // Fixed at deploy time, exactly as the scheduled categoriser has it. A
+        // caller cannot ask for a different household because it is not a thing
+        // the request can say.
+        TENANT_ID: "frost",
+        NODE_OPTIONS: "--enable-source-maps",
+      },
+      bundling: { minify: true, sourceMap: true, target: "node22" },
+      logGroup: new logs.LogGroup(this, "CategorisationHandlerLogs", {
+        retention: settings.name === "prod" ? logs.RetentionDays.ONE_YEAR : logs.RetentionDays.ONE_WEEK,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      }),
+    });
+
+    // Read only, still. Proposals will need to write, and that grant arrives
+    // with them rather than ahead of them.
+    table.grantReadData(categorisation);
+
+    const signed = new authorizers.HttpIamAuthorizer();
+
+    for (const route of CATEGORISATION_ROUTES.map((r) => pathFor(r))) {
+      this.api.addRoutes({
+        path: route,
+        methods: [apigw.HttpMethod.GET],
+        integration: new integrations.HttpLambdaIntegration(
+          `Int${route.replace(/[^a-zA-Z0-9]/g, "")}`,
+          categorisation,
+        ),
+        // Overrides the API's default Cognito authoriser for these routes only.
+        authorizer: signed,
+      });
     }
 
     new cdk.CfnOutput(this, "ApiUrl", { value: this.api.apiEndpoint });
