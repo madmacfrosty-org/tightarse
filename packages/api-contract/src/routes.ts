@@ -128,8 +128,20 @@ export const ROUTES: readonly Route[] = [
     summary: "Transactions in a date range",
     description:
       "Every transaction in the range, newest first, with its category where one has been assigned. " +
-      "Returns the whole range: there is no pagination, so a wide range is a large response.",
-    query: range,
+      "Returns the whole range: there is no pagination, so a wide range is a large response. " +
+      "`q` narrows it to descriptions containing that text, case-insensitively and taken literally — " +
+      "a search, not a promise about what any rule would match.",
+    query: [
+      ...range,
+      {
+        name: "q",
+        required: false,
+        schema: z.string().min(1),
+        description:
+          "Narrow to descriptions containing this text. Case-insensitive, and matched literally: " +
+          "punctuation is not a pattern. Omit for everything in the range.",
+      },
+    ],
     response: { name: "TransactionsResponse", schema: TransactionsResponse },
   },
   {

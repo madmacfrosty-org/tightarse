@@ -97,6 +97,18 @@ function rangeFrom(event: HttpEvent): { from: string; to: string } {
   return { from, to };
 }
 
+/**
+ * The search term, if one was asked for.
+ *
+ * An empty `q` means "everything", not "nothing that matches the empty string".
+ * A cleared search box sends `q=` on some clients, and answering that with the
+ * whole ledger is the only reading that is not a surprise.
+ */
+export function searchFrom(event: HttpEvent): string | undefined {
+  const q = (event.queryStringParameters ?? {})["q"];
+  return q === undefined || q.length === 0 ? undefined : q;
+}
+
 function json(statusCode: number, body: unknown) {
   return {
     statusCode,
@@ -119,7 +131,7 @@ export async function route(deps: ApiDeps, event: HttpEvent) {
     // the promise made to installed clients.
     if (path.endsWith("/summary")) return json(200, asSummary(await deps.reporting.summary(tenantId, range)));
     if (path.endsWith("/transactions"))
-      return json(200, asTransactions(await deps.reporting.transactions(tenantId, range)));
+      return json(200, asTransactions(await deps.reporting.transactions(tenantId, range, searchFrom(event))));
     if (path.endsWith("/accounts")) return json(200, asAccounts(await deps.reporting.accounts(tenantId)));
     if (path.endsWith("/balances"))
       return json(200, asBalances(await deps.reporting.balances(tenantId, range)));

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { evaluate, foldSet, matches } from "../src/categorisation/evaluate.js";
+import { evaluate, foldSet, literalMatcher, matches, matchesMatcher } from "../src/categorisation/evaluate.js";
 import type { Rule, RuleSet } from "../src/categorisation/rules.js";
 import type { Candidate } from "../src/categorisation/taxonomy.js";
 
@@ -228,5 +228,54 @@ describe("across sets", () => {
     // answer, or every run appends a version and the history fills with churn.
     const c = candidate();
     expect(evaluate([household, builtIn], c)).toEqual(evaluate([household, builtIn], c));
+  });
+});
+
+describe("building a matcher from a word somebody typed", () => {
+  const seen = (description: string, amount = -10_00): Candidate => ({
+    dedupKey: "d1",
+    description,
+    amount,
+    currency: "GBP",
+  });
+
+  it.each([
+    ["SHELL", "SHELL GARAGE", true],
+    ["shell", "SHELL GARAGE", true],
+    ["SHELL", "TOTALLY UNRELATED", false],
+  ])("matches %s against %s", (term, description, expected) => {
+    expect(matchesMatcher(literalMatcher(term), seen(description))).toBe(expected);
+  });
+
+  it.each([
+    ["PIZZA (EXPRESS)", "PIZZA (EXPRESS) 42", true],
+    ["PIZZA (EXPRESS)", "PIZZA EXPRESS 42", false],
+    ["a+b", "A+B LTD", true],
+    ["a+b", "AAAB LTD", false],
+  ])("takes %s literally, so punctuation is not a pattern", (term, description, expected) => {
+    // Unescaped these are groups, quantifiers and character classes. A shop
+    // with a bracket in its name is not a regular expression, and the person
+    // typing it has no reason to think it might be.
+    expect(matchesMatcher(literalMatcher(term), seen(description))).toBe(expected);
+  });
+
+  it("survives a term that would be a syntax error unescaped", () => {
+    expect(() => matchesMatcher(literalMatcher("a+["), seen("ANYTHING"))).not.toThrow();
+  });
+
+  it("says nothing about direction, which is the rule's business", () => {
+    // `matches` gates on direction; this is the half underneath it, so a search
+    // finds a refund and a debits-only rule still declines to categorise it.
+    expect(matchesMatcher(literalMatcher("REFUND"), seen("REFUND SOMEMART", 25_00))).toBe(true);
+  });
+
+  it("is the same matcher a rule uses, which is the point of sharing it", () => {
+    const rule = {
+      matcher: literalMatcher("SOMEMART"),
+      contributes: { kind: "assert" as const, category: "groceries" },
+      appliesTo: "all" as const,
+    };
+
+    expect(matches(rule, seen("SOMEMART 118"))).toBe(matchesMatcher(literalMatcher("SOMEMART"), seen("SOMEMART 118")));
   });
 });
