@@ -7,6 +7,8 @@ import {
   ConflictView,
   DescriptionView,
   GapView,
+  ProposalRequest,
+  ProposalResponse,
   RecurrenceView,
   pathFor,
 } from "../src/index";
@@ -206,36 +208,88 @@ describe("what a conflict promises", () => {
 });
 
 describe("the signed routes", () => {
-  it("serves the backlog at a versioned path", () => {
-    expect(CATEGORISATION_ROUTES).toHaveLength(1);
-    expect(pathFor(CATEGORISATION_ROUTES[0]!)).toBe("/v1/categorisation/gaps");
+  const gaps = CATEGORISATION_ROUTES.find((r) => r.path === "/categorisation/gaps")!;
+  const proposals = CATEGORISATION_ROUTES.find((r) => r.path === "/categorisation/proposals")!;
+
+  it("publishes exactly the two, at versioned paths", () => {
+    expect(CATEGORISATION_ROUTES).toHaveLength(2);
+    expect(CATEGORISATION_ROUTES.map((r) => pathFor(r)).sort()).toEqual([
+      "/v1/categorisation/gaps",
+      "/v1/categorisation/proposals",
+    ]);
   });
 
-  it("is a GET taking both ends of a range, both required", () => {
-    const [route] = CATEGORISATION_ROUTES;
-
-    expect(route!.method).toBe("get");
-    expect(route!.path).toBe("/categorisation/gaps");
-    expect(route!.query.map((q) => q.name)).toEqual(["from", "to"]);
-    expect(route!.query.every((q) => q.required)).toBe(true);
+  it("reads the backlog with a GET taking both ends of a range", () => {
+    expect(gaps.method).toBe("get");
+    expect(gaps.query.map((q) => q.name)).toEqual(["from", "to"]);
+    expect(gaps.query.every((q) => q.required)).toBe(true);
+    expect(gaps.request).toBeUndefined();
   });
 
-  it("answers with the backlog, named so a generated client gets one struct", () => {
-    expect(CATEGORISATION_ROUTES[0]!.response.name).toBe("BacklogResponse");
-    expect(CATEGORISATION_ROUTES[0]!.response.schema).toBe(BacklogResponse);
+  it("answers the backlog with one named struct a generated client can use", () => {
+    expect(gaps.response.name).toBe("BacklogResponse");
+    expect(gaps.response.schema).toBe(BacklogResponse);
   });
 
-  it("says what it is for, and that it does not paginate", () => {
-    const [route] = CATEGORISATION_ROUTES;
-
-    expect(route!.summary).toContain("rules do not yet cover");
-    // Spans both halves of the concatenated description, so losing either one
-    // fails rather than passing on the surviving half.
-    expect(route!.description).toContain("Every distinct description");
-    expect(route!.description).toContain("costliest first");
-    expect(route!.description).toContain("no pagination");
+  it("says what the backlog is for, and that it does not paginate", () => {
+    expect(gaps.summary).toContain("rules do not yet cover");
+    expect(gaps.description).toContain("Every distinct description");
+    expect(gaps.description).toContain("costliest first");
+    expect(gaps.description).toContain("no pagination");
     // The distinction the whole endpoint turns on: a gap here is a gap now,
     // not what the last application happened to conclude.
-    expect(route!.description).toContain("as they stand");
+    expect(gaps.description).toContain("as they stand");
+  });
+
+  it("proposes with a POST that carries the sets and returns what they would do", () => {
+    expect(proposals.method).toBe("post");
+    expect(proposals.request?.name).toBe("ProposalRequest");
+    expect(proposals.request?.schema).toBe(ProposalRequest);
+    expect(proposals.response.name).toBe("ProposalResponse");
+    expect(proposals.response.schema).toBe(ProposalResponse);
+  });
+
+  it("takes a range to measure against, and an optional dry run", () => {
+    const byName = Object.fromEntries(proposals.query.map((q) => [q.name, q]));
+
+    expect(Object.keys(byName).sort()).toEqual(["dryRun", "from", "to"]);
+    expect(byName["from"]!.required).toBe(true);
+    expect(byName["to"]!.required).toBe(true);
+    expect(byName["dryRun"]!.required).toBe(false);
+  });
+
+  it("says writing is the default and a dry run is asked for", () => {
+    const dryRun = proposals.query.find((q) => q.name === "dryRun")!;
+
+    expect(dryRun.description).toContain("Absent means write");
+    expect(proposals.description).toContain("without writing anything");
+  });
+
+  it("accepts only the two words it documents for dryRun", () => {
+    const dryRun = proposals.query.find((q) => q.name === "dryRun")!;
+
+    expect(dryRun.schema.parse("true")).toBe("true");
+    expect(dryRun.schema.parse("false")).toBe("false");
+    expect(() => dryRun.schema.parse("yes")).toThrow();
+    expect(() => dryRun.schema.parse("1")).toThrow();
+  });
+
+  it("names every outcome it reports, across the whole description", () => {
+    // Spans all three halves of the concatenated text, so losing any one fails
+    // rather than passing on whichever survives.
+    expect(proposals.summary).toContain("Propose a change to the rules");
+    expect(proposals.description).toContain("gain, lose, recategorise");
+    expect(proposals.description).toContain("conflict they would introduce");
+    expect(proposals.description).toContain("marked");
+  });
+
+  it("says the prediction is computed here, not taken from the caller", () => {
+    // The whole arrangement: a model may write rules, and only deterministic
+    // code says what they do.
+    expect(proposals.description).toContain("never taken from the caller");
+  });
+
+  it("says accepting is somewhere else", () => {
+    expect(proposals.description).toContain("not part of this route");
   });
 });

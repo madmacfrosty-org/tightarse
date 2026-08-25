@@ -26,11 +26,22 @@
 import type {
   AccountsResponse,
   BacklogResponse,
+  EffectView,
+  PredictionView,
+  ProposalResponse,
   BalancesResponse,
   SummaryResponse,
   TransactionsResponse,
 } from "@tightarse/api-contract";
-import type { AccountsResult, Backlog, BalancesResult, Summary, TransactionsResult } from "@tightarse/domain";
+import type {
+  AccountsResult,
+  Backlog,
+  BalancesResult,
+  Preview,
+  Proposed,
+  Summary,
+  TransactionsResult,
+} from "@tightarse/domain";
 
 export const asSummary = (s: Summary): SummaryResponse => ({
   ...s,
@@ -96,5 +107,71 @@ export function asBacklog(range: { from: string; to: string }, backlog: Backlog)
       example: c.example,
     })),
     scanned: backlog.scanned,
+  };
+}
+
+/**
+ * How many affected transactions a response will carry per group.
+ *
+ * `recategorised` and `lost` are the groups where the identity of a transaction
+ * changes the decision, and they stay small because a proposal taking thousands
+ * of categorisations is refused on the count alone. `gained` is the one that
+ * gets large, and nobody audits three thousand rows to check a pattern looks
+ * right — a sample and a count answer that.
+ *
+ * Truncation is declared rather than silent. A caller shown 500 of 3,200 and
+ * told so can ask for more; one shown 500 and told nothing draws a conclusion
+ * from a fraction.
+ */
+const ENTRY_LIMIT: Record<keyof Omit<PredictionView, "introducedConflicts" | "scanned">, number> = {
+  gained: 500,
+  lost: 1000,
+  recategorised: 1000,
+  unchanged: 100,
+  outranked: 100,
+};
+
+const asEffect = (effect: Preview["gained"], limit: number): EffectView => ({
+  transactions: effect.transactions,
+  outgoing: effect.outgoing,
+  merchants: effect.merchants,
+  entries: effect.entries.slice(0, limit).map((e) => ({
+    dedupKey: e.dedupKey,
+    description: e.description,
+    ...(e.from === undefined ? {} : { from: e.from }),
+    ...(e.to === undefined ? {} : { to: e.to }),
+  })),
+  truncated: effect.entries.length > limit,
+});
+
+/**
+ * The prediction, as the wire spells it.
+ *
+ * Computed by the server and never supplied by the caller — a proposal carrying
+ * its own account of its effect would defeat the arrangement where a model may
+ * write rules and only deterministic code says what they do.
+ */
+export function asProposalResponse(
+  prediction: Preview,
+  proposed?: readonly Proposed[],
+): ProposalResponse {
+  return {
+    prediction: {
+      gained: asEffect(prediction.gained, ENTRY_LIMIT.gained),
+      lost: asEffect(prediction.lost, ENTRY_LIMIT.lost),
+      recategorised: asEffect(prediction.recategorised, ENTRY_LIMIT.recategorised),
+      unchanged: asEffect(prediction.unchanged, ENTRY_LIMIT.unchanged),
+      outranked: asEffect(prediction.outranked, ENTRY_LIMIT.outranked),
+      introducedConflicts: prediction.introducedConflicts.map((c) => ({
+        setId: c.setId,
+        categories: [...c.categories],
+        transactions: c.transactions,
+        example: c.example,
+      })),
+      scanned: prediction.scanned,
+    },
+    ...(proposed === undefined
+      ? {}
+      : { proposed: proposed.map((p) => ({ setId: p.setId, version: p.version })) }),
   };
 }
