@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Api, Identity, Session } from "./ports";
+import { Categorise } from "./Categorise";
 import { ConnectBank, Connected } from "./Connect";
 import { BalanceLine, CategoryBars, MonthlyFlow, money } from "./charts";
 import { netPosition, rangeFor, tileBalance } from "./positions";
@@ -292,6 +293,15 @@ export function App({ session, api }: { session: Session; api: Api }) {
       </div>
 
       <ConnectBank api={api} />
+
+      {/*
+        Searching is server-side, so this asks for the active window rather
+        than the whole history: only matches come back, but the range is what
+        decides which of them are offered. Pre-window transactions are real —
+        they are simply from accounts that existed while a later one did not —
+        and a rule made here still reaches them.
+      */}
+      <Categorise api={api} from={completeFrom ?? rangeFor(365, new Date()).from} to={rangeFor(0, new Date()).to} />
 
       <div className="card">
         <h2>Recent transactions</h2>
