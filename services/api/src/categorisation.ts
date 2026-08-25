@@ -46,7 +46,9 @@ export interface CategorisationDeps {
   readonly propose: (
     tenantId: string,
     request: {
-      sets: readonly RuleSet[];
+      sets?: readonly RuleSet[];
+      merchant?: { term: string; category: string };
+      transactions?: { dedupKeys: readonly string[]; category: string };
       commit: Commit;
       by: string;
       now: Date;
@@ -81,7 +83,11 @@ export function commitFrom(event: HttpEvent): Commit {
  * authorised, not correct, and a malformed set reaching the domain is a rule
  * that matches nothing or everything.
  */
-export function proposalFrom(event: HttpEvent): readonly RuleSet[] {
+export function proposalFrom(event: HttpEvent): {
+  sets?: readonly RuleSet[];
+  merchant?: { term: string; category: string };
+  transactions?: { dedupKeys: readonly string[]; category: string };
+} {
   if (!event.body) {
     throw Object.assign(new Error("A proposal needs a body"), { statusCode: 400 });
   }
@@ -105,13 +111,33 @@ export function proposalFrom(event: HttpEvent): readonly RuleSet[] {
     throw Object.assign(new Error(detail), { statusCode: 400 });
   }
 
+  // Exactly one. Two is a caller that has not decided what it wants, none is a
+  // proposal that proposes nothing, and building a rule from whichever happened
+  // to be checked first is worse than refusing either.
+  const given = [result.data.sets, result.data.merchant, result.data.transactions].filter(
+    (x) => x !== undefined,
+  );
+  if (given.length !== 1) {
+    throw Object.assign(new Error("give exactly one of sets, merchant or transactions"), {
+      statusCode: 400,
+    });
+  }
+
   // The wire shape and the domain's rule set are near-identities; the status and
   // the version are the domain's to decide, never the caller's.
-  return result.data.sets.map((set) => ({
-    ...set,
-    status: "proposed" as const,
-    createdAt: new Date(0).toISOString(),
-  })) as unknown as readonly RuleSet[];
+  return {
+    ...(result.data.sets === undefined
+      ? {}
+      : {
+          sets: result.data.sets.map((set) => ({
+            ...set,
+            status: "proposed" as const,
+            createdAt: new Date(0).toISOString(),
+          })) as unknown as readonly RuleSet[],
+        }),
+    ...(result.data.merchant === undefined ? {} : { merchant: result.data.merchant }),
+    ...(result.data.transactions === undefined ? {} : { transactions: result.data.transactions }),
+  };
 }
 
 /**
@@ -152,7 +178,7 @@ export async function route(deps: CategorisationDeps, event: HttpEvent) {
     if (path.endsWith("/categorisation/proposals")) {
       const range = rangeFrom(event);
       const outcome = await deps.propose(tenantId, {
-        sets: proposalFrom(event),
+        ...proposalFrom(event),
         commit: commitFrom(event),
         // Provenance, from the same claim that authorised the request.
         by: tenantId,

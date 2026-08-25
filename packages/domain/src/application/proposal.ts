@@ -17,6 +17,8 @@
  * person.
  */
 
+import { literalMatcher } from "../categorisation/evaluate.js";
+import { OVERRIDES, OVERRIDES_ORDER } from "../categorisation/overrides.js";
 import { preview } from "../categorisation/preview.js";
 import type { Preview } from "../categorisation/preview.js";
 import { RuleSet } from "../categorisation/rules.js";
@@ -57,9 +59,40 @@ export interface ProposalDeps {
  */
 export type Commit = "preview" | "propose" | "apply";
 
+/**
+ * Categorise everything a term matches.
+ *
+ * The term, not a pattern. Escaping a word somebody typed into an expression is
+ * done in one place — `literalMatcher` — and a client that had to do it would
+ * be a second implementation of the thing that decides which transactions a
+ * rule takes. Saying what you want and letting this build the rule keeps the
+ * search that found them and the rule that categorises them built from the same
+ * string by the same function.
+ */
+export interface MerchantRequest {
+  readonly term: string;
+  readonly category: string;
+}
+
+/**
+ * Categorise these transactions and no others.
+ *
+ * One rule per transaction, by dedup key, at override precedence. No leverage
+ * and none intended: this is "that one is different", not a pattern, and a rule
+ * that generalised would be answering a question nobody asked.
+ */
+export interface TransactionsRequest {
+  readonly dedupKeys: readonly string[];
+  readonly category: string;
+}
+
 export interface ProposalCommand {
   /** The sets as they would be. Sets left out are unchanged. */
-  readonly sets: readonly RuleSet[];
+  readonly sets?: readonly RuleSet[];
+  /** Or: a term to categorise, from which the rule is built here. */
+  readonly merchant?: MerchantRequest;
+  /** Or: specific transactions, one rule each. */
+  readonly transactions?: TransactionsRequest;
   readonly commit: Commit;
   /** Who to record as the author. */
   readonly by: string;
@@ -109,6 +142,33 @@ function arrangementAfter(before: readonly RuleSet[], proposedSets: readonly Rul
   return [...next.values()];
 }
 
+/**
+ * The set a merchant rule would produce: whatever is there, plus one rule.
+ *
+ * Appended rather than inserted, because order within a set is data and a rule
+ * that quietly went first would change what the existing ones do.
+ */
+const HOUSEHOLD = { setId: "household", order: 0 } as const;
+const OVERRIDES_TARGET = { setId: OVERRIDES, order: OVERRIDES_ORDER } as const;
+
+function setWith(
+  before: readonly RuleSet[],
+  target: { setId: string; order: number },
+  added: RuleSet["rules"],
+): RuleSet {
+  const existing = before.find((s) => s.setId === target.setId);
+  return {
+    setId: target.setId,
+    version: existing?.version ?? 0,
+    name: existing?.name ?? target.setId,
+    order: existing?.order ?? target.order,
+    authored: true,
+    status: "effective",
+    createdAt: existing?.createdAt ?? new Date(0).toISOString(),
+    rules: [...(existing?.rules ?? []), ...added],
+  };
+}
+
 export async function proposeRules(
   deps: ProposalDeps,
   tenantId: string,
@@ -119,16 +179,49 @@ export async function proposeRules(
     deps.ruleSets.listRuleSets(tenantId),
   ]);
 
-  // Before anything is computed, and before the dry-run branch. A caller asking
+  const before = parseSets(currentRows);
+  // Where each kind of rule belongs is decided by what it means, not by the
+  // caller. A merchant pattern is a household rule; naming one transaction
+  // outright is an override. A client that could choose would eventually choose
+  // wrong, and precedence is the thing that decides whose answer wins.
+  const sets = request.merchant
+    ? [
+        setWith(before, HOUSEHOLD, [
+          {
+            matcher: literalMatcher(request.merchant.term),
+            contributes: { kind: "assert", category: request.merchant.category },
+            appliesTo: "debits",
+          },
+        ]),
+      ]
+    : request.transactions
+      ? [
+          setWith(
+            before,
+            OVERRIDES_TARGET,
+            request.transactions.dedupKeys.map((dedupKey) => ({
+              matcher: { kind: "transaction" as const, dedupKey },
+              contributes: { kind: "assert" as const, category: request.transactions!.category },
+              // Not `debits`: a transaction named outright is that transaction,
+              // and a direction gate on top could decline the very row asked for.
+              appliesTo: "all" as const,
+            })),
+          ),
+        ]
+      : (request.sets ?? []);
+  if (sets.length === 0) {
+    throw new Error("A proposal needs sets, a merchant, or transactions to categorise");
+  }
+
+  // Before anything is computed, and before the preview branch. A caller asking
   // what a change would do deserves to be told the change is unwritable, rather
   // than finding out when they mean it.
-  const unknown = await unknownCategories({ categories: deps.categories }, tenantId, request.sets);
+  const unknown = await unknownCategories({ categories: deps.categories }, tenantId, sets);
   if (unknown.length > 0) {
     throw new Error(`Refusing rules naming categories that do not exist or are retired: ${unknown.join(", ")}`);
   }
 
-  const before = parseSets(currentRows);
-  const after = arrangementAfter(before, request.sets);
+  const after = arrangementAfter(before, sets);
   const corpus: Candidate[] = transactions.map(candidateOf);
 
   const prediction = preview(before, after, corpus);
@@ -138,7 +231,7 @@ export async function proposeRules(
   const proposed = await propose(
     { ruleSets: deps.ruleSets, categories: deps.categories },
     tenantId,
-    request.sets,
+    sets,
     { now: request.now, by: request.by },
   );
   if (request.commit === "propose") return { prediction, proposed };

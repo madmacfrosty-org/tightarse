@@ -33,9 +33,16 @@ export interface Session {
   complete(): Promise<Identity | null>;
 }
 
-/** Reading from the API. No write methods, because the dashboard makes none. */
+/**
+ * Our own API.
+ *
+ * It read and nothing else until the dashboard could propose a rule. That is
+ * the same identity and the same token doing something with effect, not a
+ * different kind of access — which is why there is one port rather than two.
+ */
 export interface Api {
   get<T>(path: string): Promise<T>;
+  post<T>(path: string, body: unknown): Promise<T>;
 }
 
 export type { Identity };

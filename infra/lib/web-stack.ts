@@ -115,23 +115,53 @@ export class WebStack extends cdk.Stack {
         : {}),
     });
 
-    new s3deploy.BucketDeployment(this, "Deploy", {
-      sources: [
-        s3deploy.Source.asset(path.join(__dirname, "../../web/dist")),
-        // Written by CDK, so it always matches the stack that deployed it.
-        s3deploy.Source.jsonData("config.json", {
-          userPoolId: identity.pool.userPoolId,
-          userPoolClientId: identity.client.userPoolClientId,
-          // From the same object as the pool, so the two cannot disagree.
-          hostedUiDomain: identity.hostedUiDomain,
-          apiUrl,
-        }),
-      ],
+    const sources = [
+      s3deploy.Source.asset(path.join(__dirname, "../../web/dist")),
+      // Written by CDK, so it always matches the stack that deployed it.
+      s3deploy.Source.jsonData("config.json", {
+        userPoolId: identity.pool.userPoolId,
+        userPoolClientId: identity.client.userPoolClientId,
+        // From the same object as the pool, so the two cannot disagree.
+        hostedUiDomain: identity.hostedUiDomain,
+        apiUrl,
+      }),
+    ];
+
+    /*
+      Everything, cached hard. Asset filenames carry a content hash, so a given
+      URL never changes what it returns and a year is safe.
+    */
+    const everything = new s3deploy.BucketDeployment(this, "Deploy", {
+      sources,
       destinationBucket: bucket,
       distribution,
       distributionPaths: ["/*"],
       prune: true,
+      cacheControl: [s3deploy.CacheControl.maxAge(cdk.Duration.days(365)), s3deploy.CacheControl.immutable()],
     });
+
+    /*
+      Then the two files that must never be cached, written over the top.
+
+      `index.html` names the hashed bundle and `config.json` carries the pool and
+      API this build talks to — both change every deploy while keeping their
+      names. Under the headers above a browser holds the old ones and loads a
+      previous build from a fresh bucket, which reads as "the deploy did
+      nothing": the invalidation clears CloudFront, and nothing clears the
+      browser.
+
+      `prune: false` because these files are already in the deployment above and
+      pruning here would delete everything else.
+    */
+    new s3deploy.BucketDeployment(this, "DeployUncached", {
+      sources,
+      destinationBucket: bucket,
+      distribution,
+      distributionPaths: ["/", "/index.html", "/config.json"],
+      include: ["index.html", "config.json"],
+      prune: false,
+      cacheControl: [s3deploy.CacheControl.noCache(), s3deploy.CacheControl.mustRevalidate()],
+    }).node.addDependency(everything);
 
     new cdk.CfnOutput(this, "SiteUrl", { value: `https://${distribution.distributionDomainName}` });
 

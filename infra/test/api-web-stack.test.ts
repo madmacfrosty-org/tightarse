@@ -116,6 +116,7 @@ describe("api", () => {
     expect(keys).toEqual([
       "GET /v1/accounts",
       "GET /v1/balances",
+      "GET /v1/categories",
       "GET /v1/categorisation/gaps",
       "GET /v1/connect/callback",
       "GET /v1/connect/start",
@@ -242,5 +243,39 @@ describe("web", () => {
         }),
       }),
     });
+  });
+});
+
+describe("what the browser is allowed to keep", () => {
+  const deployments = () =>
+    Object.values(web.findResources("Custom::CDKBucketDeployment")).map((d: any) => ({
+      ...d.Properties,
+      // Where CDK actually puts it. Reading a `CacheControl` property that does
+      // not exist gives undefined, and a test comparing undefined to undefined
+      // passes whatever the headers say.
+      cacheControl: d.Properties.SystemMetadata?.["cache-control"] ?? "",
+    }));
+
+  it("caches the hashed assets hard, because their names change when they do", () => {
+    const long = deployments().find((p) => p.cacheControl.includes("immutable"));
+
+    expect(long, "no deployment caches assets").toBeDefined();
+    expect(long.cacheControl).toContain("max-age=31536000");
+  });
+
+  it("lets the browser keep neither the page nor the config", () => {
+    // `index.html` names the hashed bundle and `config.json` names the pool and
+    // API. Both change every deploy while keeping their names, so a browser
+    // holding them loads a previous build from a fresh bucket — which reads as
+    // the deploy having done nothing.
+    const short = deployments().find((p) => p.cacheControl.includes("no-cache"));
+
+    expect(short, "nothing is served uncached").toBeDefined();
+    expect(short.Include.sort()).toEqual(["config.json", "index.html"]);
+    expect(short.Prune, "pruning here would delete every asset").toBe(false);
+  });
+
+  it("invalidates the edge as well, since headers only reach a browser", () => {
+    for (const p of deployments()) expect(p.DistributionPaths.length).toBeGreaterThan(0);
   });
 });

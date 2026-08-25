@@ -219,6 +219,7 @@ describe("the published routes themselves", () => {
     ["get", "/summary", "Summary", ["from", "to"]],
     ["get", "/transactions", "TransactionsResponse", ["from", "to", "q"]],
     ["get", "/balances", "BalancesResponse", ["from", "to"]],
+    ["get", "/categories", "CategoriesResponse", []],
     ["get", "/accounts", "AccountsResponse", []],
   ] as const;
 

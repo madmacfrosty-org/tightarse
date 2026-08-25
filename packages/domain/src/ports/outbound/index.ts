@@ -325,6 +325,15 @@ export interface LedgerReads {
    * same tenant partition `listAccounts` already touches.
    */
   listRuleSets(tenantId: string): Promise<Row[]>;
+  /**
+   * The category catalogue.
+   *
+   * A client choosing a category needs the ones that exist, not the ones that
+   * happen to have totals: a category nobody has spent in this year is still a
+   * category, and a retired one must not be offered. Neither is derivable from
+   * a summary.
+   */
+  listCategories(tenantId: string): Promise<Row[]>;
 }
 
 /**

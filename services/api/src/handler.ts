@@ -1,7 +1,7 @@
 import { DynamoStore } from "@tightarse/dynamodb";
 import type { Reporting } from "@tightarse/domain";
 import { reporting } from "@tightarse/domain";
-import { asAccounts, asBalances, asSummary, asTransactions } from "./wire.js";
+import { asAccounts, asBalances, asCategories, asSummary, asTransactions } from "./wire.js";
 
 /**
  * HTTP API handler.
@@ -132,6 +132,7 @@ export async function route(deps: ApiDeps, event: HttpEvent) {
     if (path.endsWith("/summary")) return json(200, asSummary(await deps.reporting.summary(tenantId, range)));
     if (path.endsWith("/transactions"))
       return json(200, asTransactions(await deps.reporting.transactions(tenantId, range, searchFrom(event))));
+    if (path.endsWith("/categories")) return json(200, asCategories(await deps.reporting.categories(tenantId)));
     if (path.endsWith("/accounts")) return json(200, asAccounts(await deps.reporting.accounts(tenantId)));
     if (path.endsWith("/balances"))
       return json(200, asBalances(await deps.reporting.balances(tenantId, range)));

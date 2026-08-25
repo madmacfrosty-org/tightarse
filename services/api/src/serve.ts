@@ -69,6 +69,7 @@ const deps: ApiDeps = {
       listRange: (tenant, range) => logged("listRange", () => ledger.listRange(tenant, range)),
       listAccounts: (tenant) => logged("listAccounts", () => ledger.listAccounts(tenant)),
       listRuleSets: (tenant) => logged("listRuleSets", () => ledger.listRuleSets(tenant)),
+      listCategories: (tenant) => logged("listCategories", () => ledger.listCategories(tenant)),
     },
   }),
 };

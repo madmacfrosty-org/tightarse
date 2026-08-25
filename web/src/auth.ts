@@ -225,11 +225,41 @@ function cleanUrl(): void {
  * and the API returns 403 without it. Verified against the deployed API.
  */
 export async function apiGet<T>(path: string): Promise<T> {
+  return request<T>(path, {});
+}
+
+/**
+ * A write.
+ *
+ * The dashboard made none until it could propose a rule. It carries the same
+ * bearer token and the same household claim as every read — proposing is not a
+ * different kind of trust, it is the same identity doing something with effect.
+ */
+export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+async function request<T>(path: string, init: RequestInit): Promise<T> {
   const cfg = await loadConfig();
   const token = await idToken();
   if (!token) throw new Error("Not signed in");
-  const res = await fetch(`${cfg.apiUrl}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+  const res = await fetch(`${cfg.apiUrl}${path}`, {
+    ...init,
+    headers: { ...init.headers, Authorization: `Bearer ${token}` },
+  });
   if (res.status === 401 || res.status === 403) throw new Error("Not authorised for this household");
-  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  if (!res.ok) {
+    // The API says what was wrong with a proposal — which field, which value —
+    // and losing that to a status code makes a fixable mistake a mystery.
+    const said = await res
+      .json()
+      .then((b: { error?: string }) => b.error)
+      .catch(() => undefined);
+    throw new Error(said ?? `Request failed: ${res.status}`);
+  }
   return (await res.json()) as T;
 }

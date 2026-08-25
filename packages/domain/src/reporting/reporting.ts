@@ -14,6 +14,7 @@
 
 import type {
   AccountsResult,
+  CategoriesResult,
   BalancesResult,
   DateRange,
   LedgerReads,
@@ -22,6 +23,7 @@ import type {
   Summary,
   TransactionsResult,
 } from "../index.js";
+import { Category } from "../categorisation/category.js";
 import { literalMatcher, matchesMatcher } from "../categorisation/evaluate.js";
 import { candidateOf } from "../application/candidate.js";
 import { effectiveCategories, orderOf } from "./categories.js";
@@ -173,6 +175,27 @@ export async function transactions(
   };
 }
 
+/**
+ * The categories a household may choose from.
+ *
+ * Retired ones are excluded rather than flagged. A retired category is one
+ * nothing new should be filed under — offering it and refusing it afterwards is
+ * a worse conversation than not offering it — and existing categorisations that
+ * name one are resolved through its merge chain, which is a different question
+ * from what a picker should show.
+ *
+ * Sorted by label, because a list somebody reads is ordered the way they read.
+ */
+export async function categories(deps: Deps, tenantId: string): Promise<CategoriesResult> {
+  const catalogue = (await deps.ledger.listCategories(tenantId)).map((r) => Category.parse(r));
+  return {
+    categories: catalogue
+      .filter((c) => !c.retired)
+      .map((c) => ({ id: c.id, label: c.label, kind: c.kind }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+  };
+}
+
 export async function accounts(deps: Deps, tenantId: string): Promise<AccountsResult> {
   const [rows, all] = await Promise.all([deps.ledger.listAccounts(tenantId), allHistory(deps, tenantId)]);
   const coverage = coverageFor(rows, all);
@@ -231,6 +254,7 @@ export function reporting(deps: Deps): Reporting {
   return {
     summary: (tenantId, range, opts) => summary(deps, tenantId, range, opts),
     transactions: (tenantId, range, search) => transactions(deps, tenantId, range, search),
+    categories: (tenantId) => categories(deps, tenantId),
     accounts: (tenantId) => accounts(deps, tenantId),
     balances: (tenantId, range) => balances(deps, tenantId, range),
   };

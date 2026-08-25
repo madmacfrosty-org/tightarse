@@ -7,7 +7,7 @@
  * test supplies its own object rather than replacing a module for everybody.
  */
 
-import { apiGet, completeSignIn, currentIdentity, signIn, signOut } from "./auth";
+import { apiGet, apiPost, completeSignIn, currentIdentity, signIn, signOut } from "./auth";
 import type { Api, Session } from "./ports";
 
 export const cognitoSession: Session = {
@@ -17,4 +17,4 @@ export const cognitoSession: Session = {
   complete: completeSignIn,
 };
 
-export const httpApi: Api = { get: apiGet };
+export const httpApi: Api = { get: apiGet, post: apiPost };

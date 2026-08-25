@@ -259,6 +259,24 @@ export const AccountsResponse = z.object({
 });
 export type AccountsResponse = z.infer<typeof AccountsResponse>;
 
+/** One category, as something choosing between them needs it. */
+export const CategoryChoiceView = z.object({
+  id: z.string().describe("Stable. What a rule names and a categorisation stores."),
+  label: z.string().describe("What a person reads. Freely changeable, including to match a provider's wording."),
+  kind: z.string().describe("spending, income or movement"),
+});
+export type CategoryChoiceView = z.infer<typeof CategoryChoiceView>;
+
+export const CategoriesResponse = z.object({
+  categories: z
+    .array(CategoryChoiceView)
+    .describe(
+      "Live categories, by label. Retired ones are not offered: filing something new under one is " +
+        "what retiring it was meant to stop, and refusing afterwards is a worse conversation than not offering it.",
+    ),
+});
+export type CategoriesResponse = z.infer<typeof CategoriesResponse>;
+
 // ------------------------------------------------------------- categorisation
 
 /**
@@ -385,11 +403,58 @@ export const ProposedRuleSetView = z.object({
 });
 export type ProposedRuleSetView = z.infer<typeof ProposedRuleSetView>;
 
+/**
+ * Categorise everything a term matches.
+ *
+ * The term, not a pattern. Escaping a word somebody typed into an expression
+ * happens once, on the server, by the same function that built the search which
+ * found the transactions. A client doing it would be a second implementation of
+ * what decides which transactions a rule takes, and the first time the two
+ * disagreed the screen would have shown one thing and the rule done another.
+ */
+export const MerchantRequestView = z.object({
+  term: z.string().min(1).describe("What was typed. Matched literally, not as a pattern."),
+  category: z.string().min(1),
+});
+export type MerchantRequestView = z.infer<typeof MerchantRequestView>;
+
+/**
+ * Exactly one of `sets`, `merchant` and `transactions` is given.
+ *
+ * Not expressed as a `refine` here: that wraps the schema in a `ZodEffects`,
+ * which has no `.shape`, and the wire contract is read for its shape as much as
+ * it is used for parsing. The rule is enforced where the answer can be a 400
+ * naming what was wrong.
+ */
+/**
+ * Categorise these transactions and no others.
+ *
+ * One rule per transaction, by dedup key, at override precedence. No leverage
+ * and none intended: this is "that one is different", not a pattern.
+ *
+ * Where the rule lands is decided by what it means rather than by the caller: a
+ * merchant pattern is a household rule, naming a transaction outright is an
+ * override. Precedence decides whose answer wins, and a client that could
+ * choose would eventually choose wrong.
+ */
+export const TransactionsRequestView = z.object({
+  dedupKeys: z.array(z.string().min(1)).min(1),
+  category: z.string().min(1),
+});
+export type TransactionsRequestView = z.infer<typeof TransactionsRequestView>;
+
 export const ProposalRequest = z.object({
   sets: z
     .array(ProposedRuleSetView)
     .min(1)
+    .optional()
     .describe("The rule sets as they would be. Sets left out are unchanged."),
+  merchant: MerchantRequestView.optional().describe(
+    "Or: a term to categorise, from which the rule is built server-side",
+  ),
+  transactions: TransactionsRequestView.optional().describe(
+    "Or: specific transactions, one rule each, at override precedence",
+  ),
   because: z.string().optional().describe("Why this is being proposed, carried onto the stored version"),
 });
 export type ProposalRequest = z.infer<typeof ProposalRequest>;

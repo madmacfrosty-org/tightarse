@@ -5,7 +5,11 @@ import userEvent from "@testing-library/user-event";
 
 const apiGet = vi.fn();
 // Supplied as an object, not a replaced module.
-const api = { get: <T,>(p: string) => apiGet(p) as Promise<T> };
+const apiPost = vi.fn();
+const api = {
+  get: <T,>(p: string) => apiGet(p) as Promise<T>,
+  post: <T,>(p: string, b: unknown) => apiPost(p, b) as Promise<T>,
+};
 
 const assign = vi.fn();
 
