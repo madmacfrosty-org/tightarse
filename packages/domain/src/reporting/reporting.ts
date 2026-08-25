@@ -22,6 +22,8 @@ import type {
   Summary,
   TransactionsResult,
 } from "../index.js";
+import { literalMatcher, matchesMatcher } from "../categorisation/evaluate.js";
+import { candidateOf } from "../application/candidate.js";
 import { effectiveCategories, orderOf } from "./categories.js";
 import { mergeCategories, summarise, toAccountState, type LedgerRow } from "./summary.js";
 import { daysBetween, netPositionSeries, type AccountFacts, type Movement } from "./balances.js";
@@ -128,16 +130,45 @@ export async function summary(
   );
 }
 
-export async function transactions(deps: Deps, tenantId: string, range: Range): Promise<TransactionsResult> {
+/**
+ * Transactions in a range, optionally narrowed to a search term.
+ *
+ * The term is matched with the domain's own matcher, built from the term as a
+ * literal. Not because the result has to equal what a rule would take — the dry
+ * run answers that, and answers it about the whole ledger — but because a
+ * second implementation of matching is a thing to keep in step, and there is no
+ * reason to have one when the real one is right here.
+ *
+ * Filtered after the read rather than in the query, because the ledger is keyed
+ * by date and nothing indexes a description. The read is the cost either way;
+ * what this saves is sending five years of transactions to a client that wanted
+ * eleven of them.
+ */
+export async function transactions(
+  deps: Deps,
+  tenantId: string,
+  range: Range,
+  search?: string,
+): Promise<TransactionsResult> {
   const [{ transactions: txns, categorisations }, sets] = await Promise.all([
     deps.ledger.listRange(tenantId, range),
     deps.ledger.listRuleSets(tenantId),
   ]);
+
+  const rows = txns as unknown as LedgerRow[];
+  // Built once, not per row: `literalMatcher` escapes, and doing that eleven
+  // thousand times to reach the same answer is work for nothing.
+  const matcher = search === undefined || search.length === 0 ? undefined : literalMatcher(search);
+  const wanted =
+    matcher === undefined
+      ? rows
+      : rows.filter((row) => matchesMatcher(matcher, candidateOf(row as unknown as Record<string, unknown>)));
+
   return {
     range,
     transactions: mergeCategories(
-      txns as unknown as LedgerRow[],
-      effectiveCategories(txns as unknown as LedgerRow[], categorisations, orderOf(sets)),
+      wanted,
+      effectiveCategories(rows, categorisations, orderOf(sets)),
     ),
   };
 }
@@ -199,7 +230,7 @@ export async function balances(deps: Deps, tenantId: string, range: Range): Prom
 export function reporting(deps: Deps): Reporting {
   return {
     summary: (tenantId, range, opts) => summary(deps, tenantId, range, opts),
-    transactions: (tenantId, range) => transactions(deps, tenantId, range),
+    transactions: (tenantId, range, search) => transactions(deps, tenantId, range, search),
     accounts: (tenantId) => accounts(deps, tenantId),
     balances: (tenantId, range) => balances(deps, tenantId, range),
   };

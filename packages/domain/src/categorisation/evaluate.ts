@@ -18,7 +18,7 @@
  */
 
 import type { Candidate } from "./taxonomy.js";
-import type { Rule, RuleSet } from "./rules.js";
+import type { Matcher, Rule, RuleSet } from "./rules.js";
 import type { CategoryId } from "./category.js";
 
 /** Why a set produced no answer, where it had something to say. */
@@ -50,16 +50,15 @@ export interface Evaluation {
   readonly sets: readonly SetOutcome[];
 }
 
-/** Does this rule apply to this transaction at all? */
-export function matches(rule: Rule, candidate: Candidate): boolean {
-  // Credits are excluded unless a rule says otherwise. An employer sharing a
-  // name with a retailer once filed £62,868 of salary as Shopping.
-  if (rule.appliesTo === "debits" && candidate.amount >= 0) return false;
-  // And a credits-only rule is how direction decides a category outright:
-  // interest is Income when received and Fees & Charges when paid.
-  if (rule.appliesTo === "credits" && candidate.amount < 0) return false;
-
-  const m = rule.matcher;
+/**
+ * Does this matcher name this transaction, direction aside?
+ *
+ * Separate from `matches` so that searching and categorising cannot answer
+ * differently. A search box that filters with its own substring test is a
+ * second implementation of matching, and the first time the two disagree the
+ * list stops being a preview of the rule it is about to become.
+ */
+export function matchesMatcher(m: Matcher, candidate: Candidate): boolean {
   switch (m.kind) {
     case "merchant":
       // Case-insensitive because descriptions arrive in whatever case the
@@ -70,6 +69,33 @@ export function matches(rule: Rule, candidate: Candidate): boolean {
     case "transaction":
       return candidate.dedupKey === m.dedupKey;
   }
+}
+
+/**
+ * A matcher for a word somebody typed.
+ *
+ * Escaped, so the term is taken literally. Unescaped, a merchant with a bracket
+ * or a plus in its name is a broken expression at best and an expression
+ * matching something else entirely at worst — and the person who typed it has
+ * no reason to expect their shop's name to be read as a pattern.
+ *
+ * One place, because the search that finds transactions and the rule that
+ * categorises them must be built from the term identically.
+ */
+export function literalMatcher(term: string): Matcher {
+  return { kind: "merchant", pattern: term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") };
+}
+
+/** Does this rule apply to this transaction at all? */
+export function matches(rule: Rule, candidate: Candidate): boolean {
+  // Credits are excluded unless a rule says otherwise. An employer sharing a
+  // name with a retailer once filed £62,868 of salary as Shopping.
+  if (rule.appliesTo === "debits" && candidate.amount >= 0) return false;
+  // And a credits-only rule is how direction decides a category outright:
+  // interest is Income when received and Fees & Charges when paid.
+  if (rule.appliesTo === "credits" && candidate.amount < 0) return false;
+
+  return matchesMatcher(rule.matcher, candidate);
 }
 
 /**

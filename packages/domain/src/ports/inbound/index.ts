@@ -233,7 +233,7 @@ export interface Inspection {
  */
 export interface Reporting {
   summary(tenantId: string, range: DateRange, opts?: SummaryOptions): Promise<Summary>;
-  transactions(tenantId: string, range: DateRange): Promise<TransactionsResult>;
+  transactions(tenantId: string, range: DateRange, search?: string): Promise<TransactionsResult>;
   accounts(tenantId: string): Promise<AccountsResult>;
   balances(tenantId: string, range: DateRange): Promise<BalancesResult>;
 }

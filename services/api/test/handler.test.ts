@@ -497,3 +497,48 @@ describe("what the package exposes", () => {
     expect(typeof pkg.route).toBe("function");
   });
 });
+
+describe("the search parameter", () => {
+  it("passes the term through to the application", async () => {
+    const seen: unknown[] = [];
+    const spy: ApiDeps = {
+      reporting: {
+        summary: vi.fn(),
+        accounts: vi.fn(),
+        balances: vi.fn(),
+        transactions: vi.fn(async (_t: string, _r: unknown, search?: string) => {
+          seen.push(search);
+          return { range: { from: "2026-01-01", to: "2026-12-31" }, transactions: [] };
+        }),
+      } as unknown as Reporting,
+    };
+
+    await route(spy, event({ rawPath: "/transactions", queryStringParameters: { q: "somemart" } }) as never);
+
+    expect(seen).toEqual(["somemart"]);
+  });
+
+  it.each([
+    ["absent", {}],
+    ["empty", { q: "" }],
+  ])("asks for everything when the term is %s", async (_case, params) => {
+    // A cleared search box sends `q=` on some clients, and answering that with
+    // nothing would be a blank screen nobody asked for.
+    const seen: unknown[] = [];
+    const spy: ApiDeps = {
+      reporting: {
+        summary: vi.fn(),
+        accounts: vi.fn(),
+        balances: vi.fn(),
+        transactions: vi.fn(async (_t: string, _r: unknown, search?: string) => {
+          seen.push(search);
+          return { range: { from: "2026-01-01", to: "2026-12-31" }, transactions: [] };
+        }),
+      } as unknown as Reporting,
+    };
+
+    await route(spy, event({ rawPath: "/transactions", queryStringParameters: params }) as never);
+
+    expect(seen).toEqual([undefined]);
+  });
+});
