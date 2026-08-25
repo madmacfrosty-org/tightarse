@@ -946,7 +946,56 @@
               ],
               "additionalProperties": false
             },
-            "description": "The versions created, absent on a dry run"
+            "description": "The versions created, absent on a preview"
+          },
+          "applied": {
+            "type": "object",
+            "properties": {
+              "scanned": {
+                "$ref": "#/components/schemas/Count"
+              },
+              "unchanged": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The rules produced what was already stored"
+              },
+              "appended": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Categorisations written"
+              },
+              "orphaned": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Had a category, and now no rule produces one"
+              },
+              "uncategorised": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Still matched by nothing"
+              },
+              "conflicts": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Sets claiming two answers at once"
+              },
+              "inertRefines": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Qualifiers that matched with nothing established"
+              }
+            },
+            "required": [
+              "scanned",
+              "unchanged",
+              "appended",
+              "orphaned",
+              "uncategorised",
+              "conflicts",
+              "inertRefines"
+            ],
+            "additionalProperties": false,
+            "description": "What recategorising did, absent unless it was asked for"
           }
         },
         "required": [
@@ -1156,7 +1205,7 @@
       "post": {
         "operationId": "categorisationProposals",
         "summary": "Propose a change to the rules, and say what it would do",
-        "description": "Computes what the proposed sets would gain, lose, recategorise, leave alone and be outranked on, along with any conflict they would introduce, then writes each set as its next version marked `proposed`. With `dryRun=true` it computes and returns without writing anything. The prediction is always computed here and never taken from the caller. Accepting a proposal is a separate act and is not part of this route.",
+        "description": "Computes what the proposed sets would gain, lose, recategorise, leave alone and be outranked on, along with any conflict they would introduce, then writes each set as its next version marked `proposed`. `commit` says how far to take it: computing only, writing the proposal, or writing it, accepting it and recategorising the range. The prediction is always computed here and never taken from the caller.",
         "parameters": [
           {
             "name": "from",
@@ -1181,15 +1230,16 @@
             }
           },
           {
-            "name": "dryRun",
+            "name": "commit",
             "in": "query",
             "required": false,
-            "description": "Compute and return without writing. Absent means write.",
+            "description": "How far to take it. `preview` computes and writes nothing; `propose` writes the version awaiting a decision; `apply` writes it, accepts it and recategorises the range. Absent means `propose`. One parameter rather than two flags, because a dry run that also applies is a combination with no meaning.",
             "schema": {
               "type": "string",
               "enum": [
-                "true",
-                "false"
+                "preview",
+                "propose",
+                "apply"
               ]
             }
           }

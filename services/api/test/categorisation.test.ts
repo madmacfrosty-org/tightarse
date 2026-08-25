@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { dryRunFrom, rangeFrom, route, type CategorisationDeps } from "../src/categorisation.js";
+import { commitFrom, rangeFrom, route, type CategorisationDeps } from "../src/categorisation.js";
 import type { Backlog } from "@tightarse/domain";
 
 /**
@@ -268,24 +268,29 @@ describe("proposing a change", () => {
       ...over,
     });
 
-  it("writes by default, because a proposal that silently does nothing is the worse failure", async () => {
+  it.each(["preview", "propose", "apply"])("takes commit=%s at its word", async (commit) => {
     const d = deps();
-    const res = await route(d, post());
+    await route(d, post({ queryStringParameters: { from: "2026-01-01", to: "2026-12-31", commit } }));
 
-    expect(res.statusCode).toBe(200);
-    expect(d.proposals[0]).toMatchObject({ dryRun: false });
+    expect(d.proposals[0]).toMatchObject({ commit });
   });
 
-  it.each([
-    ["true", true],
-    ["false", false],
-    ["TRUE", false],
-    [undefined, false],
-  ])("treats dryRun=%s as %s", async (value, expected) => {
+  it("proposes when nothing was asked for, rather than doing nothing", async () => {
     const d = deps();
-    await route(d, post({ queryStringParameters: { from: "2026-01-01", to: "2026-12-31", ...(value === undefined ? {} : { dryRun: value }) } }));
+    await route(d, post());
 
-    expect(d.proposals[0]).toMatchObject({ dryRun: expected });
+    expect(d.proposals[0]).toMatchObject({ commit: "propose" });
+  });
+
+  it("refuses a commit it does not recognise instead of guessing", async () => {
+    // A typo quietly meaning "write and apply" is the wrong way round.
+    const res = await route(
+      deps(),
+      post({ queryStringParameters: { from: "2026-01-01", to: "2026-12-31", commit: "aply" } }),
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(body(res)["error"]).toContain("preview, propose or apply");
   });
 
   it("still takes the household from the claim, never the body", async () => {
@@ -369,9 +374,9 @@ describe("proposing a change", () => {
   });
 });
 
-describe("reading the dry-run flag on its own", () => {
-  it("is false when there is no query at all", () => {
-    expect(dryRunFrom({})).toBe(false);
+describe("reading the commit mode on its own", () => {
+  it("proposes when there is no query at all", () => {
+    expect(commitFrom({})).toBe("propose");
   });
 
   it("says `body` when the whole payload is the wrong shape", async () => {

@@ -1,6 +1,6 @@
 import { ProposalRequest } from "@tightarse/api-contract";
 import { DynamoStore } from "@tightarse/dynamodb";
-import type { Inspection, ProposalDeps, ProposalOutcome, RuleSet } from "@tightarse/domain";
+import type { Commit, Inspection, ProposalDeps, ProposalOutcome, RuleSet } from "@tightarse/domain";
 import { inspection, proposeRules } from "@tightarse/domain";
 import { ledgerConfig, tenantFrom } from "./handler.js";
 import { asBacklog, asProposalResponse } from "./wire.js";
@@ -45,19 +45,33 @@ export interface CategorisationDeps {
    */
   readonly propose: (
     tenantId: string,
-    request: { sets: readonly RuleSet[]; dryRun: boolean; by: string; now: Date; range: { from: string; to: string } },
+    request: {
+      sets: readonly RuleSet[];
+      commit: Commit;
+      by: string;
+      now: Date;
+      range: { from: string; to: string };
+    },
   ) => Promise<ProposalOutcome>;
 }
 
 /**
- * Writing is the default; a dry run is asked for.
+ * How far the caller wants this taken.
  *
- * POST to a collection creating a row is what a caller expects, and a caller
- * that means to propose, forgets a flag and gets silence is a worse failure than
- * a row that can be rejected. Anything other than an explicit `true` writes.
+ * Defaults to `propose`, because POST to a collection creating a row is what a
+ * caller expects, and one that means to propose, forgets a parameter and gets
+ * silence is a worse failure than a row that can be rejected.
+ *
+ * Anything unrecognised is refused rather than defaulted. A typo silently
+ * meaning "write and apply" is the wrong way round.
  */
-export function dryRunFrom(event: HttpEvent): boolean {
-  return (event.queryStringParameters ?? {})["dryRun"] === "true";
+export function commitFrom(event: HttpEvent): Commit {
+  const asked = (event.queryStringParameters ?? {})["commit"];
+  if (asked === undefined) return "propose";
+  if (asked === "preview" || asked === "propose" || asked === "apply") return asked;
+  throw Object.assign(new Error(`commit must be preview, propose or apply — not "${asked}"`), {
+    statusCode: 400,
+  });
 }
 
 /**
@@ -139,13 +153,13 @@ export async function route(deps: CategorisationDeps, event: HttpEvent) {
       const range = rangeFrom(event);
       const outcome = await deps.propose(tenantId, {
         sets: proposalFrom(event),
-        dryRun: dryRunFrom(event),
+        commit: commitFrom(event),
         // Provenance, from the same claim that authorised the request.
         by: tenantId,
         now: new Date(),
         range,
       });
-      return json(200, asProposalResponse(outcome.prediction, outcome.proposed));
+      return json(200, asProposalResponse(outcome.prediction, outcome.proposed, outcome.applied));
     }
 
     return json(404, { error: `No route for ${path}` });
@@ -161,7 +175,12 @@ export async function route(deps: CategorisationDeps, event: HttpEvent) {
 /** Built by the entry point below, and by nothing a test runs. */
 export function realDeps(): CategorisationDeps {
   const store = new DynamoStore(ledgerConfig(process.env));
-  const deps: ProposalDeps = { transactions: store, ruleSets: store, categories: store };
+  const deps: ProposalDeps = {
+    transactions: store,
+    ruleSets: store,
+    categories: store,
+    categorisations: store,
+  };
   return {
     inspection: inspection({ transactions: store, ruleSets: store }),
     // Bound rather than wrapped: a wrapper here is a function no test can reach

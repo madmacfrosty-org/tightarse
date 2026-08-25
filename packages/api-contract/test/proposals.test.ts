@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  AppliedView,
   ChangeView,
   ContributionView,
   EffectView,
@@ -69,7 +70,8 @@ const DESCRIBED: Array<[string, { description?: string | undefined }, string]> =
   ["Effect.truncated", EffectView.shape.truncated, "Never truncated silently"],
   ["Conflict.categories", IntroducedConflictView.shape.categories, "would claim at once"],
   ["Conflict.example", IntroducedConflictView.shape.example, "would happen on"],
-  ["Proposal.proposed", ProposalResponse.shape.proposed, "absent on a dry run"],
+  ["Proposal.proposed", ProposalResponse.shape.proposed, "absent on a preview"],
+  ["Proposal.applied", ProposalResponse.shape.applied, "unless it was asked for"],
 ];
 
 describe("what the contract says out loud", () => {
@@ -283,7 +285,28 @@ describe("the response", () => {
     expect(ProposalResponse.parse({ prediction }).proposed).toBeUndefined();
   });
 
-  it("says the versions are absent on a dry run, so omission is not read as failure", () => {
-    expect(ProposalResponse.shape.proposed.description).toContain("absent on a dry run");
+  it("says the versions are absent on a preview, so omission is not read as failure", () => {
+    expect(ProposalResponse.shape.proposed.description).toContain("absent on a preview");
+  });
+
+  it("reports what applying did, in counts", () => {
+    const applied = { scanned: 47, unchanged: 5, appended: 42, orphaned: 0, uncategorised: 3, conflicts: 0, inertRefines: 1 };
+
+    expect(AppliedView.parse(applied)).toEqual(applied);
+    expect(ProposalResponse.parse({ prediction, applied }).applied).toEqual(applied);
+  });
+
+  it("carries nothing about applying unless it happened", () => {
+    expect(ProposalResponse.parse({ prediction }).applied).toBeUndefined();
+    expect(ProposalResponse.shape.applied.description).toContain("unless it was asked for");
+  });
+
+  it("says what each count means, since several could be mistaken for each other", () => {
+    expect(AppliedView.shape.appended.description).toContain("Categorisations written");
+    expect(AppliedView.shape.orphaned.description).toContain("now no rule produces one");
+    expect(AppliedView.shape.uncategorised.description).toContain("matched by nothing");
+    expect(AppliedView.shape.unchanged.description).toContain("already stored");
+    expect(AppliedView.shape.conflicts.description).toContain("two answers at once");
+    expect(AppliedView.shape.inertRefines.description).toContain("nothing established");
   });
 });

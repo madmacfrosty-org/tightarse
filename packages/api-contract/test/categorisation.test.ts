@@ -249,29 +249,33 @@ describe("the signed routes", () => {
     expect(proposals.response.schema).toBe(ProposalResponse);
   });
 
-  it("takes a range to measure against, and an optional dry run", () => {
+  it("takes a range to measure against, and how far to take it", () => {
     const byName = Object.fromEntries(proposals.query.map((q) => [q.name, q]));
 
-    expect(Object.keys(byName).sort()).toEqual(["dryRun", "from", "to"]);
+    expect(Object.keys(byName).sort()).toEqual(["commit", "from", "to"]);
     expect(byName["from"]!.required).toBe(true);
     expect(byName["to"]!.required).toBe(true);
-    expect(byName["dryRun"]!.required).toBe(false);
+    expect(byName["commit"]!.required).toBe(false);
   });
 
-  it("says writing is the default and a dry run is asked for", () => {
-    const dryRun = proposals.query.find((q) => q.name === "dryRun")!;
+  it("offers exactly three degrees of commitment, and no fourth", () => {
+    // One parameter rather than two flags: a dry run that also applies is a
+    // combination with no meaning, and every two-boolean API is eventually
+    // sent it.
+    const commit = proposals.query.find((q) => q.name === "commit")!;
 
-    expect(dryRun.description).toContain("Absent means write");
-    expect(proposals.description).toContain("without writing anything");
+    for (const value of ["preview", "propose", "apply"]) expect(commit.schema.parse(value)).toBe(value);
+    expect(() => commit.schema.parse("true")).toThrow();
+    expect(() => commit.schema.parse("APPLY")).toThrow();
   });
 
-  it("accepts only the two words it documents for dryRun", () => {
-    const dryRun = proposals.query.find((q) => q.name === "dryRun")!;
+  it("says what each degree does, and which one it assumes", () => {
+    const commit = proposals.query.find((q) => q.name === "commit")!;
 
-    expect(dryRun.schema.parse("true")).toBe("true");
-    expect(dryRun.schema.parse("false")).toBe("false");
-    expect(() => dryRun.schema.parse("yes")).toThrow();
-    expect(() => dryRun.schema.parse("1")).toThrow();
+    expect(commit.description).toContain("writes nothing");
+    expect(commit.description).toContain("awaiting a decision");
+    expect(commit.description).toContain("recategorises the range");
+    expect(commit.description).toContain("Absent means `propose`");
   });
 
   it("names every outcome it reports, across the whole description", () => {
@@ -289,7 +293,8 @@ describe("the signed routes", () => {
     expect(proposals.description).toContain("never taken from the caller");
   });
 
-  it("says accepting is somewhere else", () => {
-    expect(proposals.description).toContain("not part of this route");
+  it("names all three degrees in its own description", () => {
+    expect(proposals.description).toContain("computing only");
+    expect(proposals.description).toContain("recategorising the range");
   });
 });

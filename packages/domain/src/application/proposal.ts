@@ -20,16 +20,20 @@
 import { preview } from "../categorisation/preview.js";
 import type { Preview } from "../categorisation/preview.js";
 import { RuleSet } from "../categorisation/rules.js";
+import { categorise } from "./categorise.js";
+import type { CategoriseReport } from "./categorise.js";
 import type { Candidate } from "../categorisation/taxonomy.js";
 import type { DateRange } from "../ports/index.js";
-import type { Categories, Row, RuleSets, Transactions } from "../ports/outbound/index.js";
+import type { Categorisations, Categories, Row, RuleSets, Transactions } from "../ports/outbound/index.js";
 import { candidateOf } from "./candidate.js";
-import { propose, unknownCategories } from "./optimise.js";
+import { decide, propose, unknownCategories } from "./optimise.js";
 import type { Proposed } from "./optimise.js";
 
 export interface ProposalDeps {
   readonly transactions: Transactions;
   readonly ruleSets: RuleSets;
+  /** Where an applied categorisation is recorded. Untouched unless asked to apply. */
+  readonly categorisations: Categorisations;
   /**
    * The catalogue, for checking that a proposal names categories that exist.
    *
@@ -39,21 +43,44 @@ export interface ProposalDeps {
   readonly categories: Categories;
 }
 
+/**
+ * How far to take a proposal.
+ *
+ * One parameter with three values rather than two booleans, because
+ * `dryRun && apply` is a combination with no meaning and every caller of a
+ * two-boolean API eventually sends it.
+ *
+ * `propose` exists for a proposer that may not decide its own work — a model
+ * outside the account, when there is one. A person at the keyboard with the
+ * prediction in front of them is the case `mayApproveAutomatically` was written
+ * for, and goes straight to `apply`.
+ */
+export type Commit = "preview" | "propose" | "apply";
+
 export interface ProposalCommand {
   /** The sets as they would be. Sets left out are unchanged. */
   readonly sets: readonly RuleSet[];
-  /** Compute and return, writing nothing. */
-  readonly dryRun: boolean;
+  readonly commit: Commit;
+  /** Who to record as the author. */
   readonly by: string;
   readonly now: Date;
-  /** Which transactions to measure against. */
+  /**
+   * Which transactions to measure against, and — when applying — to apply to.
+   *
+   * The same range for both on purpose: a prediction measured over one span and
+   * applied over another describes something that did not happen, and the
+   * comparison between them stops meaning anything. Transactions outside it are
+   * reached by the scheduled run, which works over the whole ledger.
+   */
   readonly range: DateRange;
 }
 
 export interface ProposalOutcome {
   readonly prediction: Preview;
-  /** What was written. Absent on a dry run, which creates nothing. */
+  /** What was written. Absent on a preview, which creates nothing. */
   readonly proposed?: readonly Proposed[];
+  /** What applying actually did. Absent unless it was asked for. */
+  readonly applied?: CategoriseReport;
 }
 
 function parseSets(rows: readonly Row[]): RuleSet[] {
@@ -106,7 +133,7 @@ export async function proposeRules(
 
   const prediction = preview(before, after, corpus);
 
-  if (request.dryRun) return { prediction };
+  if (request.commit === "preview") return { prediction };
 
   const proposed = await propose(
     { ruleSets: deps.ruleSets, categories: deps.categories },
@@ -114,7 +141,18 @@ export async function proposeRules(
     request.sets,
     { now: request.now, by: request.by },
   );
-  return { prediction, proposed };
+  if (request.commit === "propose") return { prediction, proposed };
+
+  // Accepting points `current` at the version; applying is what reaches the
+  // transactions. Separate calls because they are separate decisions, and the
+  // second is re-runnable on its own.
+  await decide({ ruleSets: deps.ruleSets }, tenantId, proposed, { status: "effective" });
+  const applied = await categorise(
+    { transactions: deps.transactions, ruleSets: deps.ruleSets, categorisations: deps.categorisations },
+    tenantId,
+    { range: request.range, now: request.now },
+  );
+  return { prediction, proposed, applied };
 }
 
 export type { Preview, Proposed };

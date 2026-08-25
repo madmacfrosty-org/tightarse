@@ -189,16 +189,20 @@ export const CATEGORISATION_ROUTES: readonly Route[] = [
     description:
       "Computes what the proposed sets would gain, lose, recategorise, leave alone and be outranked on, " +
       "along with any conflict they would introduce, then writes each set as its next version marked " +
-      "`proposed`. With `dryRun=true` it computes and returns without writing anything. The prediction is " +
-      "always computed here and never taken from the caller. Accepting a proposal is a separate act and is " +
-      "not part of this route.",
+      "`proposed`. `commit` says how far to take it: computing only, writing the proposal, or writing it, " +
+      "accepting it and recategorising the range. The prediction is always computed here and never taken " +
+      "from the caller.",
     query: [
       ...range,
       {
-        name: "dryRun",
+        name: "commit",
         required: false,
-        schema: z.enum(["true", "false"]),
-        description: "Compute and return without writing. Absent means write.",
+        schema: z.enum(["preview", "propose", "apply"]),
+        description:
+          "How far to take it. `preview` computes and writes nothing; `propose` writes the version " +
+          "awaiting a decision; `apply` writes it, accepts it and recategorises the range. " +
+          "Absent means `propose`. One parameter rather than two flags, because a dry run that also " +
+          "applies is a combination with no meaning.",
       },
     ],
     request: { name: "ProposalRequest", schema: ProposalRequest },
