@@ -44,6 +44,13 @@ const backlog: Backlog = {
     },
   ],
   gaps: [{ description: "UNKNOWN SHOP", transactions: 2, outgoing: 15_00 }],
+  conflicts: [{
+    setId: "household",
+    categories: ["groceries", "fuel"],
+    rules: [0, 3],
+    transactions: 4,
+    example: "SOMEMART FORECOURT",
+  }],
   scanned: 5,
 };
 
@@ -78,6 +85,15 @@ describe("the backlog on the wire", () => {
         },
       ],
       gaps: [{ description: "UNKNOWN SHOP", transactions: 2, outgoing: 15_00 }],
+      conflicts: [
+        {
+          setId: "household",
+          categories: ["groceries", "fuel"],
+          rules: [0, 3],
+          transactions: 4,
+          example: "SOMEMART FORECOURT",
+        },
+      ],
       scanned: 5,
     });
   });
@@ -91,14 +107,19 @@ describe("the backlog on the wire", () => {
     expect(out.recurrences[0]!.descriptions).not.toBe(backlog.recurrences[0]!.descriptions);
     expect(out.descriptions[0]!.categories).not.toBe(backlog.descriptions[0]!.categories);
     expect(out.gaps).not.toBe(backlog.gaps);
+    expect(out.conflicts[0]!.categories).not.toBe(backlog.conflicts[0]!.categories);
+    expect(out.conflicts[0]!.rules).not.toBe(backlog.conflicts[0]!.rules);
   });
 
   it("has nothing to say about an empty backlog, but still says the range", () => {
-    expect(asBacklog(RANGE, { descriptions: [], recurrences: [], gaps: [], scanned: 0 })).toEqual({
+    expect(
+      asBacklog(RANGE, { descriptions: [], recurrences: [], gaps: [], conflicts: [], scanned: 0 }),
+    ).toEqual({
       range: RANGE,
       descriptions: [],
       recurrences: [],
       gaps: [],
+      conflicts: [],
       scanned: 0,
     });
   });

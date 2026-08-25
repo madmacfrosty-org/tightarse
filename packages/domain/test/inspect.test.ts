@@ -95,6 +95,37 @@ describe("describing the backlog", () => {
     expect(b.recurrences[0]).toMatchObject({ amount: -95_00, transactions: 3 });
   });
 
+  it("names a set that claims two answers, which nothing else would report", async () => {
+    // A conflicted transaction ends up categorised by nothing, and it is not a
+    // gap either: a gap is where *nothing matched*, and here two rules matched
+    // and disagreed. So without this it is uncategorised and invisible — absent
+    // from the backlog it belongs in and from every count drawn off it.
+    const clashing = ruleSetRow({
+      setId: "household",
+      order: 0,
+      rules: [
+        { matcher: { kind: "merchant", pattern: "somemart" }, contributes: { kind: "assert", category: "groceries" }, appliesTo: "debits" },
+        { matcher: { kind: "merchant", pattern: "somemart" }, contributes: { kind: "assert", category: "fuel" }, appliesTo: "debits" },
+      ],
+    });
+    const b = await backlog(deps([row("SOMEMART 118")], [clashing]), "frost", RANGE);
+
+    expect(b.conflicts).toEqual([
+      { setId: "household", categories: ["groceries", "fuel"], rules: [0, 1], transactions: 1, example: "SOMEMART 118" },
+    ]);
+    // Deliberately not a gap. Conflating the two would lose the distinction
+    // between "no rule covers this" and "two rules fight over it", which are
+    // different problems with different fixes.
+    expect(b.gaps).toEqual([]);
+    expect(b.descriptions[0]).toMatchObject({ uncategorised: 1 });
+  });
+
+  it("has no conflicts to report when the rules agree", async () => {
+    const b = await backlog(deps([row("SOMEMART 118")]), "frost", RANGE);
+
+    expect(b.conflicts).toEqual([]);
+  });
+
   it("reads the ledger once, so the gaps and the collapses describe the same corpus", async () => {
     const d = deps([row("UNKNOWN SHOP")]);
     const b = await backlog(d, "frost", RANGE);

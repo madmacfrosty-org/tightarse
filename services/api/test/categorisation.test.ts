@@ -12,7 +12,7 @@ import type { Backlog } from "@tightarse/domain";
  * body may decide whose ledger is read.
  */
 
-const EMPTY: Backlog = { descriptions: [], recurrences: [], gaps: [], scanned: 0 };
+const EMPTY: Backlog = { descriptions: [], recurrences: [], gaps: [], conflicts: [], scanned: 0 };
 
 const deps = (backlog: Backlog = EMPTY): CategorisationDeps & { seen: string[] } => {
   const seen: string[] = [];
@@ -118,6 +118,13 @@ describe("routing", () => {
         },
       ],
       gaps: [{ description: "UNKNOWN SHOP", transactions: 1, outgoing: 10_00 }],
+      conflicts: [{
+    setId: "household",
+    categories: ["groceries", "fuel"],
+    rules: [0, 3],
+    transactions: 4,
+    example: "SOMEMART FORECOURT",
+  }],
       scanned: 4,
     };
     const res = await route(deps(backlog), event(), env);
@@ -127,6 +134,7 @@ describe("routing", () => {
       range: { from: "2026-01-01", to: "2026-12-31" },
       scanned: 4,
       gaps: [{ description: "UNKNOWN SHOP", transactions: 1, outgoing: 10_00 }],
+      conflicts: [{ setId: "household", categories: ["groceries", "fuel"], rules: [0, 3], transactions: 4, example: "SOMEMART FORECOURT" }],
     });
   });
 
