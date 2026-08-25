@@ -54,6 +54,27 @@ read it.
 Operational commands — granting household access, managing categorisation
 rules, running a categorisation — are in [README](README.md#operating-it).
 
+## Opening a pull request
+
+Open it as the app, not as yourself:
+
+```sh
+GH_TOKEN=$(node scripts/gh-app-token.mjs) gh pr create --base main ...
+```
+
+`gh` otherwise falls back to whatever `gh auth login` stored, and every pull
+request raised by automation is authored by a person who did not raise it — #84
+to #91 all landed that way before anyone noticed. The token lasts an hour, so it
+is minted per command rather than exported once.
+
+The private key lives at `~/.config/tightarse/github-app.pem`, outside this tree,
+because [this repository is public](CONTRIBUTING.md#this-repository-is-public).
+
+The installation's permissions are narrower than a personal login, which is the
+point: a command the app may not perform fails with a 403 instead of quietly
+succeeding as a human. Grant what it needs in the app's settings rather than
+reaching for your own token.
+
 ## Before you say it works
 
 Run it. This project's expensive bugs all passed their tests: a card sign
