@@ -3,7 +3,7 @@ import { z } from "zod";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildOpenApiDocument, renderOpenApiDocument, schemasFrom } from "../src/openapi";
-import { API_VERSION, CONNECT_PATHS, ROUTES, pathFor } from "../src/routes";
+import { API_VERSION, CATEGORISATION_ROUTES, CONNECT_PATHS, ROUTES, pathFor } from "../src/routes";
 
 const doc = buildOpenApiDocument();
 const text = JSON.stringify(doc);
@@ -86,7 +86,9 @@ describe("what must survive generation", () => {
   it("serves every route under the version prefix, and none without it", () => {
     // #27. An unversioned path served by accident is one that has to be
     // supported for ever the moment something calls it.
-    expect(Object.keys(doc.paths).sort()).toEqual(ROUTES.map(pathFor).sort());
+    expect(Object.keys(doc.paths).sort()).toEqual(
+      [...ROUTES, ...CATEGORISATION_ROUTES].map(pathFor).sort(),
+    );
     for (const path of Object.keys(doc.paths)) {
       expect(path.startsWith(`/${API_VERSION}/`), `${path} is not versioned`).toBe(true);
     }
@@ -97,14 +99,17 @@ describe("what must survive generation", () => {
     // documented tenant parameter would invite a client to send one, and the
     // first person to try it would be asking for somebody else's ledger.
     expect(doc.security).toEqual([{ bearerAuth: [] }]);
-    const params = Object.values(doc.paths as Record<string, any>).flatMap(
-      (p) => p.get.parameters as Array<{ name: string }>,
+    // Every operation, whatever its verb — a POST that took a tenant parameter
+    // would be just as wrong as a GET that did, and reading only `.get` stopped
+    // looking the moment the first POST was published.
+    const params = Object.values(doc.paths as Record<string, any>).flatMap((path) =>
+      Object.values(path).flatMap((op: any) => (op.parameters ?? []) as Array<{ name: string }>),
     );
     // The intent, not a count: a route may be added without touching this, but
     // a parameter naming a household may not. Counting them meant adding
     // /balances broke a test about tenancy, which is the wrong thing to notice.
     const names = new Set(params.map((p) => p.name));
-    expect([...names].sort()).toEqual(["from", "to"]);
+    expect([...names].sort()).toEqual(["dryRun", "from", "to"]);
   });
 
   it("documents no limit parameter", () => {

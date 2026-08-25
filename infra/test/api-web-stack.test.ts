@@ -8,24 +8,21 @@ describe("api", () => {
   it("authorises every route, with nothing left open", () => {
     // A route added without an authoriser is an unauthenticated read of
     // somebody else's ledger, which is the one failure this design cannot
-    // tolerate. Two models are permitted and nothing else: a verified Cognito
-    // claim, or a signed AWS principal.
+    // tolerate.
     const routes = api.findResources("AWS::ApiGatewayV2::Route");
     expect(Object.keys(routes).length).toBeGreaterThan(0);
     for (const [id, r] of Object.entries(routes)) {
       const props = (r as any).Properties;
-      expect(["JWT", "AWS_IAM"], `route ${id} (${props.RouteKey})`).toContain(props.AuthorizationType);
-      if (props.AuthorizationType === "JWT") {
-        expect(props.AuthorizerId, `route ${id} (${props.RouteKey})`).toBeDefined();
-      }
+      expect(props.AuthorizationType, `route ${id} (${props.RouteKey})`).toBe("JWT");
+      expect(props.AuthorizerId, `route ${id} (${props.RouteKey})`).toBeDefined();
     }
   });
 
-  it("puts the dashboard's routes behind Cognito and the categorisation routes behind SigV4", () => {
-    // Spelled out per route rather than counted. The failure worth catching is
-    // a browser route silently acquiring IAM auth — or worse, a categorisation
-    // route acquiring JWT auth and then reading its household from an
-    // environment variable while a bearer token says otherwise.
+  it("puts every route behind Cognito, including the ones that write", () => {
+    // Spelled out per route rather than counted. These were signed with SigV4
+    // and resolved the household from the environment, which left the dashboard
+    // unable to call its own API. One authoriser now, and one place the
+    // household is resolved.
     const byKey = Object.fromEntries(
       Object.values(api.findResources("AWS::ApiGatewayV2::Route")).map((r: any) => [
         r.Properties.RouteKey,
@@ -39,8 +36,8 @@ describe("api", () => {
     expect(byKey["GET /v1/balances"]).toBe("JWT");
     expect(byKey["GET /v1/connect/start"]).toBe("JWT");
     expect(byKey["GET /v1/connect/callback"]).toBe("JWT");
-    expect(byKey["GET /v1/categorisation/gaps"]).toBe("AWS_IAM");
-    expect(byKey["POST /v1/categorisation/proposals"]).toBe("AWS_IAM");
+    expect(byKey["GET /v1/categorisation/gaps"]).toBe("JWT");
+    expect(byKey["POST /v1/categorisation/proposals"]).toBe("JWT");
   });
 
   /** DynamoDB actions granted to whichever role a named function runs as. */
@@ -77,12 +74,24 @@ describe("api", () => {
     expect(actions.some((a) => /GetItem|Query/.test(a)), "cannot read").toBe(true);
   });
 
-  it("gives the categorisation handler its own function, fixed to one household", () => {
+  it("gives the categorisation handler its own function, with no household of its own", () => {
+    // It resolves the household from the verified claim like everything else.
+    // A TENANT_ID here would be a second answer to the same question, and the
+    // wrong one the moment a token says otherwise.
     const fns = api.findResources("AWS::Lambda::Function");
     const ids = Object.keys(fns).filter((i) => i.startsWith("CategorisationHandler"));
 
     expect(ids).toHaveLength(1);
-    expect((fns[ids[0]!] as any).Properties.Environment.Variables.TENANT_ID).toBe("frost");
+    expect((fns[ids[0]!] as any).Properties.Environment.Variables.TENANT_ID).toBeUndefined();
+  });
+
+  it("allows the browser to POST, since proposing a rule is a write it makes", () => {
+    const [cors] = Object.values(api.findResources("AWS::ApiGatewayV2::Api")).map(
+      (a: any) => a.Properties.CorsConfiguration,
+    );
+
+    expect(cors.AllowMethods).toContain("POST");
+    expect(cors.AllowMethods).toContain("GET");
   });
 
   it("is deployed after ingest, which owns the function it imports by name", () => {

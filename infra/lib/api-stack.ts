@@ -97,7 +97,8 @@ export class ApiStack extends cdk.Stack {
           ...(settings.siteUrl ? [settings.siteUrl] : []),
           ...(settings.name === "prod" ? [] : ["http://localhost:5173", "http://127.0.0.1:5173"]),
         ],
-        allowMethods: [apigw.CorsHttpMethod.GET],
+        // POST because proposing a rule is a write the dashboard makes.
+        allowMethods: [apigw.CorsHttpMethod.GET, apigw.CorsHttpMethod.POST],
         allowHeaders: ["authorization", "content-type"],
         maxAge: cdk.Duration.hours(1),
       },
@@ -140,17 +141,15 @@ export class ApiStack extends cdk.Stack {
       }
     }
 
-    // Categorisation, behind SigV4 rather than the Cognito authoriser.
+    // Categorisation. Same authoriser as everything else, different function.
     //
-    // A separate function on purpose. The household comes from the environment
-    // here, because a signed request carries an AWS principal and no household
-    // claim — and a single handler holding both models would be one mistake
-    // away from honouring an environment tenant on a bearer-token route.
+    // It was signed with SigV4 so a model outside the account could drive it,
+    // and resolved the household from the environment because a signed request
+    // carries a principal and no claim. That left the dashboard unable to call
+    // its own API, which was the wrong trade — a browser holds a bearer token
+    // and cannot sign.
     //
-    // The caller is an AWS principal in this account, which can already read
-    // the table directly. So this grants no access that did not exist; what it
-    // adds is a surface that speaks the application's language rather than
-    // DynamoDB's, which is the surface the dashboard will eventually need too.
+    // Separate for the reason that survives: this one writes.
     const categorisation = new NodejsFunction(this, "CategorisationHandler", {
       entry: path.join(__dirname, "../../services/api/src/categorisation.ts"),
       handler: "handler",
@@ -169,10 +168,6 @@ export class ApiStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(60),
       environment: {
         TABLE_NAME: table.tableName,
-        // Fixed at deploy time, exactly as the scheduled categoriser has it. A
-        // caller cannot ask for a different household because it is not a thing
-        // the request can say.
-        TENANT_ID: "frost",
         NODE_OPTIONS: "--enable-source-maps",
       },
       bundling: { minify: true, sourceMap: true, target: "node22" },
@@ -192,8 +187,6 @@ export class ApiStack extends cdk.Stack {
     // request at all.
     table.grantReadWriteData(categorisation);
 
-    const signed = new authorizers.HttpIamAuthorizer();
-
     for (const route of CATEGORISATION_ROUTES) {
       const path = pathFor(route);
       this.api.addRoutes({
@@ -206,8 +199,7 @@ export class ApiStack extends cdk.Stack {
           `Int${path.replace(/[^a-zA-Z0-9]/g, "")}`,
           categorisation,
         ),
-        // Overrides the API's default Cognito authoriser for these routes only.
-        authorizer: signed,
+        authorizer,
       });
     }
 

@@ -156,20 +156,18 @@ export const ROUTES: readonly Route[] = [
 ];
 
 /**
- * The categorisation routes, which are signed rather than bearer-authorised.
+ * The categorisation routes.
  *
- * Kept out of `ROUTES` on purpose. Everything in that list is authorised by a
- * Cognito JWT and appears in the OpenAPI document a browser client is generated
- * from; these are authorised by SigV4, so a client generated from that document
- * could not call them and publishing them there would promise otherwise.
+ * A separate list from `ROUTES` because a different function serves them — that
+ * one writes, and the dashboard's stays read-only — not because they are
+ * authorised differently. They are not: like everything else here they take a
+ * Cognito bearer token and resolve the household from the verified claim, and
+ * they appear in the same published document.
  *
- * They are listed here because this file is where paths live — the gateway and
- * anything else that serves them read from one place, so a route added to the
- * infrastructure and forgotten here cannot happen.
- *
- * They join `ROUTES` when the browser can call them, which needs a decision
- * about how a signed-in household member reaches a signed route and is not one
- * to make in passing.
+ * They were signed with SigV4 so a model outside the account could drive them.
+ * That was the wrong trade: a browser holds a bearer token and cannot sign, so
+ * the product could not call its own API. The offline path can hold a household
+ * token, or use the CLIs that reach the table directly.
  */
 export const CATEGORISATION_ROUTES: readonly Route[] = [
   {

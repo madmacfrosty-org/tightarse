@@ -1,15 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
-import { dryRunFrom, rangeFrom, route, tenantFrom, type CategorisationDeps } from "../src/categorisation.js";
+import { dryRunFrom, rangeFrom, route, type CategorisationDeps } from "../src/categorisation.js";
 import type { Backlog } from "@tightarse/domain";
 
 /**
  * The signed categorisation route.
  *
- * A signed request carries an AWS principal and no household, so the tenant
- * comes from the environment. That is a different access-control model from the
- * dashboard's, and the tests that matter most here are the ones proving a
- * caller cannot reach into the other one — no query parameter, no header and no
- * body may decide whose ledger is read.
+ * Authorised by the same bearer token as everything else, and resolving the
+ * household through the same shared function. The tests that matter most are
+ * the ones proving nothing else can decide whose ledger is touched — no query
+ * parameter, no header and no body.
  */
 
 const EMPTY: Backlog = { descriptions: [], recurrences: [], gaps: [], conflicts: [], scanned: 0 };
@@ -48,38 +47,46 @@ const deps = (backlog: Backlog = EMPTY): CategorisationDeps & { seen: string[]; 
   } as unknown as CategorisationDeps & { seen: string[]; proposals: unknown[] };
 };
 
-const env = { TENANT_ID: "frost" } as unknown as NodeJS.ProcessEnv;
 const event = (over: Record<string, unknown> = {}) => ({
   rawPath: "/v1/categorisation/gaps",
+  requestContext: { authorizer: { jwt: { claims: { "custom:tenant": "frost" } } } },
   queryStringParameters: { from: "2026-01-01", to: "2026-12-31" },
   ...over,
 });
 const body = (res: { body: string }) => JSON.parse(res.body) as Record<string, unknown>;
 
 describe("whose ledger is read", () => {
-  it("takes the household from the environment", () => {
-    expect(tenantFrom(env)).toBe("frost");
-  });
-
-  it("refuses to serve anything when no household is configured", () => {
-    expect(() => tenantFrom({} as NodeJS.ProcessEnv)).toThrow(/No household configured/);
-    expect(() => tenantFrom({ TENANT_ID: "" } as unknown as NodeJS.ProcessEnv)).toThrow();
-  });
-
-  it("ignores a household named in the request", async () => {
-    // The single most important line in this file. A signed principal says
-    // nothing about whose ledger it may read, so the request must not either.
+  it("takes the household from the verified claim", async () => {
     const d = deps();
-    await route(d, event({ queryStringParameters: { from: "2026-01-01", to: "2026-12-31", tenantId: "someone-else" } }), env);
+    await route(d, event());
 
     expect(d.seen).toEqual(["frost"]);
   });
 
-  it("answers 500 without saying why when the household is missing", async () => {
-    const res = await route(deps(), event(), {} as NodeJS.ProcessEnv);
+  it("ignores a household named in the request", async () => {
+    // The single most important line in this codebase, and now shared with the
+    // dashboard rather than written twice. A query parameter deciding whose
+    // ledger is read is an authenticated user reading somebody else's.
+    const d = deps();
+    await route(
+      d,
+      event({ queryStringParameters: { from: "2026-01-01", to: "2026-12-31", tenantId: "someone-else" } }),
+    );
 
-    expect(res.statusCode).toBe(500);
-    expect(body(res)).toEqual({ error: "Internal error" });
+    expect(d.seen).toEqual(["frost"]);
+  });
+
+  it("answers 403 for a token carrying no household", async () => {
+    const res = await route(deps(), event({ requestContext: { authorizer: { jwt: { claims: {} } } } }));
+
+    expect(res.statusCode).toBe(403);
+    expect(body(res)["error"]).toContain("No household");
+  });
+
+  it("answers 403 when there is no verified claim at all", async () => {
+    const res = await route(deps(), event({ requestContext: undefined }));
+
+    expect(res.statusCode).toBe(403);
   });
 });
 
@@ -148,7 +155,7 @@ describe("routing", () => {
   }],
       scanned: 4,
     };
-    const res = await route(deps(backlog), event(), env);
+    const res = await route(deps(backlog), event());
 
     expect(res.statusCode).toBe(200);
     expect(body(res)).toMatchObject({
@@ -161,7 +168,7 @@ describe("routing", () => {
 
   it("answers 400 for a bad range without reaching the ledger", async () => {
     const d = deps();
-    const res = await route(d, event({ queryStringParameters: {} }), env);
+    const res = await route(d, event({ queryStringParameters: {} }));
 
     expect(res.statusCode).toBe(400);
     expect(d.seen).toEqual([]);
@@ -170,21 +177,21 @@ describe("routing", () => {
   it("answers 400, not 500, for a range that runs backwards", async () => {
     // The status has to survive the throw. Losing it turns a caller's mistake
     // into what looks like a server fault, and hides the message that says so.
-    const res = await route(deps(), event({ queryStringParameters: { from: "2026-12-31", to: "2026-01-01" } }), env);
+    const res = await route(deps(), event({ queryStringParameters: { from: "2026-12-31", to: "2026-01-01" } }));
 
     expect(res.statusCode).toBe(400);
     expect(body(res)["error"]).toMatch(/after/);
   });
 
   it("answers 404 for a path it does not serve", async () => {
-    const res = await route(deps(), event({ rawPath: "/v1/categorisation/nope" }), env);
+    const res = await route(deps(), event({ rawPath: "/v1/categorisation/nope" }));
 
     expect(res.statusCode).toBe(404);
     expect(body(res)["error"]).toContain("/v1/categorisation/nope");
   });
 
   it("treats a missing path as unroutable rather than as the default route", async () => {
-    const res = await route(deps(), event({ rawPath: undefined }), env);
+    const res = await route(deps(), event({ rawPath: undefined }));
 
     expect(res.statusCode).toBe(404);
     expect(body(res)["error"]).toBe("No route for /");
@@ -195,7 +202,7 @@ describe("routing", () => {
       ...deps(),
       inspection: { backlog: vi.fn(async () => { throw new Error("ResourceNotFoundException: table Ledger-prod"); }) },
     } as unknown as CategorisationDeps;
-    const res = await route(failing, event(), env);
+    const res = await route(failing, event());
 
     expect(res.statusCode).toBe(500);
     expect(body(res)).toEqual({ error: "Internal error" });
@@ -209,14 +216,14 @@ describe("routing", () => {
       ...deps(),
       inspection: { backlog: vi.fn(async () => { throw { statusCode: 400, detail: "not an Error" }; }) },
     } as unknown as CategorisationDeps;
-    const res = await route(failing, event(), env);
+    const res = await route(failing, event());
 
     expect(res.statusCode).toBe(400);
     expect(body(res)).toEqual({ error: "Unknown error" });
   });
 
   it("says it is JSON", async () => {
-    expect((await route(deps(), event(), env)).headers).toEqual({ "content-type": "application/json" });
+    expect((await route(deps(), event())).headers).toEqual({ "content-type": "application/json" });
   });
 });
 
@@ -228,19 +235,14 @@ describe("the entry point", () => {
     expect(realDeps().inspection).toEqual(expect.objectContaining({ backlog: expect.any(Function) }));
   });
 
-  it("answers rather than throwing when the household is not configured", async () => {
+  it("answers rather than throwing when the token carries no household", async () => {
     // The Lambda's own entry, which builds its dependencies on first call. A
     // throw here is a 502 with no body; the handler owes a JSON answer.
     const { handler } = await import("../src/categorisation.js");
-    const saved = process.env["TENANT_ID"];
-    delete process.env["TENANT_ID"];
-    try {
-      const res = await handler({ rawPath: "/v1/categorisation/gaps", queryStringParameters: {} });
-      expect(res.statusCode).toBe(500);
-      expect(JSON.parse(res.body)).toEqual({ error: "Internal error" });
-    } finally {
-      if (saved !== undefined) process.env["TENANT_ID"] = saved;
-    }
+    const res = await handler({ rawPath: "/v1/categorisation/gaps", queryStringParameters: {} });
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body)["error"]).toContain("No household");
   });
 });
 
@@ -268,7 +270,7 @@ describe("proposing a change", () => {
 
   it("writes by default, because a proposal that silently does nothing is the worse failure", async () => {
     const d = deps();
-    const res = await route(d, post(), env);
+    const res = await route(d, post());
 
     expect(res.statusCode).toBe(200);
     expect(d.proposals[0]).toMatchObject({ dryRun: false });
@@ -281,55 +283,55 @@ describe("proposing a change", () => {
     [undefined, false],
   ])("treats dryRun=%s as %s", async (value, expected) => {
     const d = deps();
-    await route(d, post({ queryStringParameters: { from: "2026-01-01", to: "2026-12-31", ...(value === undefined ? {} : { dryRun: value }) } }), env);
+    await route(d, post({ queryStringParameters: { from: "2026-01-01", to: "2026-12-31", ...(value === undefined ? {} : { dryRun: value }) } }));
 
     expect(d.proposals[0]).toMatchObject({ dryRun: expected });
   });
 
-  it("still takes the household from the environment, never the body", async () => {
+  it("still takes the household from the claim, never the body", async () => {
     const d = deps();
-    await route(d, post({ body: JSON.stringify({ sets: [set], tenantId: "someone-else" }) }), env);
+    await route(d, post({ body: JSON.stringify({ sets: [set], tenantId: "someone-else" }) }));
 
     expect(d.seen).toEqual(["frost"]);
   });
 
   it("marks what it passes on as proposed, which is not the caller's to choose", async () => {
     const d = deps();
-    await route(d, post(), env);
+    await route(d, post());
 
     expect((d.proposals[0] as any).sets[0]).toMatchObject({ status: "proposed" });
   });
 
   it("answers 400 for a body that is not JSON", async () => {
-    const res = await route(deps(), post({ body: "{oh dear" }), env);
+    const res = await route(deps(), post({ body: "{oh dear" }));
 
     expect(res.statusCode).toBe(400);
     expect(body(res)["error"]).toBe("Body is not JSON");
   });
 
   it("answers 400 for a missing body rather than proposing nothing", async () => {
-    const res = await route(deps(), post({ body: undefined }), env);
+    const res = await route(deps(), post({ body: undefined }));
 
     expect(res.statusCode).toBe(400);
     expect(body(res)["error"]).toContain("needs a body");
   });
 
   it("names the field that was wrong, which is the difference between fixing and guessing", async () => {
-    const res = await route(deps(), post({ body: JSON.stringify({ sets: [{ ...set, order: "first" }] }) }), env);
+    const res = await route(deps(), post({ body: JSON.stringify({ sets: [{ ...set, order: "first" }] }) }));
 
     expect(res.statusCode).toBe(400);
     expect(body(res)["error"]).toContain("sets.0.order");
   });
 
   it("refuses a proposal that proposes nothing", async () => {
-    const res = await route(deps(), post({ body: JSON.stringify({ sets: [] }) }), env);
+    const res = await route(deps(), post({ body: JSON.stringify({ sets: [] }) }));
 
     expect(res.statusCode).toBe(400);
   });
 
   it("refuses a matcher kind the domain does not have, rather than passing it on", async () => {
     const bad = { ...set, rules: [{ ...set.rules[0], matcher: { kind: "amount", value: 500 } }] };
-    const res = await route(deps(), post({ body: JSON.stringify({ sets: [bad] }) }), env);
+    const res = await route(deps(), post({ body: JSON.stringify({ sets: [bad] }) }));
 
     expect(res.statusCode).toBe(400);
     expect(deps().proposals).toEqual([]);
@@ -340,7 +342,6 @@ describe("proposing a change", () => {
     const res = await route(
       d,
       post({ body: Buffer.from(JSON.stringify({ sets: [set] })).toString("base64"), isBase64Encoded: true }),
-      env,
     );
 
     expect(res.statusCode).toBe(200);
@@ -349,22 +350,22 @@ describe("proposing a change", () => {
 
   it("measures against the range it was asked for", async () => {
     const d = deps();
-    await route(d, post(), env);
+    await route(d, post());
 
     expect(d.proposals[0]).toMatchObject({ range: { from: "2026-01-01", to: "2026-12-31" } });
   });
 
   it("refuses a proposal with no range, rather than inventing one", async () => {
-    const res = await route(deps(), post({ queryStringParameters: {} }), env);
+    const res = await route(deps(), post({ queryStringParameters: {} }));
 
     expect(res.statusCode).toBe(400);
   });
 
-  it("records where the proposal came from", async () => {
+  it("records who proposed it, from the same claim that authorised the request", async () => {
     const d = deps();
-    await route(d, post(), env);
+    await route(d, post());
 
-    expect(d.proposals[0]).toMatchObject({ by: "api" });
+    expect(d.proposals[0]).toMatchObject({ by: "frost" });
   });
 });
 
@@ -379,7 +380,6 @@ describe("reading the dry-run flag on its own", () => {
     const res = await route(
       deps(),
       event({ rawPath: "/v1/categorisation/proposals", body: JSON.stringify("hello") }),
-      env,
     );
 
     expect(res.statusCode).toBe(400);
@@ -392,7 +392,6 @@ describe("reading the dry-run flag on its own", () => {
     const res = await route(
       deps(),
       event({ rawPath: "/v1/categorisation/proposals", body: JSON.stringify({ sets: [broken] }) }),
-      env,
     );
 
     expect(res.statusCode).toBe(400);

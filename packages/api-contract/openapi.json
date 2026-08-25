@@ -35,6 +35,10 @@
         "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
         "description": "Date as YYYY-MM-DD"
       },
+      "Count": {
+        "type": "integer",
+        "minimum": 0
+      },
       "Provisional": {
         "type": "boolean",
         "description": "True when this is the provider's own payment type, not a category we produced"
@@ -358,6 +362,597 @@
           "points"
         ],
         "additionalProperties": false
+      },
+      "CategoryTallyView": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "The category identifier the rules produce"
+          },
+          "transactions": {
+            "$ref": "#/components/schemas/Count"
+          }
+        },
+        "required": [
+          "category",
+          "transactions"
+        ],
+        "additionalProperties": false
+      },
+      "DescriptionView": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "transactions": {
+            "$ref": "#/components/schemas/Count"
+          },
+          "outgoing": {
+            "type": "integer",
+            "description": "Money that left the household under this description, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "firstSeen": {
+            "type": "string",
+            "description": "Booking timestamp of the earliest sighting, ISO-8601"
+          },
+          "lastSeen": {
+            "type": "string",
+            "description": "Booking timestamp of the latest sighting, ISO-8601"
+          },
+          "uncategorised": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Sightings the rules currently give no category"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CategoryTallyView"
+            },
+            "description": "What the rules make of it now. More than one entry means it is categorised inconsistently."
+          }
+        },
+        "required": [
+          "description",
+          "transactions",
+          "outgoing",
+          "firstSeen",
+          "lastSeen",
+          "uncategorised",
+          "categories"
+        ],
+        "additionalProperties": false
+      },
+      "Cadence": {
+        "type": "string",
+        "enum": [
+          "weekly",
+          "fortnightly",
+          "four-weekly",
+          "monthly",
+          "quarterly",
+          "annual"
+        ],
+        "description": "The beat a repeated amount keeps"
+      },
+      "RecurrenceView": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "description": "The repeated amount, signed so a recurring credit stays distinguishable, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "cadence": {
+            "$ref": "#/components/schemas/Cadence"
+          },
+          "transactions": {
+            "$ref": "#/components/schemas/Count"
+          },
+          "outgoing": {
+            "type": "integer",
+            "description": "Money that left the household across the whole series, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "descriptions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every description this amount arrived under. More than one is the case this exists for."
+          },
+          "firstSeen": {
+            "type": "string"
+          },
+          "lastSeen": {
+            "type": "string"
+          },
+          "uncategorised": {
+            "$ref": "#/components/schemas/Count"
+          }
+        },
+        "required": [
+          "amount",
+          "cadence",
+          "transactions",
+          "outgoing",
+          "descriptions",
+          "firstSeen",
+          "lastSeen",
+          "uncategorised"
+        ],
+        "additionalProperties": false
+      },
+      "GapView": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "transactions": {
+            "$ref": "#/components/schemas/Count"
+          },
+          "outgoing": {
+            "type": "integer",
+            "description": "Money that left the household under it, in integer minor units (pence). Divide by 100 for pounds."
+          }
+        },
+        "required": [
+          "description",
+          "transactions",
+          "outgoing"
+        ],
+        "additionalProperties": false
+      },
+      "ConflictView": {
+        "type": "object",
+        "properties": {
+          "setId": {
+            "type": "string",
+            "description": "The rule set that cannot choose"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The categories it claims at once"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Count"
+            },
+            "description": "Positions within the set that asserted them, which is how the fold identifies a rule"
+          },
+          "transactions": {
+            "$ref": "#/components/schemas/Count"
+          },
+          "example": {
+            "type": "string",
+            "description": "One description it happens on, for a human deciding which rule is wrong"
+          }
+        },
+        "required": [
+          "setId",
+          "categories",
+          "rules",
+          "transactions",
+          "example"
+        ],
+        "additionalProperties": false
+      },
+      "BacklogResponse": {
+        "type": "object",
+        "properties": {
+          "range": {
+            "$ref": "#/components/schemas/DateRange"
+          },
+          "descriptions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DescriptionView"
+            },
+            "description": "Every distinct description, costliest first"
+          },
+          "recurrences": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecurrenceView"
+            },
+            "description": "Amounts arriving on a beat, costliest first"
+          },
+          "gaps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GapView"
+            },
+            "description": "What nothing matched, costliest first"
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConflictView"
+            },
+            "description": "Where a set claims two answers at once, widest first. A conflict is a gap with a cause: the set produces nothing, so its transactions appear in `gaps` as though no rule had been written for them."
+          },
+          "scanned": {
+            "$ref": "#/components/schemas/Count"
+          }
+        },
+        "required": [
+          "range",
+          "descriptions",
+          "recurrences",
+          "gaps",
+          "conflicts",
+          "scanned"
+        ],
+        "additionalProperties": false
+      },
+      "MatcherView": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "merchant"
+                ]
+              },
+              "pattern": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Case-insensitive regular expression matched against the description"
+              }
+            },
+            "required": [
+              "kind",
+              "pattern"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "providerCategory"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The bank's own coarse category, e.g. DIRECT_DEBIT"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "transaction"
+                ]
+              },
+              "dedupKey": {
+                "type": "string",
+                "minLength": 1,
+                "description": "One transaction, by its dedup key"
+              }
+            },
+            "required": [
+              "kind",
+              "dedupKey"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "ContributionView": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "assert"
+                ]
+              },
+              "category": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Establishes a category where none was established"
+              }
+            },
+            "required": [
+              "kind",
+              "category"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "refine"
+                ]
+              },
+              "category": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Changes a category already established in the same set. Inert if nothing was."
+              }
+            },
+            "required": [
+              "kind",
+              "category"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "RuleView": {
+        "type": "object",
+        "properties": {
+          "matcher": {
+            "$ref": "#/components/schemas/MatcherView"
+          },
+          "contributes": {
+            "$ref": "#/components/schemas/ContributionView"
+          },
+          "appliesTo": {
+            "type": "string",
+            "enum": [
+              "debits",
+              "credits",
+              "all"
+            ],
+            "description": "Direction this rule applies to. Credits are excluded unless a rule says otherwise."
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "matcher",
+          "contributes",
+          "appliesTo"
+        ],
+        "additionalProperties": false
+      },
+      "ProposedRuleSetView": {
+        "type": "object",
+        "properties": {
+          "setId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The version being proposed, which must be higher than the current one"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "order": {
+            "type": "integer",
+            "description": "Precedence. Lower wins: overrides -1, household 0, built-in 2, provider 3."
+          },
+          "authored": {
+            "type": "boolean",
+            "description": "Whether a human wrote it. Gates automatic approval only, never whether it may be proposed."
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RuleView"
+            }
+          }
+        },
+        "required": [
+          "setId",
+          "version",
+          "name",
+          "order",
+          "authored",
+          "rules"
+        ],
+        "additionalProperties": false
+      },
+      "ProposalRequest": {
+        "type": "object",
+        "properties": {
+          "sets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProposedRuleSetView"
+            },
+            "minItems": 1,
+            "description": "The rule sets as they would be. Sets left out are unchanged."
+          },
+          "because": {
+            "type": "string",
+            "description": "Why this is being proposed, carried onto the stored version"
+          }
+        },
+        "required": [
+          "sets"
+        ],
+        "additionalProperties": false
+      },
+      "ChangeView": {
+        "type": "object",
+        "properties": {
+          "dedupKey": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "description": "The category before, absent when nothing matched"
+          },
+          "to": {
+            "type": "string",
+            "description": "The category after, absent when the proposal leaves it uncategorised"
+          }
+        },
+        "required": [
+          "dedupKey",
+          "description"
+        ],
+        "additionalProperties": false
+      },
+      "EffectView": {
+        "type": "object",
+        "properties": {
+          "transactions": {
+            "$ref": "#/components/schemas/Count"
+          },
+          "outgoing": {
+            "type": "integer",
+            "description": "Money that left the household across this group, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "merchants": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Distinct descriptions. The number that says whether a pattern has escaped."
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChangeView"
+            },
+            "description": "The transactions themselves, truncated where `truncated` says so"
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when `entries` holds fewer than `transactions`. Never truncated silently."
+          }
+        },
+        "required": [
+          "transactions",
+          "outgoing",
+          "merchants",
+          "entries",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "IntroducedConflictView": {
+        "type": "object",
+        "properties": {
+          "setId": {
+            "type": "string"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The categories the set would claim at once"
+          },
+          "transactions": {
+            "$ref": "#/components/schemas/Count"
+          },
+          "example": {
+            "type": "string",
+            "description": "One description it would happen on"
+          }
+        },
+        "required": [
+          "setId",
+          "categories",
+          "transactions",
+          "example"
+        ],
+        "additionalProperties": false
+      },
+      "PredictionView": {
+        "type": "object",
+        "properties": {
+          "gained": {
+            "$ref": "#/components/schemas/EffectView"
+          },
+          "lost": {
+            "$ref": "#/components/schemas/EffectView"
+          },
+          "recategorised": {
+            "$ref": "#/components/schemas/EffectView"
+          },
+          "unchanged": {
+            "$ref": "#/components/schemas/EffectView"
+          },
+          "outranked": {
+            "$ref": "#/components/schemas/EffectView"
+          },
+          "introducedConflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IntroducedConflictView"
+            }
+          },
+          "scanned": {
+            "$ref": "#/components/schemas/Count"
+          }
+        },
+        "required": [
+          "gained",
+          "lost",
+          "recategorised",
+          "unchanged",
+          "outranked",
+          "introducedConflicts",
+          "scanned"
+        ],
+        "additionalProperties": false
+      },
+      "ProposalResponse": {
+        "type": "object",
+        "properties": {
+          "prediction": {
+            "$ref": "#/components/schemas/PredictionView"
+          },
+          "proposed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "setId": {
+                  "type": "string"
+                },
+                "version": {
+                  "$ref": "#/components/schemas/Count"
+                }
+              },
+              "required": [
+                "setId",
+                "version"
+              ],
+              "additionalProperties": false
+            },
+            "description": "The versions created, absent on a dry run"
+          }
+        },
+        "required": [
+          "prediction"
+        ],
+        "additionalProperties": false
       }
     }
   },
@@ -531,6 +1126,133 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AccountsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The range is missing, malformed, or `from` is after `to`"
+          },
+          "401": {
+            "description": "No bearer token, or one this API does not trust"
+          },
+          "403": {
+            "description": "A valid token carrying no household claim"
+          }
+        }
+      }
+    },
+    "/v1/categorisation/proposals": {
+      "post": {
+        "operationId": "categorisationProposals",
+        "summary": "Propose a change to the rules, and say what it would do",
+        "description": "Computes what the proposed sets would gain, lose, recategorise, leave alone and be outranked on, along with any conflict they would introduce, then writes each set as its next version marked `proposed`. With `dryRun=true` it computes and returns without writing anything. The prediction is always computed here and never taken from the caller. Accepting a proposal is a separate act and is not part of this route.",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "description": "First day included in the range",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "description": "Date as YYYY-MM-DD"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "description": "Last day included in the range",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "description": "Date as YYYY-MM-DD"
+            }
+          },
+          {
+            "name": "dryRun",
+            "in": "query",
+            "required": false,
+            "description": "Compute and return without writing. Absent means write.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposalRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Propose a change to the rules, and say what it would do",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProposalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The range is missing, malformed, or `from` is after `to`"
+          },
+          "401": {
+            "description": "No bearer token, or one this API does not trust"
+          },
+          "403": {
+            "description": "A valid token carrying no household claim"
+          }
+        }
+      }
+    },
+    "/v1/categorisation/gaps": {
+      "get": {
+        "operationId": "categorisationGaps",
+        "summary": "What the rules do not yet cover",
+        "description": "Every distinct description with what it cost and what the rules currently make of it, amounts arriving on a regular beat, and the unmatched backlog — each costliest first. Categories are derived by evaluating the rules as they stand, not read from the last application, so a gap here is a gap now. Returns the whole range: there is no pagination.",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "description": "First day included in the range",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "description": "Date as YYYY-MM-DD"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "description": "Last day included in the range",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "description": "Date as YYYY-MM-DD"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the rules do not yet cover",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacklogResponse"
                 }
               }
             }

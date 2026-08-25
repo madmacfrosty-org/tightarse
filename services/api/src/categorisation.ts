@@ -2,29 +2,34 @@ import { ProposalRequest } from "@tightarse/api-contract";
 import { DynamoStore } from "@tightarse/dynamodb";
 import type { Inspection, ProposalDeps, ProposalOutcome, RuleSet } from "@tightarse/domain";
 import { inspection, proposeRules } from "@tightarse/domain";
-import { ledgerConfig } from "./handler.js";
+import { ledgerConfig, tenantFrom } from "./handler.js";
 import { asBacklog, asProposalResponse } from "./wire.js";
 
 /**
- * The categorisation API, behind SigV4.
+ * The categorisation API.
  *
- * A second entry point rather than a branch in `handler.ts`, and a second Lambda
- * rather than a second route on the first, for two reasons that both matter.
+ * A second entry point and a second Lambda, but no longer a second access-control
+ * model: the household comes from the verified `custom:tenant` claim, through the
+ * same function every other route uses.
  *
- * The household comes from the ENVIRONMENT here, not from a verified JWT claim,
- * because a signed request carries an AWS principal and no household. Those are
- * two different access-control models, and a single handler holding both would
- * be one mistake away from honouring an environment tenant on a bearer-token
- * route — which is the one thing `handler.ts` exists to prevent.
+ * It was signed with SigV4 and resolved the household from the environment, so a
+ * model outside the account could drive it. That was the wrong trade. These
+ * routes are the ones the dashboard needs, a browser has a bearer token and
+ * cannot sign, and an API the product cannot call is not the API the product
+ * needs. The offline path can hold a household token or use the CLIs, which
+ * reach the table directly and always could.
  *
- * And this one will need to write, when proposals land. The browser-facing API
- * is granted read only, deliberately, and widening it so that a categorisation
- * route can write would put a mutation path behind every GET the dashboard makes.
+ * Still a separate function, for the reason that survives: this one writes.
+ * The dashboard's stays read-only, so a bug in the reporting path cannot mutate
+ * a ledger.
  */
 
 interface HttpEvent {
   rawPath?: string;
-  requestContext?: { http?: { method?: string } };
+  requestContext?: {
+    http?: { method?: string };
+    authorizer?: { jwt?: { claims?: Record<string, unknown> } };
+  };
   queryStringParameters?: Record<string, string | undefined> | null;
   body?: string | undefined;
   isBase64Encoded?: boolean;
@@ -43,15 +48,6 @@ export interface CategorisationDeps {
     request: { sets: readonly RuleSet[]; dryRun: boolean; by: string; now: Date; range: { from: string; to: string } },
   ) => Promise<ProposalOutcome>;
 }
-
-/**
- * Who a signed caller is, for the record on the version.
- *
- * Not an identity check — the gateway already refused anything unsigned. This
- * is provenance: a stored proposal has to say where it came from, and "the
- * signed API" is more honest than a person's name that nobody typed.
- */
-const PROPOSED_BY = "api";
 
 /**
  * Writing is the default; a dry run is asked for.
@@ -105,22 +101,6 @@ export function proposalFrom(event: HttpEvent): readonly RuleSet[] {
 }
 
 /**
- * The household this deployment serves.
- *
- * From the environment and never from the request. A signed caller is an AWS
- * principal, which says nothing about whose ledger it may read — so the answer
- * is fixed at deploy time by the same value the scheduled categoriser uses,
- * rather than being something a caller can ask for.
- */
-export function tenantFrom(env: NodeJS.ProcessEnv): string {
-  const tenant = env["TENANT_ID"];
-  if (typeof tenant !== "string" || tenant.length === 0) {
-    throw Object.assign(new Error("No household configured"), { statusCode: 500 });
-  }
-  return tenant;
-}
-
-/**
  * Both ends, both required.
  *
  * No rolling default. The contract says required, and defaulting would make an
@@ -145,9 +125,9 @@ function json(statusCode: number, body: unknown) {
   return { statusCode, headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
 }
 
-export async function route(deps: CategorisationDeps, event: HttpEvent, env: NodeJS.ProcessEnv) {
+export async function route(deps: CategorisationDeps, event: HttpEvent) {
   try {
-    const tenantId = tenantFrom(env);
+    const tenantId = tenantFrom(event);
     const path = event.rawPath ?? "/";
 
     if (path.endsWith("/categorisation/gaps")) {
@@ -160,7 +140,8 @@ export async function route(deps: CategorisationDeps, event: HttpEvent, env: Nod
       const outcome = await deps.propose(tenantId, {
         sets: proposalFrom(event),
         dryRun: dryRunFrom(event),
-        by: PROPOSED_BY,
+        // Provenance, from the same claim that authorised the request.
+        by: tenantId,
         now: new Date(),
         range,
       });
@@ -194,5 +175,5 @@ let deps: CategorisationDeps | undefined;
 
 export async function handler(event: HttpEvent) {
   deps ??= realDeps();
-  return route(deps, event, process.env);
+  return route(deps, event);
 }
