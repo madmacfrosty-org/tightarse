@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { asBacklog } from "../src/wire.js";
+import { asBacklog, asProposalResponse } from "../src/wire.js";
 import type { Backlog } from "@tightarse/domain";
 
 /**
@@ -122,5 +122,78 @@ describe("the backlog on the wire", () => {
       conflicts: [],
       scanned: 0,
     });
+  });
+});
+
+describe("the prediction on the wire", () => {
+  const change = (n: number) => ({ dedupKey: `d${n}`, description: `SHOP ${n}`, from: "shopping", to: "fuel" });
+  const effect = (n: number) => ({
+    transactions: n,
+    outgoing: n * 100,
+    merchants: n,
+    entries: Array.from({ length: n }, (_, i) => change(i)),
+  });
+  const prediction = {
+    gained: effect(2),
+    lost: effect(1),
+    recategorised: effect(3),
+    unchanged: effect(1),
+    outranked: effect(1),
+    introducedConflicts: [{ setId: "household", categories: ["a", "b"], transactions: 2, example: "SHOP 1" }],
+    scanned: 8,
+  };
+
+  it("carries all five outcomes and the conflicts it would introduce", () => {
+    const out = asProposalResponse(prediction as never);
+
+    expect(out.prediction.gained).toMatchObject({ transactions: 2, outgoing: 200, merchants: 2 });
+    expect(out.prediction.recategorised.transactions).toBe(3);
+    expect(out.prediction.introducedConflicts).toEqual([
+      { setId: "household", categories: ["a", "b"], transactions: 2, example: "SHOP 1" },
+    ]);
+    expect(out.prediction.scanned).toBe(8);
+  });
+
+  it("says when it truncated, and never truncates without saying", () => {
+    // A caller shown a fraction and told nothing draws a conclusion from it.
+    const many = { ...prediction, gained: effect(600) };
+    const out = asProposalResponse(many as never);
+
+    expect(out.prediction.gained.transactions).toBe(600);
+    expect(out.prediction.gained.entries).toHaveLength(500);
+    expect(out.prediction.gained.truncated).toBe(true);
+  });
+
+  it("says so plainly when nothing was dropped", () => {
+    expect(asProposalResponse(prediction as never).prediction.gained.truncated).toBe(false);
+  });
+
+  it("keeps every recategorised transaction, because that is the group worth reading", () => {
+    const many = { ...prediction, recategorised: effect(900) };
+    const out = asProposalResponse(many as never);
+
+    expect(out.prediction.recategorised.entries).toHaveLength(900);
+    expect(out.prediction.recategorised.truncated).toBe(false);
+  });
+
+  it("names the versions it wrote", () => {
+    const out = asProposalResponse(prediction as never, [{ setId: "household", version: 4, rules: 3 }]);
+
+    expect(out.proposed).toEqual([{ setId: "household", version: 4 }]);
+  });
+
+  it("names nothing on a dry run, because it created nothing", () => {
+    expect(asProposalResponse(prediction as never).proposed).toBeUndefined();
+  });
+
+  it("leaves out a category that was never there, rather than sending null", () => {
+    const uncategorised = {
+      ...prediction,
+      gained: { transactions: 1, outgoing: 0, merchants: 1, entries: [{ dedupKey: "d1", description: "X" }] },
+    };
+    const out = asProposalResponse(uncategorised as never);
+
+    expect(out.prediction.gained.entries[0]).toEqual({ dedupKey: "d1", description: "X" });
+    expect("from" in out.prediction.gained.entries[0]!).toBe(false);
   });
 });

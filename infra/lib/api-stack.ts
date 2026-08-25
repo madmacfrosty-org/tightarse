@@ -182,18 +182,28 @@ export class ApiStack extends cdk.Stack {
       }),
     });
 
-    // Read only, still. Proposals will need to write, and that grant arrives
-    // with them rather than ahead of them.
-    table.grantReadData(categorisation);
+    // Read and write, now that proposals land here.
+    //
+    // Wider than the dashboard's function, which stays read-only, and that is
+    // the reason these are two functions rather than one route on one. What
+    // keeps this narrow is not IAM — DynamoDB cannot grant "may write a row
+    // whose status is proposed" — but the handler: it has no route that makes a
+    // version effective, and accepting a proposal is not reachable from a signed
+    // request at all.
+    table.grantReadWriteData(categorisation);
 
     const signed = new authorizers.HttpIamAuthorizer();
 
-    for (const route of CATEGORISATION_ROUTES.map((r) => pathFor(r))) {
+    for (const route of CATEGORISATION_ROUTES) {
+      const path = pathFor(route);
       this.api.addRoutes({
-        path: route,
-        methods: [apigw.HttpMethod.GET],
+        path,
+        // From the contract, not assumed. A route declared POST and served as
+        // GET is a 404 that looks like a missing deployment, and the two would
+        // drift the first time one was added without the other.
+        methods: [route.method === "post" ? apigw.HttpMethod.POST : apigw.HttpMethod.GET],
         integration: new integrations.HttpLambdaIntegration(
-          `Int${route.replace(/[^a-zA-Z0-9]/g, "")}`,
+          `Int${path.replace(/[^a-zA-Z0-9]/g, "")}`,
           categorisation,
         ),
         // Overrides the API's default Cognito authoriser for these routes only.

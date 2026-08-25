@@ -40,27 +40,49 @@ describe("api", () => {
     expect(byKey["GET /v1/connect/start"]).toBe("JWT");
     expect(byKey["GET /v1/connect/callback"]).toBe("JWT");
     expect(byKey["GET /v1/categorisation/gaps"]).toBe("AWS_IAM");
+    expect(byKey["POST /v1/categorisation/proposals"]).toBe("AWS_IAM");
   });
 
-  it("gives the categorisation handler its own function, and read-only at that", () => {
-    // A separate function because it resolves the household from the
-    // environment rather than from a claim, and because proposals will need to
-    // write. Widening the dashboard's function to allow that would put a
-    // mutation path behind every GET the browser makes.
+  /** DynamoDB actions granted to whichever role a named function runs as. */
+  const dynamoActionsFor = (prefix: string): string[] => {
     const fns = api.findResources("AWS::Lambda::Function");
-    const ids = Object.keys(fns);
-    expect(ids.filter((i) => i.startsWith("CategorisationHandler"))).toHaveLength(1);
+    const [id] = Object.keys(fns).filter((i) => i.startsWith(prefix));
+    expect(id, `no function named ${prefix}`).toBeDefined();
 
-    const [id] = ids.filter((i) => i.startsWith("CategorisationHandler"));
-    expect((fns[id!] as any).Properties.Environment.Variables.TENANT_ID).toBe("frost");
-
-    const actions = Object.values(api.findResources("AWS::IAM::Policy"))
+    const role = (fns[id!] as any).Properties.Role["Fn::GetAtt"][0];
+    return Object.values(api.findResources("AWS::IAM::Policy"))
+      .filter((p: any) => (p.Properties.Roles ?? []).some((r: any) => r.Ref === role))
       .flatMap((p: any) => p.Properties.PolicyDocument.Statement)
       .flatMap((st: any) => (Array.isArray(st.Action) ? st.Action : [st.Action]))
-      .filter((a: unknown): a is string => typeof a === "string");
-    for (const action of actions.filter((a) => a.startsWith("dynamodb:"))) {
-      expect(action, `${action} is a write`).not.toMatch(/Put|Update|Delete|Write/);
+      .filter((a: unknown): a is string => typeof a === "string" && a.startsWith("dynamodb:"));
+  };
+
+  it("keeps the dashboard's function read-only, whatever the other one may do", () => {
+    // The reason these are two functions. A mutation path behind every GET the
+    // browser makes is the thing this arrangement exists to prevent, and it is
+    // asserted per role rather than across the template — a template-wide check
+    // passes the moment any function is allowed to write.
+    for (const action of dynamoActionsFor("ApiHandler")) {
+      expect(action, `the dashboard's function may ${action}`).not.toMatch(/Put|Update|Delete|Write/);
     }
+  });
+
+  it("lets the categorisation function write, because proposals are a write", () => {
+    const actions = dynamoActionsFor("CategorisationHandler");
+
+    expect(actions.some((a) => /Put|Update/.test(a)), "cannot write a proposal").toBe(true);
+    // What keeps this narrow is the handler, not IAM: there is no route that
+    // makes a version effective, and accepting is not reachable from a signed
+    // request at all.
+    expect(actions.some((a) => /GetItem|Query/.test(a)), "cannot read").toBe(true);
+  });
+
+  it("gives the categorisation handler its own function, fixed to one household", () => {
+    const fns = api.findResources("AWS::Lambda::Function");
+    const ids = Object.keys(fns).filter((i) => i.startsWith("CategorisationHandler"));
+
+    expect(ids).toHaveLength(1);
+    expect((fns[ids[0]!] as any).Properties.Environment.Variables.TENANT_ID).toBe("frost");
   });
 
   it("is deployed after ingest, which owns the function it imports by name", () => {
@@ -90,6 +112,7 @@ describe("api", () => {
       "GET /v1/connect/start",
       "GET /v1/summary",
       "GET /v1/transactions",
+      "POST /v1/categorisation/proposals",
     ]);
   });
 
@@ -102,7 +125,7 @@ describe("api", () => {
       (r: any) => r.Properties.RouteKey as string,
     );
     for (const key of keys) {
-      expect(key, `${key} is not versioned`).toMatch(/^GET \/v1\//);
+      expect(key, `${key} is not versioned`).toMatch(/^(GET|POST) \/v1\//);
     }
   });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { rangeFrom, route, tenantFrom, type CategorisationDeps } from "../src/categorisation.js";
+import { dryRunFrom, rangeFrom, route, tenantFrom, type CategorisationDeps } from "../src/categorisation.js";
 import type { Backlog } from "@tightarse/domain";
 
 /**
@@ -14,17 +14,38 @@ import type { Backlog } from "@tightarse/domain";
 
 const EMPTY: Backlog = { descriptions: [], recurrences: [], gaps: [], conflicts: [], scanned: 0 };
 
-const deps = (backlog: Backlog = EMPTY): CategorisationDeps & { seen: string[] } => {
+const EMPTY_PREDICTION = {
+  gained: EMPTY_EFFECT(),
+  lost: EMPTY_EFFECT(),
+  recategorised: EMPTY_EFFECT(),
+  unchanged: EMPTY_EFFECT(),
+  outranked: EMPTY_EFFECT(),
+  introducedConflicts: [],
+  scanned: 0,
+};
+
+function EMPTY_EFFECT() {
+  return { transactions: 0, outgoing: 0, merchants: 0, entries: [] };
+}
+
+const deps = (backlog: Backlog = EMPTY): CategorisationDeps & { seen: string[]; proposals: unknown[] } => {
   const seen: string[] = [];
+  const proposals: unknown[] = [];
   return {
     seen,
+    proposals,
     inspection: {
       backlog: vi.fn(async (tenantId: string) => {
         seen.push(tenantId);
         return backlog;
       }),
     },
-  };
+    propose: vi.fn(async (tenantId: string, request: unknown) => {
+      seen.push(tenantId);
+      proposals.push(request);
+      return { prediction: EMPTY_PREDICTION };
+    }),
+  } as unknown as CategorisationDeps & { seen: string[]; proposals: unknown[] };
 };
 
 const env = { TENANT_ID: "frost" } as unknown as NodeJS.ProcessEnv;
@@ -170,9 +191,10 @@ describe("routing", () => {
   });
 
   it("never echoes an underlying failure, which can carry table structure", async () => {
-    const failing: CategorisationDeps = {
+    const failing = {
+      ...deps(),
       inspection: { backlog: vi.fn(async () => { throw new Error("ResourceNotFoundException: table Ledger-prod"); }) },
-    };
+    } as unknown as CategorisationDeps;
     const res = await route(failing, event(), env);
 
     expect(res.statusCode).toBe(500);
@@ -183,9 +205,10 @@ describe("routing", () => {
     // A rejected promise can carry anything. Reaching for `.message` on a
     // string would throw inside the catch and turn a handled failure into a
     // 502 with no body at all.
-    const failing: CategorisationDeps = {
+    const failing = {
+      ...deps(),
       inspection: { backlog: vi.fn(async () => { throw { statusCode: 400, detail: "not an Error" }; }) },
-    };
+    } as unknown as CategorisationDeps;
     const res = await route(failing, event(), env);
 
     expect(res.statusCode).toBe(400);
@@ -218,5 +241,162 @@ describe("the entry point", () => {
     } finally {
       if (saved !== undefined) process.env["TENANT_ID"] = saved;
     }
+  });
+});
+
+describe("proposing a change", () => {
+  const set = {
+    setId: "household",
+    version: 3,
+    name: "household",
+    order: 0,
+    authored: true,
+    rules: [
+      {
+        matcher: { kind: "merchant", pattern: "somemart" },
+        contributes: { kind: "assert", category: "groceries" },
+        appliesTo: "debits",
+      },
+    ],
+  };
+  const post = (over: Record<string, unknown> = {}) =>
+    event({
+      rawPath: "/v1/categorisation/proposals",
+      body: JSON.stringify({ sets: [set] }),
+      ...over,
+    });
+
+  it("writes by default, because a proposal that silently does nothing is the worse failure", async () => {
+    const d = deps();
+    const res = await route(d, post(), env);
+
+    expect(res.statusCode).toBe(200);
+    expect(d.proposals[0]).toMatchObject({ dryRun: false });
+  });
+
+  it.each([
+    ["true", true],
+    ["false", false],
+    ["TRUE", false],
+    [undefined, false],
+  ])("treats dryRun=%s as %s", async (value, expected) => {
+    const d = deps();
+    await route(d, post({ queryStringParameters: { from: "2026-01-01", to: "2026-12-31", ...(value === undefined ? {} : { dryRun: value }) } }), env);
+
+    expect(d.proposals[0]).toMatchObject({ dryRun: expected });
+  });
+
+  it("still takes the household from the environment, never the body", async () => {
+    const d = deps();
+    await route(d, post({ body: JSON.stringify({ sets: [set], tenantId: "someone-else" }) }), env);
+
+    expect(d.seen).toEqual(["frost"]);
+  });
+
+  it("marks what it passes on as proposed, which is not the caller's to choose", async () => {
+    const d = deps();
+    await route(d, post(), env);
+
+    expect((d.proposals[0] as any).sets[0]).toMatchObject({ status: "proposed" });
+  });
+
+  it("answers 400 for a body that is not JSON", async () => {
+    const res = await route(deps(), post({ body: "{oh dear" }), env);
+
+    expect(res.statusCode).toBe(400);
+    expect(body(res)["error"]).toBe("Body is not JSON");
+  });
+
+  it("answers 400 for a missing body rather than proposing nothing", async () => {
+    const res = await route(deps(), post({ body: undefined }), env);
+
+    expect(res.statusCode).toBe(400);
+    expect(body(res)["error"]).toContain("needs a body");
+  });
+
+  it("names the field that was wrong, which is the difference between fixing and guessing", async () => {
+    const res = await route(deps(), post({ body: JSON.stringify({ sets: [{ ...set, order: "first" }] }) }), env);
+
+    expect(res.statusCode).toBe(400);
+    expect(body(res)["error"]).toContain("sets.0.order");
+  });
+
+  it("refuses a proposal that proposes nothing", async () => {
+    const res = await route(deps(), post({ body: JSON.stringify({ sets: [] }) }), env);
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("refuses a matcher kind the domain does not have, rather than passing it on", async () => {
+    const bad = { ...set, rules: [{ ...set.rules[0], matcher: { kind: "amount", value: 500 } }] };
+    const res = await route(deps(), post({ body: JSON.stringify({ sets: [bad] }) }), env);
+
+    expect(res.statusCode).toBe(400);
+    expect(deps().proposals).toEqual([]);
+  });
+
+  it("reads a base64 body, which is what the gateway sends for some content types", async () => {
+    const d = deps();
+    const res = await route(
+      d,
+      post({ body: Buffer.from(JSON.stringify({ sets: [set] })).toString("base64"), isBase64Encoded: true }),
+      env,
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(d.proposals).toHaveLength(1);
+  });
+
+  it("measures against the range it was asked for", async () => {
+    const d = deps();
+    await route(d, post(), env);
+
+    expect(d.proposals[0]).toMatchObject({ range: { from: "2026-01-01", to: "2026-12-31" } });
+  });
+
+  it("refuses a proposal with no range, rather than inventing one", async () => {
+    const res = await route(deps(), post({ queryStringParameters: {} }), env);
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("records where the proposal came from", async () => {
+    const d = deps();
+    await route(d, post(), env);
+
+    expect(d.proposals[0]).toMatchObject({ by: "api" });
+  });
+});
+
+describe("reading the dry-run flag on its own", () => {
+  it("is false when there is no query at all", () => {
+    expect(dryRunFrom({})).toBe(false);
+  });
+
+  it("says `body` when the whole payload is the wrong shape", async () => {
+    // A JSON string is valid JSON and not a proposal. The issue has no path, so
+    // there is no field to name and the message has to say so.
+    const res = await route(
+      deps(),
+      event({ rawPath: "/v1/categorisation/proposals", body: JSON.stringify("hello") }),
+      env,
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(body(res)["error"]).toContain("body:");
+  });
+
+  it("reports every malformed field, not just the first", async () => {
+    // Three bad rules should not take three round trips to correct.
+    const broken = { setId: "household", version: -1, name: "", order: 0, authored: true, rules: [] };
+    const res = await route(
+      deps(),
+      event({ rawPath: "/v1/categorisation/proposals", body: JSON.stringify({ sets: [broken] }) }),
+      env,
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(body(res)["error"]).toContain("sets.0.version");
+    expect(body(res)["error"]).toContain("sets.0.name");
   });
 });

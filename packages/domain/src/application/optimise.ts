@@ -266,4 +266,4 @@ async function unknownCategories(
   return [...referenced].filter((id) => !usable.has(id)).sort();
 }
 
-export { currentSets };
+export { currentSets, unknownCategories };

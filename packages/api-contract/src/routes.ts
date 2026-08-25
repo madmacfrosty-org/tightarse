@@ -13,6 +13,8 @@ import { z } from "zod";
 import {
   AccountsResponse,
   BacklogResponse,
+  ProposalRequest,
+  ProposalResponse,
   BalancesResponse,
   IsoDate,
   SummaryResponse,
@@ -170,6 +172,28 @@ export const ROUTES: readonly Route[] = [
  * to make in passing.
  */
 export const CATEGORISATION_ROUTES: readonly Route[] = [
+  {
+    method: "post",
+    path: "/categorisation/proposals",
+    summary: "Propose a change to the rules, and say what it would do",
+    description:
+      "Computes what the proposed sets would gain, lose, recategorise, leave alone and be outranked on, " +
+      "along with any conflict they would introduce, then writes each set as its next version marked " +
+      "`proposed`. With `dryRun=true` it computes and returns without writing anything. The prediction is " +
+      "always computed here and never taken from the caller. Accepting a proposal is a separate act and is " +
+      "not part of this route.",
+    query: [
+      ...range,
+      {
+        name: "dryRun",
+        required: false,
+        schema: z.enum(["true", "false"]),
+        description: "Compute and return without writing. Absent means write.",
+      },
+    ],
+    request: { name: "ProposalRequest", schema: ProposalRequest },
+    response: { name: "ProposalResponse", schema: ProposalResponse },
+  },
   {
     method: "get",
     path: "/categorisation/gaps",

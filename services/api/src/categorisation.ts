@@ -1,8 +1,9 @@
+import { ProposalRequest } from "@tightarse/api-contract";
 import { DynamoStore } from "@tightarse/dynamodb";
-import type { Inspection } from "@tightarse/domain";
-import { inspection } from "@tightarse/domain";
+import type { Inspection, ProposalDeps, ProposalOutcome, RuleSet } from "@tightarse/domain";
+import { inspection, proposeRules } from "@tightarse/domain";
 import { ledgerConfig } from "./handler.js";
-import { asBacklog } from "./wire.js";
+import { asBacklog, asProposalResponse } from "./wire.js";
 
 /**
  * The categorisation API, behind SigV4.
@@ -23,11 +24,84 @@ import { asBacklog } from "./wire.js";
 
 interface HttpEvent {
   rawPath?: string;
+  requestContext?: { http?: { method?: string } };
   queryStringParameters?: Record<string, string | undefined> | null;
+  body?: string | undefined;
+  isBase64Encoded?: boolean;
 }
 
 export interface CategorisationDeps {
   readonly inspection: Inspection;
+  /**
+   * Proposing, which is a write.
+   *
+   * A separate member rather than the store, so a test drives the route without
+   * a table and the composition stays in one place.
+   */
+  readonly propose: (
+    tenantId: string,
+    request: { sets: readonly RuleSet[]; dryRun: boolean; by: string; now: Date; range: { from: string; to: string } },
+  ) => Promise<ProposalOutcome>;
+}
+
+/**
+ * Who a signed caller is, for the record on the version.
+ *
+ * Not an identity check — the gateway already refused anything unsigned. This
+ * is provenance: a stored proposal has to say where it came from, and "the
+ * signed API" is more honest than a person's name that nobody typed.
+ */
+const PROPOSED_BY = "api";
+
+/**
+ * Writing is the default; a dry run is asked for.
+ *
+ * POST to a collection creating a row is what a caller expects, and a caller
+ * that means to propose, forgets a flag and gets silence is a worse failure than
+ * a row that can be rejected. Anything other than an explicit `true` writes.
+ */
+export function dryRunFrom(event: HttpEvent): boolean {
+  return (event.queryStringParameters ?? {})["dryRun"] === "true";
+}
+
+/**
+ * The proposed sets, from a body this route will not trust.
+ *
+ * Parsed against the contract rather than cast. A signed principal is
+ * authorised, not correct, and a malformed set reaching the domain is a rule
+ * that matches nothing or everything.
+ */
+export function proposalFrom(event: HttpEvent): readonly RuleSet[] {
+  if (!event.body) {
+    throw Object.assign(new Error("A proposal needs a body"), { statusCode: 400 });
+  }
+  const raw = event.isBase64Encoded ? Buffer.from(event.body, "base64").toString("utf8") : event.body;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw Object.assign(new Error("Body is not JSON"), { statusCode: 400 });
+  }
+
+  const result = ProposalRequest.safeParse(parsed);
+  if (!result.success) {
+    // Names the field, which is the difference between a caller fixing it and a
+    // caller guessing. Every issue, because a proposal with three malformed
+    // rules should not take three round trips to correct.
+    const detail = result.error.issues
+      .map((issue) => `${issue.path.join(".") || "body"}: ${issue.message}`)
+      .join("; ");
+    throw Object.assign(new Error(detail), { statusCode: 400 });
+  }
+
+  // The wire shape and the domain's rule set are near-identities; the status and
+  // the version are the domain's to decide, never the caller's.
+  return result.data.sets.map((set) => ({
+    ...set,
+    status: "proposed" as const,
+    createdAt: new Date(0).toISOString(),
+  })) as unknown as readonly RuleSet[];
 }
 
 /**
@@ -81,6 +155,18 @@ export async function route(deps: CategorisationDeps, event: HttpEvent, env: Nod
       return json(200, asBacklog(range, await deps.inspection.backlog(tenantId, range)));
     }
 
+    if (path.endsWith("/categorisation/proposals")) {
+      const range = rangeFrom(event);
+      const outcome = await deps.propose(tenantId, {
+        sets: proposalFrom(event),
+        dryRun: dryRunFrom(event),
+        by: PROPOSED_BY,
+        now: new Date(),
+        range,
+      });
+      return json(200, asProposalResponse(outcome.prediction, outcome.proposed));
+    }
+
     return json(404, { error: `No route for ${path}` });
   } catch (err) {
     const statusCode = (err as { statusCode?: number }).statusCode ?? 500;
@@ -94,7 +180,14 @@ export async function route(deps: CategorisationDeps, event: HttpEvent, env: Nod
 /** Built by the entry point below, and by nothing a test runs. */
 export function realDeps(): CategorisationDeps {
   const store = new DynamoStore(ledgerConfig(process.env));
-  return { inspection: inspection({ transactions: store, ruleSets: store }) };
+  const deps: ProposalDeps = { transactions: store, ruleSets: store, categories: store };
+  return {
+    inspection: inspection({ transactions: store, ruleSets: store }),
+    // Bound rather than wrapped: a wrapper here is a function no test can reach
+    // without a table, and an unreachable line in the composition root is how
+    // the routing itself went untested before.
+    propose: proposeRules.bind(null, deps),
+  };
 }
 
 let deps: CategorisationDeps | undefined;
