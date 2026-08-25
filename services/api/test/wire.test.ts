@@ -197,3 +197,47 @@ describe("the prediction on the wire", () => {
     expect("from" in out.prediction.gained.entries[0]!).toBe(false);
   });
 });
+
+describe("what applying did", () => {
+  const prediction = {
+    gained: { transactions: 0, outgoing: 0, merchants: 0, entries: [] },
+    lost: { transactions: 0, outgoing: 0, merchants: 0, entries: [] },
+    recategorised: { transactions: 0, outgoing: 0, merchants: 0, entries: [] },
+    unchanged: { transactions: 0, outgoing: 0, merchants: 0, entries: [] },
+    outranked: { transactions: 0, outgoing: 0, merchants: 0, entries: [] },
+    introducedConflicts: [],
+    scanned: 0,
+  };
+  const report = {
+    scanned: 47,
+    unchanged: 5,
+    appended: 42,
+    orphaned: 0,
+    uncategorised: 3,
+    conflicts: 0,
+    inertRefines: 1,
+    appliedBy: "someone",
+  };
+
+  it("reports what actually happened, next to what was predicted", () => {
+    // Counts, not rows: which transactions changed is a re-application away,
+    // and this is what makes a prediction checkable rather than merely stated.
+    const out = asProposalResponse(prediction as never, undefined, report as never);
+
+    expect(out.applied).toEqual({
+      scanned: 47,
+      unchanged: 5,
+      appended: 42,
+      orphaned: 0,
+      uncategorised: 3,
+      conflicts: 0,
+      inertRefines: 1,
+    });
+  });
+
+  it("carries nothing about applying when nothing was applied", () => {
+    expect(asProposalResponse(prediction as never).applied).toBeUndefined();
+    expect(asProposalResponse(prediction as never, [{ setId: "household", version: 4, rules: 1 }]).applied)
+      .toBeUndefined();
+  });
+});

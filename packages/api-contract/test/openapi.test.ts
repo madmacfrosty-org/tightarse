@@ -109,7 +109,7 @@ describe("what must survive generation", () => {
     // a parameter naming a household may not. Counting them meant adding
     // /balances broke a test about tenancy, which is the wrong thing to notice.
     const names = new Set(params.map((p) => p.name));
-    expect([...names].sort()).toEqual(["dryRun", "from", "q", "to"]);
+    expect([...names].sort()).toEqual(["commit", "from", "q", "to"]);
   });
 
   it("documents no limit parameter", () => {
@@ -246,7 +246,7 @@ describe("the published routes themselves", () => {
     // that day, and a client cannot tell a defaulted answer from an answer.
     // Narrowing parameters are a different thing: absent means "do not narrow",
     // which is unambiguous.
-    const NARROWING = new Set(["q", "dryRun"]);
+    const NARROWING = new Set(["q", "commit"]);
     for (const route of [...ROUTES, ...CATEGORISATION_ROUTES]) {
       for (const param of route.query) {
         expect(param.required, `${route.path} ${param.name}`).toBe(!NARROWING.has(param.name));

@@ -37,6 +37,7 @@ import type {
   AccountsResult,
   Backlog,
   BalancesResult,
+  CategoriseReport,
   Preview,
   Proposed,
   Summary,
@@ -154,6 +155,7 @@ const asEffect = (effect: Preview["gained"], limit: number): EffectView => ({
 export function asProposalResponse(
   prediction: Preview,
   proposed?: readonly Proposed[],
+  applied?: CategoriseReport,
 ): ProposalResponse {
   return {
     prediction: {
@@ -173,5 +175,18 @@ export function asProposalResponse(
     ...(proposed === undefined
       ? {}
       : { proposed: proposed.map((p) => ({ setId: p.setId, version: p.version })) }),
+    ...(applied === undefined
+      ? {}
+      : {
+          applied: {
+            scanned: applied.scanned,
+            unchanged: applied.unchanged,
+            appended: applied.appended,
+            orphaned: applied.orphaned,
+            uncategorised: applied.uncategorised,
+            conflicts: applied.conflicts,
+            inertRefines: applied.inertRefines,
+          },
+        }),
   };
 }

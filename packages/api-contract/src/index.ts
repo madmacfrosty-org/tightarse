@@ -449,17 +449,35 @@ export const PredictionView = z.object({
 });
 export type PredictionView = z.infer<typeof PredictionView>;
 
+/**
+ * What applying actually did, as opposed to what was predicted.
+ *
+ * Counts rather than rows: which transactions changed is a re-application away,
+ * and every categorisation is reproducible by construction.
+ */
+export const AppliedView = z.object({
+  scanned: Count,
+  unchanged: Count.describe("The rules produced what was already stored"),
+  appended: Count.describe("Categorisations written"),
+  orphaned: Count.describe("Had a category, and now no rule produces one"),
+  uncategorised: Count.describe("Still matched by nothing"),
+  conflicts: Count.describe("Sets claiming two answers at once"),
+  inertRefines: Count.describe("Qualifiers that matched with nothing established"),
+});
+export type AppliedView = z.infer<typeof AppliedView>;
+
 export const ProposalResponse = z.object({
   prediction: PredictionView,
   /**
-   * What was written, absent on a dry run.
+   * What was written, absent on a preview.
    *
-   * A dry run computes and returns; it creates no version and no record.
+   * A preview computes and returns; it creates no version and no record.
    */
   proposed: z
     .array(z.object({ setId: z.string(), version: Count }))
     .optional()
-    .describe("The versions created, absent on a dry run"),
+    .describe("The versions created, absent on a preview"),
+  applied: AppliedView.optional().describe("What recategorising did, absent unless it was asked for"),
 });
 export type ProposalResponse = z.infer<typeof ProposalResponse>;
 

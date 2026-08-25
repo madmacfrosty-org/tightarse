@@ -58,17 +58,43 @@ const proposedSet = (category = "groceries"): RuleSet =>
 
 const deps = (over: { transactions?: Row[]; sets?: Row[]; categories?: Row[] } = {}) => {
   const written: RuleSet[] = [];
-  const d: ProposalDeps & { written: RuleSet[] } = {
+  const decided: Array<{ setId: string; version: number; status: string }> = [];
+  const applied: Array<Record<string, unknown>> = [];
+  const d: ProposalDeps & {
+    written: RuleSet[];
+    decided: typeof decided;
+    applied: typeof applied;
+  } = {
     written,
+    decided,
+    applied,
     transactions: {
       listRange: vi.fn(async () => ({ transactions: over.transactions ?? [tx("SOMEMART 118")], categorisations: [] as Row[] })),
     } as unknown as ProposalDeps["transactions"],
     ruleSets: {
-      listRuleSets: vi.fn(async () => over.sets ?? [currentSet]),
+      // Accepting points `current` at the new version, so a run after it sees
+      // the accepted rules. A fake that kept returning the old ones would let
+      // "applying does nothing" pass as success.
+      listRuleSets: vi.fn(async () => {
+        const base = over.sets ?? [currentSet];
+        const effective = written.filter((w) => decided.some((x) => x.setId === w.setId && x.version === w.version && x.status === "effective"));
+        return effective.length === 0
+          ? base
+          : [...base.filter((b) => !effective.some((e) => e.setId === b["setId"])), ...effective.map((e) => ({ ...e, status: "effective" }))];
+      }),
       putRuleSetVersion: vi.fn(async (_t: string, set: RuleSet) => {
         written.push(set);
       }),
+      decideRuleSetVersion: vi.fn(async (_t: string, setId: string, version: number, d: { status: string }) => {
+        decided.push({ setId, version, status: d.status });
+      }),
     } as unknown as ProposalDeps["ruleSets"],
+    categorisations: {
+      putCategorisation: vi.fn(async (_t: string, c: Record<string, unknown>) => {
+        applied.push(c);
+      }),
+      listCategorisationHistory: vi.fn(async () => [] as Row[]),
+    } as unknown as ProposalDeps["categorisations"],
     categories: {
       listCategories: vi.fn(async () => over.categories ?? [{ id: "groceries", label: "Groceries", kind: "spending", retired: false }]),
     } as unknown as ProposalDeps["categories"],
@@ -76,10 +102,10 @@ const deps = (over: { transactions?: Row[]; sets?: Row[]; categories?: Row[] } =
   return d;
 };
 
-describe("a dry run", () => {
+describe("a preview", () => {
   it("says what the change would do", async () => {
     const d = deps();
-    const out = await proposeRules(d, "frost", { sets: [proposedSet()], dryRun: true, by: "me", now: NOW, range: RANGE });
+    const out = await proposeRules(d, "frost", { sets: [proposedSet()], commit: "preview", by: "me", now: NOW, range: RANGE });
 
     expect(out.prediction.gained.transactions).toBe(1);
     expect(out.prediction.gained.entries[0]).toMatchObject({ to: "groceries" });
@@ -87,15 +113,17 @@ describe("a dry run", () => {
 
   it("writes nothing at all", async () => {
     const d = deps();
-    await proposeRules(d, "frost", { sets: [proposedSet()], dryRun: true, by: "me", now: NOW, range: RANGE });
+    await proposeRules(d, "frost", { sets: [proposedSet()], commit: "preview", by: "me", now: NOW, range: RANGE });
 
     expect(d.ruleSets.putRuleSetVersion).not.toHaveBeenCalled();
     expect(d.written).toEqual([]);
+    expect(d.decided).toEqual([]);
+    expect(d.applied).toEqual([]);
   });
 
   it("reports no versions, because it created none", async () => {
     const d = deps();
-    const out = await proposeRules(d, "frost", { sets: [proposedSet()], dryRun: true, by: "me", now: NOW, range: RANGE });
+    const out = await proposeRules(d, "frost", { sets: [proposedSet()], commit: "preview", by: "me", now: NOW, range: RANGE });
 
     expect(out.proposed).toBeUndefined();
   });
@@ -105,15 +133,35 @@ describe("a dry run", () => {
     // unwritable, rather than finding out when they mean it.
     const d = deps();
     await expect(
-      proposeRules(d, "frost", { sets: [proposedSet("invented")], dryRun: true, by: "me", now: NOW, range: RANGE }),
+      proposeRules(d, "frost", { sets: [proposedSet("invented")], commit: "preview", by: "me", now: NOW, range: RANGE }),
     ).rejects.toThrow(/do not exist or are retired/);
   });
 });
 
-describe("a real proposal", () => {
+describe("proposing without deciding", () => {
+  it("writes the version and stops there", async () => {
+    // For a proposer that may not decide its own work. Nothing reaches a
+    // transaction, and `current` still points at the version before it.
+    const d = deps();
+    const out = await proposeRules(d, "frost", { sets: [proposedSet()], commit: "propose", by: "me", now: NOW, range: RANGE });
+
+    expect(d.written[0]).toMatchObject({ setId: "household", version: 4, status: "proposed" });
+    expect(d.decided).toEqual([]);
+    expect(d.applied).toEqual([]);
+    expect(out.applied).toBeUndefined();
+  });
+
+  it("reports what it wrote, so a caller can come back and decide it", async () => {
+    const out = await proposeRules(deps(), "frost", { sets: [proposedSet()], commit: "propose", by: "me", now: NOW, range: RANGE });
+
+    expect(out.proposed).toEqual([{ setId: "household", version: 4, rules: 1 }]);
+  });
+});
+
+describe("applying", () => {
   it("writes the next version, marked proposed and not effective", async () => {
     const d = deps();
-    const out = await proposeRules(d, "frost", { sets: [proposedSet()], dryRun: false, by: "me", now: NOW, range: RANGE });
+    const out = await proposeRules(d, "frost", { sets: [proposedSet()], commit: "apply", by: "me", now: NOW, range: RANGE });
 
     expect(d.written).toHaveLength(1);
     expect(d.written[0]).toMatchObject({ setId: "household", version: 4, status: "proposed", createdBy: "me" });
@@ -121,8 +169,8 @@ describe("a real proposal", () => {
   });
 
   it("predicts the same thing the dry run did", async () => {
-    const dry = await proposeRules(deps(), "frost", { sets: [proposedSet()], dryRun: true, by: "me", now: NOW, range: RANGE });
-    const real = await proposeRules(deps(), "frost", { sets: [proposedSet()], dryRun: false, by: "me", now: NOW, range: RANGE });
+    const dry = await proposeRules(deps(), "frost", { sets: [proposedSet()], commit: "preview", by: "me", now: NOW, range: RANGE });
+    const real = await proposeRules(deps(), "frost", { sets: [proposedSet()], commit: "apply", by: "me", now: NOW, range: RANGE });
 
     expect(real.prediction).toEqual(dry.prediction);
   });
@@ -130,14 +178,39 @@ describe("a real proposal", () => {
   it("writes nothing when a category is unknown, rather than half the sets", async () => {
     const d = deps();
     await expect(
-      proposeRules(d, "frost", { sets: [proposedSet("invented")], dryRun: false, by: "me", now: NOW, range: RANGE }),
+      proposeRules(d, "frost", { sets: [proposedSet("invented")], commit: "apply", by: "me", now: NOW, range: RANGE }),
     ).rejects.toThrow();
     expect(d.written).toEqual([]);
   });
 
+  it("accepts what it wrote, so the version becomes the one in force", async () => {
+    const d = deps();
+    await proposeRules(d, "frost", { sets: [proposedSet()], commit: "apply", by: "me", now: NOW, range: RANGE });
+
+    expect(d.decided).toEqual([{ setId: "household", version: 4, status: "effective" }]);
+  });
+
+  it("recategorises, because accepting a rule reaches no transaction on its own", async () => {
+    const d = deps();
+    const out = await proposeRules(d, "frost", { sets: [proposedSet()], commit: "apply", by: "me", now: NOW, range: RANGE });
+
+    expect(out.applied).toBeDefined();
+    expect(out.applied!.scanned).toBe(1);
+    expect(out.applied!.appended).toBe(1);
+  });
+
+  it("applies over the range it measured, so the prediction describes what happened", async () => {
+    // A prediction measured over one span and applied over another describes
+    // something that did not happen, and the comparison stops meaning anything.
+    const d = deps();
+    const out = await proposeRules(d, "frost", { sets: [proposedSet()], commit: "apply", by: "me", now: NOW, range: RANGE });
+
+    expect(out.applied!.scanned).toBe(out.prediction.scanned);
+  });
+
   it("stamps the time it was proposed", async () => {
     const d = deps();
-    await proposeRules(d, "frost", { sets: [proposedSet()], dryRun: false, by: "me", now: NOW, range: RANGE });
+    await proposeRules(d, "frost", { sets: [proposedSet()], commit: "apply", by: "me", now: NOW, range: RANGE });
 
     expect(d.written[0]!.createdAt).toBe("2026-08-25T12:00:00.000Z");
   });
@@ -148,7 +221,7 @@ describe("what the prediction is measured against", () => {
     // `preview` identifies what changed by version. A proposal carrying the
     // version it already has previews as an empty result — which reads as a
     // harmless change rather than a broken measurement.
-    const out = await proposeRules(deps(), "frost", { sets: [proposedSet()], dryRun: true, by: "me", now: NOW, range: RANGE });
+    const out = await proposeRules(deps(), "frost", { sets: [proposedSet()], commit: "preview", by: "me", now: NOW, range: RANGE });
 
     expect(out.prediction.gained.transactions).toBeGreaterThan(0);
   });
@@ -158,7 +231,7 @@ describe("what the prediction is measured against", () => {
     // never had. Nothing to advance from, so it begins rather than fails.
     const d = deps();
     const brandNew = { ...proposedSet(), setId: "overrides", name: "overrides", order: -1 } as typeof currentSet & RuleSet;
-    const out = await proposeRules(d, "frost", { sets: [brandNew], dryRun: false, by: "me", now: NOW, range: RANGE });
+    const out = await proposeRules(d, "frost", { sets: [brandNew], commit: "apply", by: "me", now: NOW, range: RANGE });
 
     expect(out.proposed).toEqual([{ setId: "overrides", version: 1, rules: 1 }]);
     expect(d.written[0]).toMatchObject({ setId: "overrides", version: 1, status: "proposed" });
@@ -166,21 +239,21 @@ describe("what the prediction is measured against", () => {
 
   it("measures against the range it was given", async () => {
     const d = deps();
-    await proposeRules(d, "frost", { sets: [proposedSet()], dryRun: true, by: "me", now: NOW, range: RANGE });
+    await proposeRules(d, "frost", { sets: [proposedSet()], commit: "preview", by: "me", now: NOW, range: RANGE });
 
     expect(d.transactions.listRange).toHaveBeenCalledWith("frost", RANGE);
   });
 
   it("skips a stored set it cannot read rather than refusing to predict", async () => {
     const d = deps({ sets: [{ setId: "broken" }, currentSet] });
-    const out = await proposeRules(d, "frost", { sets: [proposedSet()], dryRun: true, by: "me", now: NOW, range: RANGE });
+    const out = await proposeRules(d, "frost", { sets: [proposedSet()], commit: "preview", by: "me", now: NOW, range: RANGE });
 
     expect(out.prediction.gained.transactions).toBe(1);
   });
 
   it("reports what the proposal leaves alone", async () => {
     const d = deps({ transactions: [tx("SOMEMART 118"), tx("SOMETHING ELSE")] });
-    const out = await proposeRules(d, "frost", { sets: [proposedSet()], dryRun: true, by: "me", now: NOW, range: RANGE });
+    const out = await proposeRules(d, "frost", { sets: [proposedSet()], commit: "preview", by: "me", now: NOW, range: RANGE });
 
     expect(out.prediction.scanned).toBe(2);
     expect(out.prediction.gained.transactions).toBe(1);
