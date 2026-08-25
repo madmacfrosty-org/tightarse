@@ -144,6 +144,24 @@ jobs:
       - name: Build
         run: npm run typecheck
 
+      # Restore always, save only on success — see the save step below for why.
+      #
+      # Without this every run mutates every file from cold, twice per change:
+      # once on the pull request and once on the squashed commit. Stryker's
+      # incremental mode re-tests only what a diff can reach, but it needs the
+      # previous report to compare against, and a fresh runner has none.
+      #
+      # restore-keys makes this a rolling cache: the exact key never hits,
+      # because it carries the commit, so every run restores the newest earlier
+      # report and writes its own.
+      - name: Restore the mutation report
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            */*/.stryker/incremental.json
+          key: stryker-${{ github.sha }}
+          restore-keys: stryker-
+
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::707256068475:role/tightarse-dev-github-citest
@@ -171,6 +189,22 @@ jobs:
       # that backtracks catastrophically, which is worth excluding outright.
       - name: Mutation testing
         run: npm run test:mutation
+
+      # Only on success, and this is the whole reason the cache is split into
+      # restore and save steps rather than one `actions/cache`.
+      #
+      # A run where the integration tests skip records every mutant they cover as
+      # NoCoverage — the state packages/dynamodb's own guard exists to prevent —
+      # and an incremental report carries that forward as a result rather than as
+      # an absence. Saving only a green run means a poisoned report never becomes
+      # the baseline the next run trusts.
+      - name: Save the mutation report
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            */*/.stryker/incremental.json
+          key: stryker-${{ github.sha }}
 
       - name: Destroy the ephemeral ledger table
         if: always()
