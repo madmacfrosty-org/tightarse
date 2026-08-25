@@ -331,6 +331,118 @@ export const BacklogResponse = z.object({
 });
 export type BacklogResponse = z.infer<typeof BacklogResponse>;
 
+// ------------------------------------------------------------------ proposals
+
+/**
+ * A rule as the wire spells it.
+ *
+ * Mirrors the domain's rule rather than importing it: the domain is free to
+ * change with the application's needs, and this is a promise to whatever is
+ * already calling. They are near-identities today and the translation is the
+ * one place that stays true when they stop being.
+ */
+export const MatcherView = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("merchant"), pattern: z.string().min(1).describe("Case-insensitive regular expression matched against the description") }),
+  z.object({ kind: z.literal("providerCategory"), value: z.string().min(1).describe("The bank's own coarse category, e.g. DIRECT_DEBIT") }),
+  z.object({ kind: z.literal("transaction"), dedupKey: z.string().min(1).describe("One transaction, by its dedup key") }),
+]);
+export type MatcherView = z.infer<typeof MatcherView>;
+
+export const ContributionView = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("assert"), category: z.string().min(1).describe("Establishes a category where none was established") }),
+  z.object({ kind: z.literal("refine"), category: z.string().min(1).describe("Changes a category already established in the same set. Inert if nothing was.") }),
+]);
+export type ContributionView = z.infer<typeof ContributionView>;
+
+export const RuleView = z.object({
+  matcher: MatcherView,
+  contributes: ContributionView,
+  appliesTo: z
+    .enum(["debits", "credits", "all"])
+    .describe("Direction this rule applies to. Credits are excluded unless a rule says otherwise."),
+  note: z.string().optional(),
+});
+export type RuleView = z.infer<typeof RuleView>;
+
+export const ProposedRuleSetView = z.object({
+  setId: z.string().min(1),
+  version: z.number().int().nonnegative().describe("The version being proposed, which must be higher than the current one"),
+  name: z.string().min(1),
+  order: z.number().int().describe("Precedence. Lower wins: overrides -1, household 0, built-in 2, provider 3."),
+  authored: z.boolean().describe("Whether a human wrote it. Gates automatic approval only, never whether it may be proposed."),
+  rules: z.array(RuleView),
+});
+export type ProposedRuleSetView = z.infer<typeof ProposedRuleSetView>;
+
+export const ProposalRequest = z.object({
+  sets: z
+    .array(ProposedRuleSetView)
+    .min(1)
+    .describe("The rule sets as they would be. Sets left out are unchanged."),
+  because: z.string().optional().describe("Why this is being proposed, carried onto the stored version"),
+});
+export type ProposalRequest = z.infer<typeof ProposalRequest>;
+
+/** One transaction whose answer the proposal changes. */
+export const ChangeView = z.object({
+  dedupKey: z.string(),
+  description: z.string(),
+  from: z.string().optional().describe("The category before, absent when nothing matched"),
+  to: z.string().optional().describe("The category after, absent when the proposal leaves it uncategorised"),
+});
+export type ChangeView = z.infer<typeof ChangeView>;
+
+export const EffectView = z.object({
+  transactions: z.number().int().nonnegative(),
+  outgoing: minorUnits("Money that left the household across this group"),
+  merchants: z.number().int().nonnegative().describe("Distinct descriptions. The number that says whether a pattern has escaped."),
+  entries: z.array(ChangeView).describe("The transactions themselves, truncated where `truncated` says so"),
+  truncated: z
+    .boolean()
+    .describe("True when `entries` holds fewer than `transactions`. Never truncated silently."),
+});
+export type EffectView = z.infer<typeof EffectView>;
+
+export const IntroducedConflictView = z.object({
+  setId: z.string(),
+  categories: z.array(z.string()).describe("The categories the set would claim at once"),
+  transactions: z.number().int().nonnegative(),
+  example: z.string().describe("One description it would happen on"),
+});
+export type IntroducedConflictView = z.infer<typeof IntroducedConflictView>;
+
+/**
+ * What the proposal would do, computed by the server.
+ *
+ * Never supplied by the caller. A model-authored proposal carrying its own
+ * account of its effect would defeat the arrangement in which deterministic
+ * code checks the model.
+ */
+export const PredictionView = z.object({
+  gained: EffectView.describe("Uncategorised before, categorised after"),
+  lost: EffectView.describe("Categorised before, uncategorised after. Usually a conflict, and almost never intended."),
+  recategorised: EffectView.describe("One category before, a different one after. The number to look hardest at."),
+  unchanged: EffectView.describe("The proposal matched and agreed with what was there"),
+  outranked: EffectView.describe("The proposal matched and lost to a higher-precedence set"),
+  introducedConflicts: z.array(IntroducedConflictView),
+  scanned: z.number().int().nonnegative(),
+});
+export type PredictionView = z.infer<typeof PredictionView>;
+
+export const ProposalResponse = z.object({
+  prediction: PredictionView,
+  /**
+   * What was written, absent on a dry run.
+   *
+   * A dry run computes and returns; it creates no version and no record.
+   */
+  proposed: z
+    .array(z.object({ setId: z.string(), version: z.number().int().nonnegative() }))
+    .optional()
+    .describe("The versions created, absent on a dry run"),
+});
+export type ProposalResponse = z.infer<typeof ProposalResponse>;
+
 // The paths, the version and the compatibility promise (#26, #27).
 //
 // Named explicitly rather than `export *`. This package builds to CommonJS, and
