@@ -201,8 +201,21 @@ bugs in this repository were enshrined exactly that way.
 ### Where it applies
 
 Every package, with `break` pinned per package at what it scores today — a
-ratchet, like coverage. `incremental: true` caches the report so later runs only
-re-test what changed.
+ratchet, like coverage. `incremental: true` caches the report to
+`.stryker/incremental.json`, so a later run re-tests only what a diff can reach
+and reuses the rest. On `truelayer` that is 17 seconds cold against 3 warm, with
+199 of 199 results reused and the same score either way.
+
+This paragraph described that behaviour before any config enabled it, which is
+worth knowing about documentation generally: nothing failed, because a slow
+correct run looks exactly like a fast one that never happened.
+
+CI restores the report before the run and saves it only after a green one. The
+split matters. A run where the integration tests skip records every mutant they
+cover as NoCoverage — the state `dynamodb`'s guard exists to prevent — and an
+incremental report carries that forward as a *result* rather than as an absence.
+Saving only green runs keeps a poisoned report from becoming the baseline the
+next run trusts.
 
 `dynamodb` was excluded for a while, and the reason recorded here was that its
 code is exercised by integration tests which skip without a table, so all 222
