@@ -156,11 +156,16 @@ export class ApiStack extends cdk.Stack {
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
       architecture: lambda.Architecture.ARM_64,
-      memorySize: 1024,
+      // 512 is the account's ceiling, not a tuning choice. This account's
+      // Lambda memory quota is capped there, so 1024 synthesises perfectly and
+      // is rejected at deploy time with the stack rolled back — which is
+      // exactly how it was found. Guarded by a test now.
+      memorySize: 512,
       // It reads the whole ledger and evaluates every rule against every
       // transaction, twice over. Seconds, not milliseconds, and deliberately
       // so: nothing is cached, because a stale reach figure in front of someone
-      // approving a rule is worse than a slow one.
+      // approving a rule is worse than a slow one. Memory also buys CPU share,
+      // so this is set for the slower end of that.
       timeout: cdk.Duration.seconds(60),
       environment: {
         TABLE_NAME: table.tableName,
