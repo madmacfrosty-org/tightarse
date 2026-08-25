@@ -13,6 +13,7 @@ import { z } from "zod";
 import {
   AccountsResponse,
   BacklogResponse,
+  CategoriesResponse,
   ProposalRequest,
   ProposalResponse,
   BalancesResponse,
@@ -154,6 +155,17 @@ export const ROUTES: readonly Route[] = [
       "that means missing debt, so the figure reads high. The response states the range actually served.",
     query: range,
     response: { name: "BalancesResponse", schema: BalancesResponse },
+  },
+  {
+    method: "get",
+    path: "/categories",
+    summary: "The categories a household may file something under",
+    description:
+      "Live categories only, ordered by label. Not the categories with totals — a category nobody " +
+      "has spent in this year is still a category, and neither the label nor the retired flag is " +
+      "derivable from a summary.",
+    query: [],
+    response: { name: "CategoriesResponse", schema: CategoriesResponse },
   },
   {
     method: "get",

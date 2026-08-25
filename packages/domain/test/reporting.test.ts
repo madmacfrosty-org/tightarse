@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { LedgerReads } from "@tightarse/domain";
-import { accounts, balances, reporting, summary, toAccountFacts, toMovements, transactions } from "../src/reporting/reporting.js";
+import { accounts, balances, categories, reporting, summary, toAccountFacts, toMovements, transactions } from "../src/reporting/reporting.js";
 
 /**
  * The use cases, tested without an HTTP event.
@@ -15,7 +15,8 @@ const listAccounts = vi.fn();
 // Typed, because an inferred `never[]` makes any set a type error the moment
 // a test needs one — which is exactly what happened.
 const listRuleSets = vi.fn(async (): Promise<Record<string, unknown>[]> => []);
-const deps = { ledger: { listRange, listAccounts, listRuleSets } satisfies LedgerReads };
+const listCategories = vi.fn(async (): Promise<Record<string, unknown>[]> => []);
+const deps = { ledger: { listRange, listAccounts, listRuleSets, listCategories } satisfies LedgerReads };
 
 const txn = (over: Record<string, unknown> = {}) => ({
   dedupKey: "d1",
@@ -140,14 +141,20 @@ describe("binding the use cases to the inbound port", () => {
    * not — a wrong wiring here would give a driver the wrong answer from a
    * correct use case.
    */
-  it("exposes exactly the port's four operations", () => {
+  it("exposes exactly the port's operations", () => {
     const app = reporting(deps);
-    expect(Object.keys(app).sort()).toEqual(["accounts", "balances", "summary", "transactions"]);
+    expect(Object.keys(app).sort()).toEqual([
+      "accounts",
+      "balances",
+      "categories",
+      "summary",
+      "transactions",
+    ]);
   });
 
   it("routes every one of them to its use case", async () => {
-    // Each binding is a separate arrow, so three working and one wired to the
-    // wrong function would still expose the right four keys.
+    // Each binding is a separate arrow, so all but one working and that one
+    // wired to the wrong function would still expose the right keys.
     listRange.mockResolvedValue({ transactions: [], enrichments: [], categorisations: [] });
     listAccounts.mockResolvedValue([]);
     const app = reporting(deps);
@@ -157,6 +164,7 @@ describe("binding the use cases to the inbound port", () => {
     await expect(app.transactions("frost", range)).resolves.toHaveProperty("transactions");
     await expect(app.accounts("frost")).resolves.toHaveProperty("accounts");
     await expect(app.balances("frost", range)).resolves.toHaveProperty("points");
+    await expect(app.categories("frost")).resolves.toHaveProperty("categories");
   });
 
   it("passes the household through to the use case, not a default", () => {
@@ -244,6 +252,56 @@ describe("what is known about an account", () => {
   });
 });
 
+describe("the category catalogue", () => {
+  const cat = (id: string, label: string, over: Record<string, unknown> = {}) => ({
+    id,
+    label,
+    kind: "spending",
+    retired: false,
+    ...over,
+  });
+
+  const withCategories = (rows: Array<Record<string, unknown>>) => ({
+    ledger: {
+      listRange: async () => ({ transactions: [], categorisations: [] }),
+      listAccounts: async () => [],
+      listRuleSets: async () => [],
+      listCategories: async () => rows,
+    },
+  });
+
+  it("offers what exists, not what has totals", async () => {
+    const r = await categories(withCategories([cat("fuel", "Fuel")]) as never, "frost");
+
+    expect(r.categories).toEqual([{ id: "fuel", label: "Fuel", kind: "spending" }]);
+  });
+
+  it("leaves out retired ones rather than flagging them", async () => {
+    // Filing something new under a retired category is what retiring it was
+    // meant to stop, and refusing afterwards is a worse conversation than not
+    // offering it.
+    const r = await categories(
+      withCategories([cat("fuel", "Fuel"), cat("petrol", "Petrol", { retired: true })]) as never,
+      "frost",
+    );
+
+    expect(r.categories.map((c) => c.id)).toEqual(["fuel"]);
+  });
+
+  it("orders by label, the way a list is read", async () => {
+    const r = await categories(
+      withCategories([cat("z", "Zoo"), cat("a", "Aardvark"), cat("m", "Middle")]) as never,
+      "frost",
+    );
+
+    expect(r.categories.map((c) => c.label)).toEqual(["Aardvark", "Middle", "Zoo"]);
+  });
+
+  it("has nothing to offer a tenant with no catalogue", async () => {
+    expect((await categories(withCategories([]) as never, "frost")).categories).toEqual([]);
+  });
+});
+
 describe("searching transactions", () => {
   const row = (description: string, amount = -10_00) => ({
     dedupKey: `d-${description}`,
@@ -259,6 +317,7 @@ describe("searching transactions", () => {
     listRange: async () => ({ transactions: rows, categorisations: [] as Record<string, unknown>[] }),
     listAccounts: async () => [] as Record<string, unknown>[],
     listRuleSets: async (): Promise<Record<string, unknown>[]> => [],
+    listCategories: async (): Promise<Record<string, unknown>[]> => [],
   });
 
   const RANGE = { from: "2026-01-01", to: "2026-12-31" };

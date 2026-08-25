@@ -15,10 +15,11 @@ const listAccounts = vi.fn();
 // Typed, because an inferred `never[]` makes any set a type error the moment
 // a test needs one — which is exactly what happened.
 const listRuleSets = vi.fn(async (): Promise<Record<string, unknown>[]> => []);
+const listCategories = vi.fn(async (): Promise<Record<string, unknown>[]> => []);
 // Bound through the inbound port, over a fake ledger. These tests assert on real
 // aggregated output, so they keep driving the whole application — see the routing
 // tests at the end for the ones that no longer need a ledger at all.
-const deps: ApiDeps = { reporting: reporting({ ledger: { listRange, listAccounts, listRuleSets } }) };
+const deps: ApiDeps = { reporting: reporting({ ledger: { listRange, listAccounts, listRuleSets, listCategories } }) };
 
 const event = (over: Record<string, unknown> = {}) => ({
   rawPath: "/summary",
@@ -394,8 +395,8 @@ describe("routing, against the application rather than through it", () => {
    *
    * Every test above fakes `LedgerReads` and lets the aggregation run, so a
    * routing assertion depends on transfer detection, coverage and currency
-   * checking all behaving. These fake `Reporting` instead: four functions, no
-   * rows, no aggregation. A break here is a routing break.
+   * checking all behaving. These fake `Reporting` instead: the port's functions,
+   * no rows, no aggregation. A break here is a routing break.
    */
   const called: string[] = [];
   const fake: Reporting = {
@@ -406,6 +407,10 @@ describe("routing, against the application rather than through it", () => {
     transactions: async (_t, range) => {
       called.push("transactions");
       return { range, transactions: [] };
+    },
+    categories: async () => {
+      called.push("categories");
+      return { categories: [] };
     },
     accounts: async () => {
       called.push("accounts");
@@ -506,6 +511,7 @@ describe("the search parameter", () => {
         summary: vi.fn(),
         accounts: vi.fn(),
         balances: vi.fn(),
+        categories: vi.fn(),
         transactions: vi.fn(async (_t: string, _r: unknown, search?: string) => {
           seen.push(search);
           return { range: { from: "2026-01-01", to: "2026-12-31" }, transactions: [] };
@@ -530,6 +536,7 @@ describe("the search parameter", () => {
         summary: vi.fn(),
         accounts: vi.fn(),
         balances: vi.fn(),
+        categories: vi.fn(),
         transactions: vi.fn(async (_t: string, _r: unknown, search?: string) => {
           seen.push(search);
           return { range: { from: "2026-01-01", to: "2026-12-31" }, transactions: [] };

@@ -363,6 +363,45 @@
         ],
         "additionalProperties": false
       },
+      "CategoryChoiceView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable. What a rule names and a categorisation stores."
+          },
+          "label": {
+            "type": "string",
+            "description": "What a person reads. Freely changeable, including to match a provider's wording."
+          },
+          "kind": {
+            "type": "string",
+            "description": "spending, income or movement"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "kind"
+        ],
+        "additionalProperties": false
+      },
+      "CategoriesResponse": {
+        "type": "object",
+        "properties": {
+          "categories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CategoryChoiceView"
+            },
+            "description": "Live categories, by label. Retired ones are not offered: filing something new under one is what retiring it was meant to stop, and refusing afterwards is a worse conversation than not offering it."
+          }
+        },
+        "required": [
+          "categories"
+        ],
+        "additionalProperties": false
+      },
       "CategoryTallyView": {
         "type": "object",
         "properties": {
@@ -657,6 +696,47 @@
           }
         ]
       },
+      "MerchantRequestView": {
+        "type": "object",
+        "properties": {
+          "term": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What was typed. Matched literally, not as a pattern."
+          },
+          "category": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "term",
+          "category"
+        ],
+        "additionalProperties": false
+      },
+      "TransactionsRequestView": {
+        "type": "object",
+        "properties": {
+          "dedupKeys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1
+          },
+          "category": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "dedupKeys",
+          "category"
+        ],
+        "additionalProperties": false
+      },
       "ContributionView": {
         "anyOf": [
           {
@@ -784,14 +864,19 @@
             "minItems": 1,
             "description": "The rule sets as they would be. Sets left out are unchanged."
           },
+          "merchant": {
+            "$ref": "#/components/schemas/MerchantRequestView",
+            "description": "Or: a term to categorise, from which the rule is built server-side"
+          },
+          "transactions": {
+            "$ref": "#/components/schemas/TransactionsRequestView",
+            "description": "Or: specific transactions, one rule each, at override precedence"
+          },
           "because": {
             "type": "string",
             "description": "Why this is being proposed, carried onto the stored version"
           }
         },
-        "required": [
-          "sets"
-        ],
         "additionalProperties": false
       },
       "ChangeView": {
@@ -1156,6 +1241,35 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BalancesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The range is missing, malformed, or `from` is after `to`"
+          },
+          "401": {
+            "description": "No bearer token, or one this API does not trust"
+          },
+          "403": {
+            "description": "A valid token carrying no household claim"
+          }
+        }
+      }
+    },
+    "/v1/categories": {
+      "get": {
+        "operationId": "categories",
+        "summary": "The categories a household may file something under",
+        "description": "Live categories only, ordered by label. Not the categories with totals — a category nobody has spent in this year is still a category, and neither the label nor the retired flag is derivable from a summary.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "The categories a household may file something under",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoriesResponse"
                 }
               }
             }

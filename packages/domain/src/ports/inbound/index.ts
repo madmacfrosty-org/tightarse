@@ -224,17 +224,32 @@ export interface Inspection {
   backlog(tenantId: string, range: DateRange): Promise<Backlog>;
 }
 
+/** One category, as something choosing between them needs it. */
+export interface CategoryChoice {
+  readonly id: string;
+  readonly label: string;
+  readonly kind: string;
+}
+
+/** The catalogue, as a picker needs it. */
+export interface CategoriesResult {
+  /** Live categories only, by label. Retired ones are not offered. */
+  readonly categories: readonly CategoryChoice[];
+}
+
 /**
  * What the household can be shown.
  *
  * The read side in full. Every driver — the Lambda, the local HTTP server, the
- * report CLI — goes through exactly these four, so a change in what a total
- * means cannot reach one of them without reaching all three.
+ * report CLI — goes through exactly these, so a change in what a total means
+ * cannot reach one of them without reaching all of them.
  */
 export interface Reporting {
   summary(tenantId: string, range: DateRange, opts?: SummaryOptions): Promise<Summary>;
   transactions(tenantId: string, range: DateRange, search?: string): Promise<TransactionsResult>;
   accounts(tenantId: string): Promise<AccountsResult>;
+  /** The categories a household may file something under. */
+  categories(tenantId: string): Promise<CategoriesResult>;
   balances(tenantId: string, range: DateRange): Promise<BalancesResult>;
 }
 

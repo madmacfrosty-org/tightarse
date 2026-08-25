@@ -216,6 +216,86 @@ describe("applying", () => {
   });
 });
 
+describe("building the rule from what was asked for", () => {
+  it("turns a term into a household rule, escaped", async () => {
+    // The term, not a pattern. A client that escaped it would be a second
+    // implementation of what decides which transactions a rule takes.
+    const d = deps({ transactions: [tx("PIZZA (EXPRESS) 42")] });
+    await proposeRules(d, "frost", {
+      merchant: { term: "PIZZA (EXPRESS)", category: "groceries" },
+      commit: "apply",
+      by: "me",
+      now: NOW,
+      range: RANGE,
+    });
+
+    expect(d.written[0]).toMatchObject({ setId: "household", order: 0, authored: true });
+    expect(d.written[0]!.rules.at(-1)).toMatchObject({
+      matcher: { kind: "merchant", pattern: String.raw`PIZZA \(EXPRESS\) ` .trim() },
+      contributes: { kind: "assert", category: "groceries" },
+      appliesTo: "debits",
+    });
+  });
+
+  it("keeps the rules a set already had, and adds to the end", async () => {
+    // Order within a set is data. A rule that quietly went first would change
+    // what the existing ones do.
+    const existing = { ...currentSet, rules: [
+      { matcher: { kind: "merchant", pattern: "othershop" }, contributes: { kind: "assert", category: "groceries" }, appliesTo: "debits" },
+    ] };
+    const d = deps({ sets: [existing] });
+    await proposeRules(d, "frost", {
+      merchant: { term: "somemart", category: "groceries" },
+      commit: "apply", by: "me", now: NOW, range: RANGE,
+    });
+
+    expect(d.written[0]!.rules).toHaveLength(2);
+    expect(d.written[0]!.rules[0]).toMatchObject({ matcher: { pattern: "othershop" } });
+  });
+
+  it("names transactions outright at override precedence, one rule each", async () => {
+    const d = deps();
+    await proposeRules(d, "frost", {
+      transactions: { dedupKeys: ["a", "b"], category: "groceries" },
+      commit: "apply", by: "me", now: NOW, range: RANGE,
+    });
+
+    expect(d.written[0]).toMatchObject({ setId: "overrides", order: -1 });
+    expect(d.written[0]!.rules).toEqual([
+      { matcher: { kind: "transaction", dedupKey: "a" }, contributes: { kind: "assert", category: "groceries" }, appliesTo: "all" },
+      { matcher: { kind: "transaction", dedupKey: "b" }, contributes: { kind: "assert", category: "groceries" }, appliesTo: "all" },
+    ]);
+  });
+
+  it("categorises a credit named outright, which a debits rule would decline", async () => {
+    // A direction gate on top of a named transaction could refuse the very row
+    // that was asked for, which is why these rules apply to everything.
+    const d = deps({ transactions: [tx("REFUND", 25_00)] });
+    const out = await proposeRules(d, "frost", {
+      transactions: { dedupKeys: ["d-REFUND"], category: "groceries" },
+      commit: "preview", by: "me", now: NOW, range: RANGE,
+    });
+
+    expect(out.prediction.gained.transactions).toBe(1);
+    expect(out.prediction.gained.entries[0]).toMatchObject({ to: "groceries" });
+  });
+
+  it("refuses a proposal that says nothing", async () => {
+    await expect(
+      proposeRules(deps(), "frost", { commit: "preview", by: "me", now: NOW, range: RANGE }),
+    ).rejects.toThrow(/sets, a merchant, or transactions/);
+  });
+
+  it("checks a merchant category exists, same as any other", async () => {
+    await expect(
+      proposeRules(deps(), "frost", {
+        merchant: { term: "somemart", category: "invented" },
+        commit: "preview", by: "me", now: NOW, range: RANGE,
+      }),
+    ).rejects.toThrow(/do not exist or are retired/);
+  });
+});
+
 describe("what the prediction is measured against", () => {
   it("advances the version, or the change would preview as touching nothing", async () => {
     // `preview` identifies what changed by version. A proposal carrying the

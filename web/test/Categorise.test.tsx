@@ -15,7 +15,11 @@ import userEvent from "@testing-library/user-event";
  */
 
 const apiGet = vi.fn();
-const api = { get: <T,>(p: string) => apiGet(p) as Promise<T> };
+const apiPost = vi.fn();
+const api = {
+  get: <T,>(p: string) => apiGet(p) as Promise<T>,
+  post: <T,>(p: string, b: unknown) => apiPost(p, b) as Promise<T>,
+};
 
 const tx = (over: Partial<Record<string, unknown>> = {}) => ({
   dedupKey: "d1",
@@ -33,12 +37,22 @@ const tx = (over: Partial<Record<string, unknown>> = {}) => ({
 const load = async () => (await import("../src/Categorise")).Categorise;
 const RANGE = { from: "2025-02-10", to: "2026-08-25" };
 
+/** Only the transaction searches. The catalogue fetch on mount is not one. */
+const searches = () => apiGet.mock.calls.map(([p]) => p as string).filter((p) => p.includes("/transactions"));
+
 const searchFor = async (term: string) => {
   await userEvent.type(screen.getByLabelText("Merchant"), term);
   await userEvent.click(screen.getByRole("button", { name: "Search" }));
 };
 
-beforeEach(() => apiGet.mockReset());
+beforeEach(() => {
+  apiGet.mockReset();
+  apiPost.mockReset();
+  // The screen asks for the category catalogue as it mounts. Without a default
+  // every test has to answer a call it is not about, and one that forgets gets
+  // an error message instead of the thing it is testing.
+  apiGet.mockResolvedValue({ transactions: [], categories: [] });
+});
 
 describe("searching", () => {
   it("asks the server, which matches with the same matcher a rule uses", async () => {
@@ -60,7 +74,7 @@ describe("searching", () => {
     render(<Categorise api={api} {...RANGE} />);
 
     expect(screen.getByRole("button", { name: "Search" })).toHaveProperty("disabled", true);
-    expect(apiGet).not.toHaveBeenCalled();
+    expect(searches()).toEqual([]);
   });
 
   it("trims the term, so a stray space is not a different merchant", async () => {
@@ -70,7 +84,7 @@ describe("searching", () => {
 
     await searchFor("  somemart  ");
 
-    await waitFor(() => expect(apiGet.mock.calls[0][0]).toContain("q=somemart"));
+    await waitFor(() => expect(searches()[0]).toContain("q=somemart"));
   });
 
   it("does nothing when the form is submitted with nothing in the box", async () => {
@@ -85,14 +99,14 @@ describe("searching", () => {
     await userEvent.type(screen.getByLabelText("Merchant"), "   ");
     fireEvent.submit(container.querySelector("form")!);
 
-    expect(apiGet).not.toHaveBeenCalled();
+    expect(searches()).toEqual([]);
   });
 
   it("still says something when the failure is not an Error", async () => {
     // A rejected promise can carry anything. Reaching for `.message` on a
     // string would leave the screen blank under a spinner that had stopped.
-    apiGet.mockResolvedValue({ transactions: [] });
-    apiGet.mockImplementationOnce(async () => {
+    apiGet.mockImplementation(async (path: string) => {
+      if (path.includes("/categories")) return { categories: [] };
       throw "gateway timeout";
     });
     const Categorise = await load();
@@ -114,12 +128,10 @@ describe("searching", () => {
   });
 
   it("reports a failure instead of leaving the last results on screen", async () => {
-    // Once, over a resolving default. `mockRejectedValue` builds the rejected
-    // promise when the mock is defined rather than when it is called, and the
-    // runner reports it as unhandled before the component can attach a catch —
-    // which reads as the component swallowing nothing when it handles it fine.
-    apiGet.mockResolvedValue({ transactions: [] });
-    apiGet.mockImplementationOnce(async () => {
+    // By path, not by call order: the catalogue is fetched as the screen mounts,
+    // so a `...Once` here would be spent on a call this test is not about.
+    apiGet.mockImplementation(async (path: string) => {
+      if (path.includes("/categories")) return { categories: [] };
       throw new Error("Service Unavailable");
     });
     const Categorise = await load();
@@ -266,17 +278,211 @@ describe("choosing", () => {
   });
 
   it("starts a fresh search with a fresh selection", async () => {
-    apiGet.mockResolvedValueOnce(two);
+    let answer = two;
+    apiGet.mockImplementation(async (path: string) =>
+      path.includes("/categories") ? { categories: [] } : answer,
+    );
     const Categorise = await load();
     render(<Categorise api={api} {...RANGE} />);
     await searchFor("somemart");
     await waitFor(() => expect(screen.getByLabelText("Select SOMEMART 118")).toBeDefined());
     await userEvent.click(screen.getByLabelText("Select SOMEMART 118"));
 
-    apiGet.mockResolvedValueOnce({ transactions: [tx({ dedupKey: "d9", description: "OTHERSHOP" })] });
+    answer = { transactions: [tx({ dedupKey: "d9", description: "OTHERSHOP" })] };
     await userEvent.clear(screen.getByLabelText("Merchant"));
     await searchFor("othershop");
 
     await waitFor(() => expect(screen.getByText(/1 matching transaction, 1 selected/)).toBeDefined());
+  });
+});
+
+describe("proposing", () => {
+  const two = { transactions: [tx(), tx({ dedupKey: "d2", description: "SOMEMART 42" })] };
+  const prediction = {
+    gained: { transactions: 40, outgoing: 0, merchants: 1, entries: [], truncated: false },
+    lost: { transactions: 0, outgoing: 0, merchants: 0, entries: [], truncated: false },
+    recategorised: { transactions: 3, outgoing: 0, merchants: 1, entries: [], truncated: false },
+    unchanged: { transactions: 1, outgoing: 0, merchants: 1, entries: [], truncated: false },
+    outranked: { transactions: 0, outgoing: 0, merchants: 0, entries: [], truncated: false },
+    introducedConflicts: [],
+    scanned: 44,
+  };
+
+  const ready = async () => {
+    apiGet.mockImplementation(async (p: string) =>
+      p.includes("/categories") ? { categories: [{ id: "groceries", label: "Groceries", kind: "spending" }] } : two,
+    );
+    const Categorise = await load();
+    render(<Categorise api={api} {...RANGE} />);
+    await searchFor("somemart");
+    await waitFor(() => expect(screen.getByLabelText("Select SOMEMART 118")).toBeDefined());
+    await userEvent.selectOptions(screen.getByLabelText("Categorise as"), "groceries");
+  };
+
+  it("offers the categories the API says exist, by label", async () => {
+    await ready();
+
+    expect(screen.getByRole("option", { name: "Groceries" })).toBeDefined();
+  });
+
+  it("asks what a merchant rule would do before writing one", async () => {
+    apiPost.mockResolvedValue({ prediction });
+    await ready();
+
+    await userEvent.click(screen.getByRole("button", { name: "Categorise this merchant" }));
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalled());
+    const [path, body] = apiPost.mock.calls[0];
+    // The term, not a pattern. Escaping happens once, on the server, by the
+    // same function that built the search which found these rows.
+    expect(path).toContain("commit=preview");
+    expect(body).toEqual({ merchant: { term: "somemart", category: "groceries" } });
+  });
+
+  it("shows what it would do, measured against the whole ledger", async () => {
+    apiPost.mockResolvedValue({ prediction });
+    await ready();
+
+    await userEvent.click(screen.getByRole("button", { name: "Categorise this merchant" }));
+
+    await waitFor(() => expect(screen.getByText("Before this is written")).toBeDefined());
+    expect(screen.getByText("40")).toBeDefined();
+    expect(screen.getByText("3")).toBeDefined();
+    expect(screen.getByText(/not just what is on screen/)).toBeDefined();
+  });
+
+  it("writes nothing until it is confirmed", async () => {
+    apiPost.mockResolvedValue({ prediction });
+    await ready();
+
+    await userEvent.click(screen.getByRole("button", { name: "Categorise this merchant" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm" })).toBeDefined());
+
+    expect(apiPost.mock.calls.every(([p]) => (p as string).includes("commit=preview"))).toBe(true);
+  });
+
+  it("applies on confirm, and asks the ledger again rather than patching the screen", async () => {
+    apiPost.mockResolvedValueOnce({ prediction });
+    apiPost.mockResolvedValueOnce({ prediction, applied: { scanned: 44, unchanged: 1, appended: 43, orphaned: 0, uncategorised: 0, conflicts: 0, inertRefines: 0 } });
+    await ready();
+    await userEvent.click(screen.getByRole("button", { name: "Categorise this merchant" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm" })).toBeDefined());
+    const before = searches().length;
+
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => expect(screen.getByText(/43 categorised/)).toBeDefined());
+    expect(apiPost.mock.calls[1][0]).toContain("commit=apply");
+    expect(searches().length).toBeGreaterThan(before);
+  });
+
+  it("abandons a proposal on cancel, having written nothing", async () => {
+    apiPost.mockResolvedValue({ prediction });
+    await ready();
+    await userEvent.click(screen.getByRole("button", { name: "Categorise this merchant" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" })).toBeDefined());
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByText("Before this is written")).toBeNull();
+    expect(apiPost).toHaveBeenCalledTimes(1);
+  });
+
+  it("names the selected transactions rather than a pattern, when that is the button", async () => {
+    apiPost.mockResolvedValue({ prediction });
+    await ready();
+    await userEvent.click(screen.getByLabelText("Select SOMEMART 42"));
+
+    await userEvent.click(screen.getByRole("button", { name: /Categorise 1 selected/ }));
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalled());
+    expect(apiPost.mock.calls[0][1]).toEqual({ transactions: { dedupKeys: ["d1"], category: "groceries" } });
+  });
+
+  it("counts the selection in the button, singular and plural", async () => {
+    apiPost.mockResolvedValue({ prediction });
+    await ready();
+
+    expect(screen.getByRole("button", { name: /Categorise 2 selected/ })).toBeDefined();
+    await userEvent.click(screen.getByRole("button", { name: /Categorise 2 selected/ }));
+
+    await waitFor(() => expect(screen.getByText(/Categorising 2 transactions/)).toBeDefined());
+  });
+
+  it("says nothing was categorised when applying reports nothing", async () => {
+    // A response without a report is not a crash and not a silent success.
+    apiPost.mockResolvedValueOnce({ prediction });
+    apiPost.mockResolvedValueOnce({ prediction });
+    await ready();
+    await userEvent.click(screen.getByRole("button", { name: "Categorise this merchant" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm" })).toBeDefined());
+
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => expect(screen.getByText(/0 categorised/)).toBeDefined());
+  });
+
+  it("will not propose a merchant rule while a match is unticked", async () => {
+    // The rule would take the row that was put back, so the screen would have
+    // shown one thing and the rule done another.
+    await ready();
+    await userEvent.click(screen.getByLabelText("Select SOMEMART 42"));
+
+    expect(screen.getByRole("button", { name: "Categorise this merchant" })).toHaveProperty("disabled", true);
+  });
+
+  it("will not propose anything without a category", async () => {
+    apiGet.mockImplementation(async (p: string) =>
+      p.includes("/categories") ? { categories: [{ id: "groceries", label: "Groceries", kind: "spending" }] } : two,
+    );
+    const Categorise = await load();
+    render(<Categorise api={api} {...RANGE} />);
+    await searchFor("somemart");
+    await waitFor(() => expect(screen.getByLabelText("Categorise as")).toBeDefined());
+
+    expect(screen.getByRole("button", { name: "Categorise this merchant" })).toHaveProperty("disabled", true);
+  });
+
+  it("says when a proposal would make a set contradict itself", async () => {
+    apiPost.mockResolvedValue({
+      prediction: { ...prediction, introducedConflicts: [{ setId: "household", categories: ["a", "b"], transactions: 2, example: "SOMEMART 118" }] },
+    });
+    await ready();
+
+    await userEvent.click(screen.getByRole("button", { name: "Categorise this merchant" }));
+
+    await waitFor(() => expect(screen.getByText(/claim two answers at once/)).toBeDefined());
+  });
+
+  it("says something when applying fails with no message to show", async () => {
+    apiPost.mockResolvedValueOnce({ prediction });
+    apiPost.mockImplementationOnce(async () => {
+      throw "gateway timeout";
+    });
+    await ready();
+    await userEvent.click(screen.getByRole("button", { name: "Categorise this merchant" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm" })).toBeDefined());
+
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => expect(screen.getByText("Could not apply that")).toBeDefined());
+  });
+
+  it("reports a refusal from the API instead of a blank panel", async () => {
+    apiGet.mockImplementation(async (p: string) =>
+      p.includes("/categories") ? { categories: [{ id: "groceries", label: "Groceries", kind: "spending" }] } : two,
+    );
+    apiPost.mockImplementationOnce(async () => {
+      throw new Error("sets.0.order: Expected number");
+    });
+    const Categorise = await load();
+    render(<Categorise api={api} {...RANGE} />);
+    await searchFor("somemart");
+    await waitFor(() => expect(screen.getByLabelText("Categorise as")).toBeDefined());
+    await userEvent.selectOptions(screen.getByLabelText("Categorise as"), "groceries");
+
+    await userEvent.click(screen.getByRole("button", { name: "Categorise this merchant" }));
+
+    await waitFor(() => expect(screen.getByText("sets.0.order: Expected number")).toBeDefined());
   });
 });

@@ -75,7 +75,11 @@ const session = {
   current: vi.fn(async () => identity as Identity | null),
   complete: vi.fn(async () => null as Identity | null),
 };
-const api = { get: <T,>(p: string) => apiGet(p) as Promise<T> };
+const apiPost = vi.fn();
+const api = {
+  get: <T,>(p: string) => apiGet(p) as Promise<T>,
+  post: <T,>(p: string, b: unknown) => apiPost(p, b) as Promise<T>,
+};
 const ports = { session, api };
 
 beforeEach(() => {

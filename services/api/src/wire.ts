@@ -26,6 +26,7 @@
 import type {
   AccountsResponse,
   BacklogResponse,
+  CategoriesResponse,
   EffectView,
   PredictionView,
   ProposalResponse,
@@ -37,6 +38,7 @@ import type {
   AccountsResult,
   Backlog,
   BalancesResult,
+  CategoriesResult,
   CategoriseReport,
   Preview,
   Proposed,
@@ -48,6 +50,10 @@ export const asSummary = (s: Summary): SummaryResponse => ({
   ...s,
   byCategory: [...s.byCategory],
   byMonth: [...s.byMonth],
+});
+
+export const asCategories = (c: CategoriesResult): CategoriesResponse => ({
+  categories: c.categories.map((x) => ({ id: x.id, label: x.label, kind: x.kind })),
 });
 
 export const asTransactions = (t: TransactionsResult): TransactionsResponse => ({
