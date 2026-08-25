@@ -70,12 +70,21 @@ export interface QueryParam {
 }
 
 export interface Route {
-  readonly method: "get";
+  readonly method: "get" | "post";
   /** Path *without* the version prefix; `pathFor` adds it. */
   readonly path: string;
   readonly summary: string;
   readonly description: string;
   readonly query: readonly QueryParam[];
+  /**
+   * The schema of a request body, and the name it gets in `components`.
+   *
+   * Absent on a GET, which has no body to describe. Present on a POST, where a
+   * generated client needs the request struct as much as the response one — an
+   * endpoint documented with only its output leaves the caller guessing at the
+   * input, which is the half that can be got wrong silently.
+   */
+  readonly request?: { readonly name: string; readonly schema: z.ZodTypeAny };
   /** The schema of a 200 response, and the name it gets in `components`. */
   readonly response: { readonly name: string; readonly schema: z.ZodTypeAny };
 }

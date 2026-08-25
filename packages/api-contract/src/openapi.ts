@@ -120,6 +120,37 @@ function parametersFor(route: Route): unknown[] {
   }));
 }
 
+/**
+ * A method name a client generator can use.
+ *
+ * Segments are joined rather than left as slashes: `/categorisation/gaps` has to
+ * become one identifier, and a generator handed `categorisation/gaps` produces
+ * either a syntax error or something it invented, neither of which is stable
+ * across runs. Single-segment paths are unchanged, so the existing operation
+ * names — and the document snapshot — stay exactly as they were.
+ */
+function operationIdFor(route: Route): string {
+  const [first, ...rest] = route.path.replace(/^\//, "").split("/");
+  return [first, ...rest.map((s) => s.charAt(0).toUpperCase() + s.slice(1))].join("");
+}
+
+/**
+ * The request body, for the routes that take one.
+ *
+ * Spread into the operation rather than set to undefined, because a
+ * `requestBody: undefined` key survives `JSON.stringify` in some shapes and a
+ * GET that advertises an empty body is a lie a generated client will act on.
+ */
+function requestBodyFor(route: Route): Record<string, unknown> {
+  if (!route.request) return {};
+  return {
+    requestBody: {
+      required: true,
+      content: { "application/json": { schema: { $ref: `#/${DEFS}/${route.request.name}` } } },
+    },
+  };
+}
+
 export interface OpenApiDocument {
   openapi: string;
   info: Record<string, unknown>;
@@ -129,19 +160,28 @@ export interface OpenApiDocument {
   paths: Record<string, unknown>;
 }
 
-export function buildOpenApiDocument(): OpenApiDocument {
+/**
+ * Build the document.
+ *
+ * Takes the routes rather than reaching for `ROUTES`, so that generation can be
+ * tested against a route shape the published set does not contain yet — a
+ * request body has to be provably right before an endpoint depends on it, not
+ * after. The default is the real set, so every caller is unaffected.
+ */
+export function buildOpenApiDocument(routes: readonly Route[] = ROUTES): OpenApiDocument {
   const schemas = allSchemas();
   const paths: Record<string, unknown> = {};
 
-  for (const route of ROUTES) {
+  for (const route of routes) {
     paths[pathFor(route)] = {
       [route.method]: {
         // Stable and derived from the path, so a client generator produces the
         // same method names every run rather than renumbering on reorder.
-        operationId: route.path.replace(/^\//, ""),
+        operationId: operationIdFor(route),
         summary: route.summary,
         description: route.description,
         parameters: parametersFor(route),
+        ...requestBodyFor(route),
         responses: {
           "200": {
             description: route.summary,
