@@ -69,11 +69,6 @@ const DESCRIBED: Array<[string, { description?: string | undefined }, string]> =
   ["Effect.truncated", EffectView.shape.truncated, "Never truncated silently"],
   ["Conflict.categories", IntroducedConflictView.shape.categories, "would claim at once"],
   ["Conflict.example", IntroducedConflictView.shape.example, "would happen on"],
-  ["Prediction.gained", PredictionView.shape.gained, "Uncategorised before"],
-  ["Prediction.lost", PredictionView.shape.lost, "almost never intended"],
-  ["Prediction.recategorised", PredictionView.shape.recategorised, "look hardest at"],
-  ["Prediction.unchanged", PredictionView.shape.unchanged, "agreed with what was there"],
-  ["Prediction.outranked", PredictionView.shape.outranked, "lost to a higher-precedence"],
   ["Proposal.proposed", ProposalResponse.shape.proposed, "absent on a dry run"],
 ];
 
@@ -237,12 +232,19 @@ describe("the prediction", () => {
     expect(PredictionView.parse(prediction)).toEqual(prediction);
   });
 
-  it("names recategorised as the number to look hardest at", () => {
-    expect(PredictionView.shape.recategorised.description).toContain("look hardest at");
-  });
-
-  it("says lost is almost never intended", () => {
-    expect(PredictionView.shape.lost.description).toContain("almost never intended");
+  it("gives every group the same shape, so a client reads them the same way", () => {
+    // They share `EffectView` rather than carrying per-field descriptions: a
+    // described wrapper is not the schema that was named, so it inlines and
+    // the `$ref` points into another schema's properties instead.
+    for (const group of ["gained", "lost", "recategorised", "unchanged", "outranked"] as const) {
+      expect(Object.keys(PredictionView.shape[group].shape).sort()).toEqual([
+        "entries",
+        "merchants",
+        "outgoing",
+        "transactions",
+        "truncated",
+      ]);
+    }
   });
 
   it("requires truncation to be declared, never silent", () => {

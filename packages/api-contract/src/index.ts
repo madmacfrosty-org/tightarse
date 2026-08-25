@@ -39,6 +39,17 @@ const minorUnits = (what: string) =>
  */
 export const IsoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Date as YYYY-MM-DD");
 
+/**
+ * A count of things. Never negative, never fractional.
+ *
+ * Named rather than repeated inline for the same reason the date is: an
+ * unnamed shape used by a dozen schemas is deduplicated by the generator into a
+ * `$ref` pointing into whichever schema it happened to see first, which is a
+ * valid JSON pointer and not a Schema Object.
+ */
+export const Count = z.number().int().nonnegative();
+export type Count = z.infer<typeof Count>;
+
 export const DateRange = z.object({
   from: IsoDate,
   to: IsoDate,
@@ -259,17 +270,17 @@ export type AccountsResponse = z.infer<typeof AccountsResponse>;
  */
 export const CategoryTallyView = z.object({
   category: z.string().describe("The category identifier the rules produce"),
-  transactions: z.number().int().nonnegative(),
+  transactions: Count,
 });
 export type CategoryTallyView = z.infer<typeof CategoryTallyView>;
 
 export const DescriptionView = z.object({
   description: z.string(),
-  transactions: z.number().int().nonnegative(),
+  transactions: Count,
   outgoing: minorUnits("Money that left the household under this description"),
   firstSeen: z.string().describe("Booking timestamp of the earliest sighting, ISO-8601"),
   lastSeen: z.string().describe("Booking timestamp of the latest sighting, ISO-8601"),
-  uncategorised: z.number().int().nonnegative().describe("Sightings the rules currently give no category"),
+  uncategorised: Count.describe("Sightings the rules currently give no category"),
   categories: z
     .array(CategoryTallyView)
     .describe("What the rules make of it now. More than one entry means it is categorised inconsistently."),
@@ -284,20 +295,20 @@ export type Cadence = z.infer<typeof Cadence>;
 export const RecurrenceView = z.object({
   amount: minorUnits("The repeated amount, signed so a recurring credit stays distinguishable"),
   cadence: Cadence,
-  transactions: z.number().int().nonnegative(),
+  transactions: Count,
   outgoing: minorUnits("Money that left the household across the whole series"),
   descriptions: z
     .array(z.string())
     .describe("Every description this amount arrived under. More than one is the case this exists for."),
   firstSeen: z.string(),
   lastSeen: z.string(),
-  uncategorised: z.number().int().nonnegative(),
+  uncategorised: Count,
 });
 export type RecurrenceView = z.infer<typeof RecurrenceView>;
 
 export const GapView = z.object({
   description: z.string(),
-  transactions: z.number().int().nonnegative(),
+  transactions: Count,
   outgoing: minorUnits("Money that left the household under it"),
 });
 export type GapView = z.infer<typeof GapView>;
@@ -306,9 +317,9 @@ export const ConflictView = z.object({
   setId: z.string().describe("The rule set that cannot choose"),
   categories: z.array(z.string()).describe("The categories it claims at once"),
   rules: z
-    .array(z.number().int().nonnegative())
+    .array(Count)
     .describe("Positions within the set that asserted them, which is how the fold identifies a rule"),
-  transactions: z.number().int().nonnegative(),
+  transactions: Count,
   example: z
     .string()
     .describe("One description it happens on, for a human deciding which rule is wrong"),
@@ -327,7 +338,7 @@ export const BacklogResponse = z.object({
         "the set produces nothing, so its transactions appear in `gaps` as though no rule had been " +
         "written for them.",
     ),
-  scanned: z.number().int().nonnegative(),
+  scanned: Count,
 });
 export type BacklogResponse = z.infer<typeof BacklogResponse>;
 
@@ -366,7 +377,7 @@ export type RuleView = z.infer<typeof RuleView>;
 
 export const ProposedRuleSetView = z.object({
   setId: z.string().min(1),
-  version: z.number().int().nonnegative().describe("The version being proposed, which must be higher than the current one"),
+  version: Count.describe("The version being proposed, which must be higher than the current one"),
   name: z.string().min(1),
   order: z.number().int().describe("Precedence. Lower wins: overrides -1, household 0, built-in 2, provider 3."),
   authored: z.boolean().describe("Whether a human wrote it. Gates automatic approval only, never whether it may be proposed."),
@@ -393,9 +404,9 @@ export const ChangeView = z.object({
 export type ChangeView = z.infer<typeof ChangeView>;
 
 export const EffectView = z.object({
-  transactions: z.number().int().nonnegative(),
+  transactions: Count,
   outgoing: minorUnits("Money that left the household across this group"),
-  merchants: z.number().int().nonnegative().describe("Distinct descriptions. The number that says whether a pattern has escaped."),
+  merchants: Count.describe("Distinct descriptions. The number that says whether a pattern has escaped."),
   entries: z.array(ChangeView).describe("The transactions themselves, truncated where `truncated` says so"),
   truncated: z
     .boolean()
@@ -406,7 +417,7 @@ export type EffectView = z.infer<typeof EffectView>;
 export const IntroducedConflictView = z.object({
   setId: z.string(),
   categories: z.array(z.string()).describe("The categories the set would claim at once"),
-  transactions: z.number().int().nonnegative(),
+  transactions: Count,
   example: z.string().describe("One description it would happen on"),
 });
 export type IntroducedConflictView = z.infer<typeof IntroducedConflictView>;
@@ -417,15 +428,24 @@ export type IntroducedConflictView = z.infer<typeof IntroducedConflictView>;
  * Never supplied by the caller. A model-authored proposal carrying its own
  * account of its effect would defeat the arrangement in which deterministic
  * code checks the model.
+ *
+ * The five groups, since the fields cannot carry their own descriptions without
+ * losing their `$ref` to `EffectView`:
+ *
+ * - `gained` — uncategorised before, categorised after
+ * - `lost` — categorised before, uncategorised after. Usually a conflict, and almost never intended.
+ * - `recategorised` — one category before, a different one after. The number to look hardest at.
+ * - `unchanged` — the proposal matched and agreed with what was there
+ * - `outranked` — the proposal matched and lost to a higher-precedence set
  */
 export const PredictionView = z.object({
-  gained: EffectView.describe("Uncategorised before, categorised after"),
-  lost: EffectView.describe("Categorised before, uncategorised after. Usually a conflict, and almost never intended."),
-  recategorised: EffectView.describe("One category before, a different one after. The number to look hardest at."),
-  unchanged: EffectView.describe("The proposal matched and agreed with what was there"),
-  outranked: EffectView.describe("The proposal matched and lost to a higher-precedence set"),
+  gained: EffectView,
+  lost: EffectView,
+  recategorised: EffectView,
+  unchanged: EffectView,
+  outranked: EffectView,
   introducedConflicts: z.array(IntroducedConflictView),
-  scanned: z.number().int().nonnegative(),
+  scanned: Count,
 });
 export type PredictionView = z.infer<typeof PredictionView>;
 
@@ -437,7 +457,7 @@ export const ProposalResponse = z.object({
    * A dry run computes and returns; it creates no version and no record.
    */
   proposed: z
-    .array(z.object({ setId: z.string(), version: z.number().int().nonnegative() }))
+    .array(z.object({ setId: z.string(), version: Count }))
     .optional()
     .describe("The versions created, absent on a dry run"),
 });

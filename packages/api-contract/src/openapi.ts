@@ -16,19 +16,44 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { z } from "zod";
 import {
   AccountView,
+  AccountsResponse,
+  BacklogResponse,
   BalancePoint,
   BalancesResponse,
-  IsoDate,
-  Provisional,
-  AccountsResponse,
+  Cadence,
+  CategoryTallyView,
   CategoryTotal,
+  ChangeView,
+  ConflictView,
+  ContributionView,
   DateRange,
+  DescriptionView,
+  EffectView,
+  GapView,
+  IntroducedConflictView,
+  Count,
+  IsoDate,
+  MatcherView,
   MonthTotal,
+  PredictionView,
+  ProposalRequest,
+  ProposalResponse,
+  ProposedRuleSetView,
+  Provisional,
+  RecurrenceView,
+  RuleView,
   Summary,
   TransactionView,
   TransactionsResponse,
 } from "./index.js";
-import { API_VERSION, COMPATIBILITY_PROMISE, ROUTES, pathFor, type Route } from "./routes.js";
+import {
+  API_VERSION,
+  CATEGORISATION_ROUTES,
+  COMPATIBILITY_PROMISE,
+  ROUTES,
+  pathFor,
+  type Route,
+} from "./routes.js";
 
 /**
  * Every shape that gets a name in the document.
@@ -47,6 +72,7 @@ const NAMED = {
   // would have surfaced as a build failure in the iOS repository rather than
   // here.
   IsoDate,
+  Count,
   Provisional,
   DateRange,
   CategoryTotal,
@@ -58,6 +84,26 @@ const NAMED = {
   AccountsResponse,
   BalancePoint,
   BalancesResponse,
+  // Categorisation. Named for the same reason as the leaves above: unnamed,
+  // a shape used by two responses is inlined into each, and a client generator
+  // produces several structurally identical structs with different names.
+  CategoryTallyView,
+  DescriptionView,
+  Cadence,
+  RecurrenceView,
+  GapView,
+  ConflictView,
+  BacklogResponse,
+  MatcherView,
+  ContributionView,
+  RuleView,
+  ProposedRuleSetView,
+  ProposalRequest,
+  ChangeView,
+  EffectView,
+  IntroducedConflictView,
+  PredictionView,
+  ProposalResponse,
 } as const;
 
 /**
@@ -168,7 +214,9 @@ export interface OpenApiDocument {
  * request body has to be provably right before an endpoint depends on it, not
  * after. The default is the real set, so every caller is unaffected.
  */
-export function buildOpenApiDocument(routes: readonly Route[] = ROUTES): OpenApiDocument {
+export function buildOpenApiDocument(
+  routes: readonly Route[] = [...ROUTES, ...CATEGORISATION_ROUTES],
+): OpenApiDocument {
   const schemas = allSchemas();
   const paths: Record<string, unknown> = {};
 

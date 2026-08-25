@@ -65,7 +65,15 @@ export function realDeps(): ApiDeps {
   };
 }
 
-function tenantFrom(event: HttpEvent): string {
+/**
+ * The household, from the verified claim and never from the request.
+ *
+ * Exported because the categorisation routes need the same rule, and two copies
+ * of the single most important line in this codebase is how one of them ends up
+ * subtly different. Anything serving a household read or write goes through
+ * this and nothing else.
+ */
+export function tenantFrom(event: { requestContext?: { authorizer?: { jwt?: { claims?: Record<string, unknown> } } } }): string {
   const claims = event.requestContext?.authorizer?.jwt?.claims ?? {};
   // Custom attribute set at user creation. A user with no household must not
   // fall back to a default — that would silently grant access to someone
