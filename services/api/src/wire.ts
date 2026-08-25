@@ -88,6 +88,13 @@ export function asBacklog(range: { from: string; to: string }, backlog: Backlog)
       transactions: g.transactions,
       outgoing: g.outgoing,
     })),
+    conflicts: backlog.conflicts.map((c) => ({
+      setId: c.setId,
+      categories: [...c.categories],
+      rules: [...c.rules],
+      transactions: c.transactions,
+      example: c.example,
+    })),
     scanned: backlog.scanned,
   };
 }

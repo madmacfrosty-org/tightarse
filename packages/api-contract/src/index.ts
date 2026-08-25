@@ -302,11 +302,31 @@ export const GapView = z.object({
 });
 export type GapView = z.infer<typeof GapView>;
 
+export const ConflictView = z.object({
+  setId: z.string().describe("The rule set that cannot choose"),
+  categories: z.array(z.string()).describe("The categories it claims at once"),
+  rules: z
+    .array(z.number().int().nonnegative())
+    .describe("Positions within the set that asserted them, which is how the fold identifies a rule"),
+  transactions: z.number().int().nonnegative(),
+  example: z
+    .string()
+    .describe("One description it happens on, for a human deciding which rule is wrong"),
+});
+export type ConflictView = z.infer<typeof ConflictView>;
+
 export const BacklogResponse = z.object({
   range: DateRange,
   descriptions: z.array(DescriptionView).describe("Every distinct description, costliest first"),
   recurrences: z.array(RecurrenceView).describe("Amounts arriving on a beat, costliest first"),
   gaps: z.array(GapView).describe("What nothing matched, costliest first"),
+  conflicts: z
+    .array(ConflictView)
+    .describe(
+      "Where a set claims two answers at once, widest first. A conflict is a gap with a cause: " +
+        "the set produces nothing, so its transactions appear in `gaps` as though no rule had been " +
+        "written for them.",
+    ),
   scanned: z.number().int().nonnegative(),
 });
 export type BacklogResponse = z.infer<typeof BacklogResponse>;

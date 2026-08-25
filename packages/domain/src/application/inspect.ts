@@ -17,7 +17,7 @@ import { summariseCorpus } from "../categorisation/corpus.js";
 import type { Recurrence, DescriptionSummary, Sighting } from "../categorisation/corpus.js";
 import { evaluate } from "../categorisation/evaluate.js";
 import { gatherEvidence } from "../categorisation/evidence.js";
-import type { Gap } from "../categorisation/evidence.js";
+import type { Conflict, Gap } from "../categorisation/evidence.js";
 import { RuleSet } from "../categorisation/rules.js";
 import type { Backlog, Inspection } from "../ports/inbound/index.js";
 import type { DateRange } from "../ports/index.js";
@@ -73,6 +73,7 @@ export async function backlog(deps: InspectDeps, tenantId: string, range: DateRa
     descriptions: summary.descriptions,
     recurrences: summary.recurrences,
     gaps: evidence.gaps,
+    conflicts: evidence.conflicts,
     scanned: summary.scanned,
   };
 }
@@ -81,4 +82,4 @@ export function inspection(deps: InspectDeps): Inspection {
   return { backlog: (tenantId, range) => backlog(deps, tenantId, range) };
 }
 
-export type { Backlog, DescriptionSummary, Gap, Recurrence };
+export type { Backlog, Conflict, DescriptionSummary, Gap, Recurrence };

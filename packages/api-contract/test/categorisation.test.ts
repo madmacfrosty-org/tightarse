@@ -4,6 +4,7 @@ import {
   Cadence,
   CATEGORISATION_ROUTES,
   CategoryTallyView,
+  ConflictView,
   DescriptionView,
   GapView,
   RecurrenceView,
@@ -126,26 +127,81 @@ describe("what a recurrence promises", () => {
 });
 
 describe("the backlog envelope", () => {
-  it("carries the range it answered, alongside all three collapses", () => {
+  it("carries the range it answered, alongside every collapse", () => {
     const response = {
       range: { from: "2026-01-01", to: "2026-12-31" },
       descriptions: [description],
       recurrences: [recurrence],
       gaps: [{ description: "UNKNOWN SHOP", transactions: 2, outgoing: 15_00 }],
+      conflicts: [
+        { setId: "household", categories: ["groceries", "fuel"], rules: [0, 3], transactions: 4, example: "SOMEMART FORECOURT" },
+      ],
       scanned: 5,
     };
 
     expect(BacklogResponse.parse(response)).toEqual(response);
   });
 
-  it("requires the range, so a client can tell what was served from what it asked", () => {
-    expect(() =>
-      BacklogResponse.parse({ descriptions: [], recurrences: [], gaps: [], scanned: 0 }),
-    ).toThrow();
-  });
-
   it.each(["descriptions", "recurrences", "gaps"] as const)("orders %s costliest first", (field) => {
     expect(BacklogResponse.shape[field].description).toContain("costliest first");
+  });
+
+  it("requires the range, so a client can tell what was served from what it asked", () => {
+    expect(() =>
+      BacklogResponse.parse({ descriptions: [], recurrences: [], gaps: [], conflicts: [], scanned: 0 }),
+    ).toThrow();
+  });
+});
+
+describe("what a conflict promises", () => {
+  const conflict = {
+    setId: "household",
+    categories: ["groceries", "fuel"],
+    rules: [0, 3],
+    transactions: 4,
+    example: "SOMEMART FORECOURT",
+  };
+
+  it("names the set, the categories it cannot choose between, and where to look", () => {
+    expect(ConflictView.parse(conflict)).toEqual(conflict);
+  });
+
+  it("identifies rules by position, which is how the fold identifies them", () => {
+    expect(ConflictView.shape.rules.description).toContain("Positions within the set");
+    expect(() => ConflictView.parse({ ...conflict, rules: [-1] })).toThrow();
+    expect(() => ConflictView.parse({ ...conflict, rules: [1.5] })).toThrow();
+  });
+
+  it("carries one example, for a human deciding which rule is wrong", () => {
+    expect(ConflictView.shape.example.description).toContain("which rule is wrong");
+  });
+
+  it("names the set and what it is torn between", () => {
+    expect(ConflictView.shape.setId.description).toContain("cannot choose");
+    expect(ConflictView.shape.categories.description).toContain("claims at once");
+  });
+
+  it("says what a conflict is, because a bare list would look like a second gap list", () => {
+    // Spans all three halves of the concatenated description, so losing any one
+    // fails rather than passing on whichever survives.
+    const said = BacklogResponse.shape.conflicts.description ?? "";
+
+    expect(said).toContain("widest first");
+    expect(said).toContain("gap with a cause");
+    expect(said).toContain("produces nothing");
+    expect(said).toContain("written for them");
+  });
+
+  it("requires conflicts in the envelope, so absent means none rather than not looked", () => {
+    expect(() =>
+      BacklogResponse.parse({
+        range: { from: "2026-01-01", to: "2026-12-31" },
+        descriptions: [],
+        recurrences: [],
+        gaps: [],
+        scanned: 0,
+      }),
+    ).toThrow();
   });
 });
 

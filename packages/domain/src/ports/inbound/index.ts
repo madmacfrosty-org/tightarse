@@ -17,7 +17,7 @@
 import type { DateRange } from "../index.js";
 import type { AccountId } from "../../ledger/account.js";
 import type { DescriptionSummary, Recurrence } from "../../categorisation/corpus.js";
-import type { Gap } from "../../categorisation/evidence.js";
+import type { Conflict, Gap } from "../../categorisation/evidence.js";
 
 /** A category and what it came to over a range. */
 export interface CategoryTotal {
@@ -200,6 +200,15 @@ export interface Backlog {
   readonly recurrences: readonly Recurrence[];
   /** What nothing matched, costliest first. */
   readonly gaps: readonly Gap[];
+  /**
+   * Where a set claims two answers at once, widest first.
+   *
+   * A conflict is a gap with a cause. The set produces nothing, so the affected
+   * transactions sit in `gaps` looking like merchants nobody has written a rule
+   * for — when in fact two rules exist and disagree. Without this, anyone
+   * reading the backlog is being pointed at the wrong problem.
+   */
+  readonly conflicts: readonly Conflict[];
   readonly scanned: number;
 }
 
