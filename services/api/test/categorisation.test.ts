@@ -334,6 +334,39 @@ describe("proposing a change", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it.each([
+    ["both sets and a merchant", { sets: [set], merchant: { term: "somemart", category: "groceries" } }],
+    ["neither", { because: "no reason" }],
+    ["all three", { sets: [set], merchant: { term: "x", category: "y" }, transactions: { dedupKeys: ["d"], category: "y" } }],
+  ])("refuses a request giving %s", async (_case, payload) => {
+    // Building a rule from whichever happened to be checked first is worse
+    // than refusing either.
+    const d = deps();
+    const res = await route(d, post({ body: JSON.stringify(payload) }));
+
+    expect(res.statusCode).toBe(400);
+    expect(body(res)["error"]).toContain("exactly one");
+    expect(d.proposals).toEqual([]);
+  });
+
+  it("takes a merchant term and passes it on unescaped, for the domain to handle", async () => {
+    // The client says what it wants; escaping happens once, on the server, by
+    // the same function that built the search which found the rows.
+    const d = deps();
+    await route(d, post({ body: JSON.stringify({ merchant: { term: "PIZZA (EXPRESS)", category: "eating-out" } }) }));
+
+    expect(d.proposals[0]).toMatchObject({
+      merchant: { term: "PIZZA (EXPRESS)", category: "eating-out" },
+    });
+  });
+
+  it("takes named transactions", async () => {
+    const d = deps();
+    await route(d, post({ body: JSON.stringify({ transactions: { dedupKeys: ["a", "b"], category: "groceries" } }) }));
+
+    expect(d.proposals[0]).toMatchObject({ transactions: { dedupKeys: ["a", "b"], category: "groceries" } });
+  });
+
   it("refuses a matcher kind the domain does not have, rather than passing it on", async () => {
     const bad = { ...set, rules: [{ ...set.rules[0], matcher: { kind: "amount", value: 500 } }] };
     const res = await route(deps(), post({ body: JSON.stringify({ sets: [bad] }) }));
