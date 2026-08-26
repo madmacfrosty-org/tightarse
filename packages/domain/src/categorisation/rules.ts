@@ -7,12 +7,59 @@
 
 import { z } from "zod";
 
-/** A predicate over a transaction, not a pattern over a string. */
-export const Matcher = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("merchant"), pattern: z.string().min(1) }),
-  z.object({ kind: z.literal("providerCategory"), value: z.string().min(1) }),
-  z.object({ kind: z.literal("transaction"), dedupKey: z.string().min(1) }),
-]);
+const Merchant = z.object({ kind: z.literal("merchant"), pattern: z.string().min(1) });
+const ProviderCategory = z.object({ kind: z.literal("providerCategory"), value: z.string().min(1) });
+const Transaction = z.object({ kind: z.literal("transaction"), dedupKey: z.string().min(1) });
+
+/**
+ * An amount, or a range of them.
+ *
+ * Absolute and inclusive, in minor units. Absolute because debits are negative
+ * and nobody types "between minus ten thousand and minus nine thousand" — and
+ * because direction already has a home in `appliesTo`, where a rule says it
+ * once rather than encoding it in every bound.
+ *
+ * At least one end. A range open at both is a matcher that matches everything,
+ * which is a rule with no condition wearing a condition's clothes.
+ */
+const AmountRange = z
+  .object({
+    kind: z.literal("amount"),
+    min: z.number().int().nonnegative().optional(),
+    max: z.number().int().nonnegative().optional(),
+  })
+  .refine((a) => a.min !== undefined || a.max !== undefined, {
+    message: "an amount matcher needs a min, a max, or both",
+  });
+
+/** One condition. What a rule held before it could hold several. */
+const Leaf = z.discriminatedUnion("kind", [Merchant, ProviderCategory, Transaction]);
+
+/**
+ * Several conditions, all of which must hold.
+ *
+ * One level, not a tree. Everything that produces a matcher — a person filtering
+ * a screen, a model proposing a rule — expresses a flat conjunction of a few
+ * properties of one transaction, and a nested algebra would be capability nobody
+ * asked for, in a schema a client generator has to be talked through.
+ *
+ * At least two members. One condition is that condition, and two ways of
+ * spelling the same rule is two things to compare when they disagree.
+ */
+const All = z.object({
+  kind: z.literal("all"),
+  of: z.array(z.union([Leaf, AmountRange])).min(2),
+});
+
+/**
+ * A predicate over a transaction, not a pattern over a string.
+ *
+ * Everything here reads one row and answers yes or no. Nothing consults another
+ * transaction, which is why a cadence can never be a matcher however useful it
+ * is for finding things: `matches` sees one candidate, and a rhythm is a
+ * property of the corpus.
+ */
+export const Matcher = z.union([Leaf, AmountRange, All]);
 export type Matcher = z.infer<typeof Matcher>;
 
 /**

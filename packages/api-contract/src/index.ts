@@ -370,11 +370,68 @@ export type BacklogResponse = z.infer<typeof BacklogResponse>;
  * already calling. They are near-identities today and the translation is the
  * one place that stays true when they stop being.
  */
-export const MatcherView = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("merchant"), pattern: z.string().min(1).describe("Case-insensitive regular expression matched against the description") }),
-  z.object({ kind: z.literal("providerCategory"), value: z.string().min(1).describe("The bank's own coarse category, e.g. DIRECT_DEBIT") }),
-  z.object({ kind: z.literal("transaction"), dedupKey: z.string().min(1).describe("One transaction, by its dedup key") }),
+export const MerchantMatcherView = z.object({
+  kind: z.literal("merchant"),
+  pattern: z.string().min(1).describe("Case-insensitive regular expression matched against the description"),
+});
+export const ProviderCategoryMatcherView = z.object({
+  kind: z.literal("providerCategory"),
+  value: z.string().min(1).describe("The bank's own coarse category, e.g. DIRECT_DEBIT"),
+});
+export const TransactionMatcherView = z.object({
+  kind: z.literal("transaction"),
+  dedupKey: z.string().min(1).describe("One transaction, by its dedup key"),
+});
+
+/**
+ * An amount, or a range of them.
+ *
+ * Absolute and inclusive, in minor units — debits are negative, and nobody
+ * expresses a bound as "between minus ten thousand and minus nine thousand".
+ * Direction is `appliesTo`'s business, said once per rule rather than encoded
+ * into every bound.
+ */
+export const AmountMatcherView = z
+  .object({
+    kind: z.literal("amount"),
+    min: minorUnits("Smallest amount that matches, by size").optional(),
+    max: minorUnits("Largest amount that matches, by size").optional(),
+  })
+  .refine((a) => a.min !== undefined || a.max !== undefined, {
+    message: "an amount matcher needs a min, a max, or both",
+  });
+
+/**
+ * The named conditions.
+ *
+ * Discriminated, so a wrong `kind` says which one it failed on rather than
+ * listing every alternative. The amount sits outside because it carries a rule
+ * a discriminated union cannot hold — at least one bound — and a range open at
+ * both ends matches everything while looking like a condition.
+ */
+const NamedLeaf = z.discriminatedUnion("kind", [
+  MerchantMatcherView,
+  ProviderCategoryMatcherView,
+  TransactionMatcherView,
 ]);
+
+export const LeafMatcherView = z.union([NamedLeaf, AmountMatcherView]);
+export type LeafMatcherView = z.infer<typeof LeafMatcherView>;
+
+/**
+ * Several conditions, all of which must hold.
+ *
+ * One level, not a tree: everything that produces a matcher expresses a flat
+ * conjunction of a few properties of one transaction, and a nested algebra
+ * would be capability nobody asked for in a schema a client generator has to be
+ * talked through. At least two members — one condition is that condition.
+ */
+export const AllMatcherView = z.object({
+  kind: z.literal("all"),
+  of: z.array(LeafMatcherView).min(2),
+});
+
+export const MatcherView = z.union([LeafMatcherView, AllMatcherView]);
 export type MatcherView = z.infer<typeof MatcherView>;
 
 export const ContributionView = z.discriminatedUnion("kind", [

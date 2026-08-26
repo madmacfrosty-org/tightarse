@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { evaluate, foldSet, literalMatcher, matches, matchesMatcher } from "../src/categorisation/evaluate.js";
+import { Matcher } from "../src/categorisation/rules.js";
 import type { Rule, RuleSet } from "../src/categorisation/rules.js";
 import type { Candidate } from "../src/categorisation/taxonomy.js";
 
@@ -277,5 +278,105 @@ describe("building a matcher from a word somebody typed", () => {
     };
 
     expect(matches(rule, seen("SOMEMART 118"))).toBe(matchesMatcher(literalMatcher("SOMEMART"), seen("SOMEMART 118")));
+  });
+});
+
+describe("matching on an amount", () => {
+  const seen = (amount: number): Candidate => ({
+    dedupKey: "d1",
+    description: "SOMEMART 118",
+    amount,
+    currency: "GBP",
+  });
+
+  it.each([
+    [-95_00, true],
+    [-90_00, true],
+    [-100_00, true],
+    [-89_99, false],
+    [-100_01, false],
+  ])("takes %i against a range of £90 to £100: %s", (amount, expected) => {
+    expect(matchesMatcher({ kind: "amount", min: 90_00, max: 100_00 }, seen(amount))).toBe(expected);
+  });
+
+  it("reads the size, not the sign, because direction lives in appliesTo", () => {
+    // Debits are negative. A bound expressed as a negative range would make
+    // every rule say direction twice, and disagree with itself eventually.
+    const range = { kind: "amount" as const, min: 90_00, max: 100_00 };
+
+    expect(matchesMatcher(range, seen(-95_00))).toBe(true);
+    expect(matchesMatcher(range, seen(95_00))).toBe(true);
+  });
+
+  it("is open at the end that was left out", () => {
+    expect(matchesMatcher({ kind: "amount", min: 90_00 }, seen(-1_000_00))).toBe(true);
+    expect(matchesMatcher({ kind: "amount", max: 100_00 }, seen(-1_00))).toBe(true);
+  });
+
+  it("refuses a range open at both ends, which is not a condition", () => {
+    expect(() => Matcher.parse({ kind: "amount" })).toThrow();
+  });
+});
+
+describe("matching on several conditions at once", () => {
+  const seen = (over: Partial<Candidate> = {}): Candidate => ({
+    dedupKey: "d1",
+    description: "SOMEMART 118",
+    amount: -95_00,
+    currency: "GBP",
+    providerCategory: "DIRECT_DEBIT",
+    ...over,
+  });
+
+  const all = {
+    kind: "all" as const,
+    of: [
+      { kind: "providerCategory" as const, value: "DIRECT_DEBIT" },
+      { kind: "merchant" as const, pattern: "somemart" },
+      { kind: "amount" as const, min: 90_00, max: 100_00 },
+    ],
+  };
+
+  it("holds only when every condition does", () => {
+    expect(matchesMatcher(all, seen())).toBe(true);
+  });
+
+  it.each([
+    ["the type", { providerCategory: "PURCHASE" }],
+    ["the description", { description: "OTHERSHOP" }],
+    ["the amount", { amount: -5_00 }],
+  ])("fails when %s does not match", (_which, over) => {
+    // The point of the conjunction: any one of them is enough to decline. A
+    // rule for a direct debit from one merchant in a band is all three or none.
+    expect(matchesMatcher(all, seen(over))).toBe(false);
+  });
+
+  it("refuses a conjunction of one, because that condition is the matcher", () => {
+    expect(() =>
+      Matcher.parse({ kind: "all", of: [{ kind: "merchant", pattern: "somemart" }] }),
+    ).toThrow();
+  });
+
+  it("refuses a conjunction of none", () => {
+    expect(() => Matcher.parse({ kind: "all", of: [] })).toThrow();
+  });
+
+  it("does not nest, because nothing that builds one needs a tree", () => {
+    expect(() =>
+      Matcher.parse({
+        kind: "all",
+        of: [
+          { kind: "merchant", pattern: "a" },
+          { kind: "all", of: [{ kind: "merchant", pattern: "b" }, { kind: "merchant", pattern: "c" }] },
+        ],
+      }),
+    ).toThrow();
+  });
+
+  it("is still gated by direction, like any other rule", () => {
+    const rule = { matcher: all, contributes: { kind: "assert" as const, category: "bills" }, appliesTo: "debits" as const };
+
+    expect(matches(rule, seen())).toBe(true);
+    expect(matches(rule, seen({ amount: 95_00 }))).toBe(false);
   });
 });

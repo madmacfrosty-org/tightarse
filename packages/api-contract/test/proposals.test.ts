@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
+  AmountMatcherView,
   AppliedView,
+  MerchantMatcherView,
+  ProviderCategoryMatcherView,
+  TransactionMatcherView,
+  LeafMatcherView,
   ChangeView,
   ContributionView,
   EffectView,
@@ -51,9 +56,11 @@ const effect = { transactions: 2, outgoing: 20_00, merchants: 1, entries: [], tr
  * never written.
  */
 const DESCRIBED: Array<[string, { description?: string | undefined }, string]> = [
-  ["Matcher.pattern", MatcherView.options[0].shape.pattern, "Case-insensitive"],
-  ["Matcher.value", MatcherView.options[1].shape.value, "coarse category"],
-  ["Matcher.dedupKey", MatcherView.options[2].shape.dedupKey, "dedup key"],
+  ["Matcher.pattern", MerchantMatcherView.shape.pattern, "Case-insensitive"],
+  ["Matcher.value", ProviderCategoryMatcherView.shape.value, "coarse category"],
+  ["Matcher.dedupKey", TransactionMatcherView.shape.dedupKey, "dedup key"],
+  ["Matcher.min", AmountMatcherView.innerType().shape.min, "by size"],
+  ["Matcher.max", AmountMatcherView.innerType().shape.max, "by size"],
   ["Contribution.assert", ContributionView.options[0].shape.category, "Establishes"],
   ["Contribution.refine", ContributionView.options[1].shape.category, "Inert"],
   ["Rule.appliesTo", RuleView.shape.appliesTo, "Credits are excluded"],
@@ -95,7 +102,7 @@ describe("what a rule may match on", () => {
   });
 
   it("refuses a matcher kind the domain does not have", () => {
-    expect(() => MatcherView.parse({ kind: "amount", value: 500 })).toThrow();
+    expect(() => MatcherView.parse({ kind: "dayOfMonth", value: 15 })).toThrow();
   });
 
   it.each([
@@ -115,28 +122,52 @@ describe("what a rule may match on", () => {
   });
 
   it("says a pattern is case-insensitive, which a client cannot infer", () => {
-    const merchant = MatcherView.options[0];
-    expect(merchant.shape.pattern.description).toContain("Case-insensitive");
+    expect(MerchantMatcherView.shape.pattern.description).toContain("Case-insensitive");
   });
 
   it.each([
-    [0, ["kind", "pattern"]],
-    [1, ["kind", "value"]],
-    [2, ["kind", "dedupKey"]],
-  ])("option %i carries exactly the fields that kind needs", (i, fields) => {
-    // An option that quietly loses its fields still parses — zod strips unknown
-    // keys rather than complaining — so the shape has to be asserted directly.
-    expect(Object.keys(MatcherView.options[i]!.shape).sort()).toEqual([...fields].sort());
+    [{ kind: "merchant", pattern: "somemart" }],
+    [{ kind: "providerCategory", value: "DIRECT_DEBIT" }],
+    [{ kind: "transaction", dedupKey: "d1" }],
+    [{ kind: "amount", min: 90_00, max: 100_00 }],
+  ])("accepts %o as one condition", (leaf) => {
+    expect(LeafMatcherView.parse(leaf)).toEqual(leaf);
   });
 
-  it("offers exactly the three kinds the domain has", () => {
-    expect(MatcherView.options).toHaveLength(3);
-    expect(MatcherView.options.map((o) => o.shape.kind.value)).toEqual([
-      "merchant",
-      "providerCategory",
-      "transaction",
-    ]);
+  it("refuses an amount open at both ends, which is not a condition", () => {
+    // It would match every transaction while looking like a filter.
+    expect(() => LeafMatcherView.parse({ kind: "amount" })).toThrow();
+    expect(LeafMatcherView.parse({ kind: "amount", min: 1 })).toEqual({ kind: "amount", min: 1 });
+    expect(LeafMatcherView.parse({ kind: "amount", max: 1 })).toEqual({ kind: "amount", max: 1 });
   });
+
+  it("accepts several conditions at once, and refuses one or none", () => {
+    const two = {
+      kind: "all",
+      of: [
+        { kind: "providerCategory", value: "DIRECT_DEBIT" },
+        { kind: "amount", min: 90_00, max: 100_00 },
+      ],
+    };
+
+    expect(MatcherView.parse(two)).toEqual(two);
+    expect(() => MatcherView.parse({ kind: "all", of: [{ kind: "merchant", pattern: "x" }] })).toThrow();
+    expect(() => MatcherView.parse({ kind: "all", of: [] })).toThrow();
+  });
+
+  it("does not nest, because nothing that builds one needs a tree", () => {
+    expect(() =>
+      MatcherView.parse({
+        kind: "all",
+        of: [
+          { kind: "merchant", pattern: "a" },
+          { kind: "all", of: [{ kind: "merchant", pattern: "b" }, { kind: "merchant", pattern: "c" }] },
+        ],
+      }),
+    ).toThrow();
+  });
+
+
 });
 
 describe("what a rule contributes", () => {
