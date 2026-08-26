@@ -1,5 +1,5 @@
 import { DynamoStore } from "@tightarse/dynamodb";
-import type { Reporting } from "@tightarse/domain";
+import type { Reporting, TransactionFilter } from "@tightarse/domain";
 import { reporting } from "@tightarse/domain";
 import { asAccounts, asBalances, asCategories, asSummary, asTransactions } from "./wire.js";
 
@@ -98,15 +98,41 @@ function rangeFrom(event: HttpEvent): { from: string; to: string } {
 }
 
 /**
- * The search term, if one was asked for.
+ * How the caller narrowed the list, if at all.
  *
- * An empty `q` means "everything", not "nothing that matches the empty string".
- * A cleared search box sends `q=` on some clients, and answering that with the
- * whole ledger is the only reading that is not a surprise.
+ * An empty value means "do not narrow on this", not "match the empty string".
+ * A cleared search box sends `q=` on some clients, and answering that with
+ * nothing is the only reading that is a surprise.
+ *
+ * A malformed bound is refused rather than dropped. Silently ignoring `min=abc`
+ * answers a question nobody asked and looks like the filter did nothing.
  */
-export function searchFrom(event: HttpEvent): string | undefined {
-  const q = (event.queryStringParameters ?? {})["q"];
-  return q === undefined || q.length === 0 ? undefined : q;
+export function filterFrom(event: HttpEvent): TransactionFilter | undefined {
+  const q = event.queryStringParameters ?? {};
+  const bound = (name: "min" | "max"): number | undefined => {
+    const raw = q[name];
+    if (raw === undefined || raw.length === 0) return undefined;
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < 0) {
+      throw Object.assign(new Error(`${name} must be a whole number of pence, not "${raw}"`), {
+        statusCode: 400,
+      });
+    }
+    return value;
+  };
+
+  const filter: TransactionFilter = {
+    ...(q["q"] ? { term: q["q"] } : {}),
+    ...(q["type"] ? { type: q["type"] } : {}),
+    ...(bound("min") === undefined ? {} : { min: bound("min") }),
+    ...(bound("max") === undefined ? {} : { max: bound("max") }),
+  };
+
+  if (filter.min !== undefined && filter.max !== undefined && filter.min > filter.max) {
+    throw Object.assign(new Error("`min` is above `max`"), { statusCode: 400 });
+  }
+
+  return Object.keys(filter).length === 0 ? undefined : filter;
 }
 
 function json(statusCode: number, body: unknown) {
@@ -131,7 +157,7 @@ export async function route(deps: ApiDeps, event: HttpEvent) {
     // the promise made to installed clients.
     if (path.endsWith("/summary")) return json(200, asSummary(await deps.reporting.summary(tenantId, range)));
     if (path.endsWith("/transactions"))
-      return json(200, asTransactions(await deps.reporting.transactions(tenantId, range, searchFrom(event))));
+      return json(200, asTransactions(await deps.reporting.transactions(tenantId, range, filterFrom(event))));
     if (path.endsWith("/categories")) return json(200, asCategories(await deps.reporting.categories(tenantId)));
     if (path.endsWith("/accounts")) return json(200, asAccounts(await deps.reporting.accounts(tenantId)));
     if (path.endsWith("/balances"))

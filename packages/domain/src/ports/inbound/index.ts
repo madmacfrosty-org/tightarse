@@ -224,6 +224,22 @@ export interface Inspection {
   backlog(tenantId: string, range: DateRange): Promise<Backlog>;
 }
 
+/**
+ * How a caller narrowed a list of transactions.
+ *
+ * The same shape a rule is built from, which is what makes a screen's list and
+ * the rule it writes the same predicate rather than two that agree today.
+ */
+export interface TransactionFilter {
+  /** Matched literally against the description, case-insensitively. */
+  readonly term?: string | undefined;
+  /** The bank's own coarse category, e.g. DIRECT_DEBIT. */
+  readonly type?: string | undefined;
+  /** Bounds on the size of the amount, inclusive, in minor units. */
+  readonly min?: number | undefined;
+  readonly max?: number | undefined;
+}
+
 /** One category, as something choosing between them needs it. */
 export interface CategoryChoice {
   readonly id: string;
@@ -246,7 +262,7 @@ export interface CategoriesResult {
  */
 export interface Reporting {
   summary(tenantId: string, range: DateRange, opts?: SummaryOptions): Promise<Summary>;
-  transactions(tenantId: string, range: DateRange, search?: string): Promise<TransactionsResult>;
+  transactions(tenantId: string, range: DateRange, filter?: TransactionFilter): Promise<TransactionsResult>;
   accounts(tenantId: string): Promise<AccountsResult>;
   /** The categories a household may file something under. */
   categories(tenantId: string): Promise<CategoriesResult>;

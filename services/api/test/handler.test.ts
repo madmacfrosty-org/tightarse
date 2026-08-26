@@ -544,7 +544,65 @@ describe("the category catalogue", () => {
   });
 });
 
-describe("the search parameter", () => {
+describe("narrowing the list", () => {
+  const spying = (seen: unknown[]): ApiDeps => ({
+    reporting: {
+      summary: vi.fn(),
+      accounts: vi.fn(),
+      balances: vi.fn(),
+      categories: vi.fn(),
+      transactions: vi.fn(async (_t: string, _r: unknown, filter?: unknown) => {
+        seen.push(filter);
+        return { range: { from: "2026-01-01", to: "2026-12-31" }, transactions: [] };
+      }),
+    } as unknown as Reporting,
+  });
+
+  const asked = async (params: Record<string, string>) => {
+    const seen: unknown[] = [];
+    const res = await route(
+      spying(seen),
+      event({ rawPath: "/transactions", queryStringParameters: params }) as never,
+    );
+    return { seen, res };
+  };
+
+  it("carries every condition through, and they combine", async () => {
+    const { seen } = await asked({ q: "somemart", type: "DIRECT_DEBIT", min: "9000", max: "10000" });
+
+    expect(seen).toEqual([{ term: "somemart", type: "DIRECT_DEBIT", min: 9000, max: 10000 }]);
+  });
+
+  it.each([
+    ["only a term", { q: "somemart" }, { term: "somemart" }],
+    ["only a type", { type: "DIRECT_DEBIT" }, { type: "DIRECT_DEBIT" }],
+    ["only a floor", { min: "9000" }, { min: 9000 }],
+    ["only a ceiling", { max: "10000" }, { max: 10000 }],
+  ])("takes %s on its own", async (_case, params, expected) => {
+    const { seen } = await asked(params);
+
+    expect(seen).toEqual([expected]);
+  });
+
+  it.each([
+    ["not a number", { min: "abc" }],
+    ["negative", { min: "-500" }],
+    ["fractional", { max: "10.5" }],
+  ])("refuses a bound that is %s rather than ignoring it", async (_case, params) => {
+    // Dropping it silently answers a question nobody asked, and looks like the
+    // filter did nothing.
+    const { res } = await asked(params);
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("refuses a range that runs backwards", async () => {
+    const { res } = await asked({ min: "10000", max: "9000" });
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain("above");
+  });
+
   it("passes the term through to the application", async () => {
     const seen: unknown[] = [];
     const spy: ApiDeps = {
@@ -562,7 +620,7 @@ describe("the search parameter", () => {
 
     await route(spy, event({ rawPath: "/transactions", queryStringParameters: { q: "somemart" } }) as never);
 
-    expect(seen).toEqual(["somemart"]);
+    expect(seen).toEqual([{ term: "somemart" }]);
   });
 
   it.each([

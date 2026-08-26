@@ -130,8 +130,10 @@ export const ROUTES: readonly Route[] = [
     description:
       "Every transaction in the range, newest first, with its category where one has been assigned. " +
       "Returns the whole range: there is no pagination, so a wide range is a large response. " +
-      "`q` narrows it to descriptions containing that text, case-insensitively and taken literally — " +
-      "a search, not a promise about what any rule would match.",
+      "`q`, `type`, `min` and `max` narrow it, and combine: every one given must hold. `q` matches " +
+      "descriptions containing that text, case-insensitively and taken literally; `type` is the bank's " +
+      "own coarse category; `min` and `max` bound the size of the amount, inclusive, ignoring sign. " +
+      "The same filter builds a rule, so what this returns is what a rule made from it would take.",
     query: [
       ...range,
       {
@@ -141,6 +143,28 @@ export const ROUTES: readonly Route[] = [
         description:
           "Narrow to descriptions containing this text. Case-insensitive, and matched literally: " +
           "punctuation is not a pattern. Omit for everything in the range.",
+      },
+      {
+        name: "type",
+        required: false,
+        schema: z.string().min(1),
+        description:
+          "Narrow to the bank's own coarse category, e.g. DIRECT_DEBIT or STANDING_ORDER. " +
+          "Exact, and whatever the provider supplied.",
+      },
+      {
+        name: "min",
+        required: false,
+        schema: z.string().regex(/^\d+$/),
+        description:
+          "Smallest amount that matches, in minor units, inclusive. By size: debits are negative and " +
+          "this ignores the sign, because direction belongs to the rule.",
+      },
+      {
+        name: "max",
+        required: false,
+        schema: z.string().regex(/^\d+$/),
+        description: "Largest amount that matches, in minor units, inclusive. By size, as `min`.",
       },
     ],
     response: { name: "TransactionsResponse", schema: TransactionsResponse },

@@ -15,6 +15,7 @@
 import type {
   AccountsResult,
   CategoriesResult,
+  TransactionFilter,
   BalancesResult,
   DateRange,
   LedgerReads,
@@ -24,7 +25,7 @@ import type {
   TransactionsResult,
 } from "../index.js";
 import { Category } from "../categorisation/category.js";
-import { literalMatcher, matchesMatcher } from "../categorisation/evaluate.js";
+import { filterMatcher, matchesMatcher } from "../categorisation/evaluate.js";
 import { candidateOf } from "../application/candidate.js";
 import { effectiveCategories, orderOf } from "./categories.js";
 import { mergeCategories, summarise, toAccountState, type LedgerRow } from "./summary.js";
@@ -133,13 +134,13 @@ export async function summary(
 }
 
 /**
- * Transactions in a range, optionally narrowed to a search term.
+ * Transactions in a range, optionally narrowed.
  *
- * The term is matched with the domain's own matcher, built from the term as a
- * literal. Not because the result has to equal what a rule would take — the dry
- * run answers that, and answers it about the whole ledger — but because a
- * second implementation of matching is a thing to keep in step, and there is no
- * reason to have one when the real one is right here.
+ * Narrowed by the same function that builds a rule from the same filter, so a
+ * screen showing these rows and then writing a rule is showing exactly what the
+ * rule will take. Not because a search has to equal a rule in principle — the
+ * dry run answers what a rule does, over the whole ledger — but because when
+ * the two are built from one thing they cannot drift.
  *
  * Filtered after the read rather than in the query, because the ledger is keyed
  * by date and nothing indexes a description. The read is the cost either way;
@@ -150,7 +151,7 @@ export async function transactions(
   deps: Deps,
   tenantId: string,
   range: Range,
-  search?: string,
+  filter?: TransactionFilter,
 ): Promise<TransactionsResult> {
   const [{ transactions: txns, categorisations }, sets] = await Promise.all([
     deps.ledger.listRange(tenantId, range),
@@ -158,9 +159,9 @@ export async function transactions(
   ]);
 
   const rows = txns as unknown as LedgerRow[];
-  // Built once, not per row: `literalMatcher` escapes, and doing that eleven
-  // thousand times to reach the same answer is work for nothing.
-  const matcher = search === undefined || search.length === 0 ? undefined : literalMatcher(search);
+  // Built once, not per row: escaping a term eleven thousand times to reach the
+  // same answer is work for nothing.
+  const matcher = filter === undefined ? undefined : filterMatcher(filter);
   const wanted =
     matcher === undefined
       ? rows
@@ -253,7 +254,7 @@ export async function balances(deps: Deps, tenantId: string, range: Range): Prom
 export function reporting(deps: Deps): Reporting {
   return {
     summary: (tenantId, range, opts) => summary(deps, tenantId, range, opts),
-    transactions: (tenantId, range, search) => transactions(deps, tenantId, range, search),
+    transactions: (tenantId, range, filter) => transactions(deps, tenantId, range, filter),
     categories: (tenantId) => categories(deps, tenantId),
     accounts: (tenantId) => accounts(deps, tenantId),
     balances: (tenantId, range) => balances(deps, tenantId, range),
