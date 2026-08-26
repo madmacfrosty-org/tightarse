@@ -47,7 +47,13 @@ export interface CategorisationDeps {
     tenantId: string,
     request: {
       sets?: readonly RuleSet[];
-      merchant?: { term: string; category: string };
+      merchant?: {
+    term?: string | undefined;
+    type?: string | undefined;
+    min?: number | undefined;
+    max?: number | undefined;
+    category: string;
+  };
       transactions?: { dedupKeys: readonly string[]; category: string };
       commit: Commit;
       by: string;
@@ -85,7 +91,13 @@ export function commitFrom(event: HttpEvent): Commit {
  */
 export function proposalFrom(event: HttpEvent): {
   sets?: readonly RuleSet[];
-  merchant?: { term: string; category: string };
+  merchant?: {
+    term?: string | undefined;
+    type?: string | undefined;
+    min?: number | undefined;
+    max?: number | undefined;
+    category: string;
+  };
   transactions?: { dedupKeys: readonly string[]; category: string };
 } {
   if (!event.body) {
@@ -119,6 +131,16 @@ export function proposalFrom(event: HttpEvent): {
   );
   if (given.length !== 1) {
     throw Object.assign(new Error("give exactly one of sets, merchant or transactions"), {
+      statusCode: 400,
+    });
+  }
+
+  // Every condition on a merchant rule is optional, so none of them is a
+  // request the schema accepts and the domain refuses. Refused here, where the
+  // answer can say which parameter was missing rather than being a 500.
+  const m = result.data.merchant;
+  if (m && m.term === undefined && m.type === undefined && m.min === undefined && m.max === undefined) {
+    throw Object.assign(new Error("a merchant rule needs a term, a type or an amount bound"), {
       statusCode: 400,
     });
   }

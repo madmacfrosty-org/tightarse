@@ -17,7 +17,7 @@
  * person.
  */
 
-import { literalMatcher } from "../categorisation/evaluate.js";
+import { filterMatcher } from "../categorisation/evaluate.js";
 import { OVERRIDES, OVERRIDES_ORDER } from "../categorisation/overrides.js";
 import { preview } from "../categorisation/preview.js";
 import type { Preview } from "../categorisation/preview.js";
@@ -60,17 +60,21 @@ export interface ProposalDeps {
 export type Commit = "preview" | "propose" | "apply";
 
 /**
- * Categorise everything a term matches.
+ * Categorise everything a filter matches.
  *
- * The term, not a pattern. Escaping a word somebody typed into an expression is
- * done in one place — `literalMatcher` — and a client that had to do it would
- * be a second implementation of the thing that decides which transactions a
- * rule takes. Saying what you want and letting this build the rule keeps the
- * search that found them and the rule that categorises them built from the same
- * string by the same function.
+ * The filter, not a pattern: a term, a type, bounds on the amount. Built into a
+ * matcher by `filterMatcher` — the same function the search that found those
+ * transactions was built from — so the rule takes exactly what was on screen.
+ * A client assembling the matcher itself would be a second implementation of
+ * what decides which transactions a rule takes.
+ *
+ * At least one condition. A merchant rule with none would match the ledger.
  */
 export interface MerchantRequest {
-  readonly term: string;
+  readonly term?: string | undefined;
+  readonly type?: string | undefined;
+  readonly min?: number | undefined;
+  readonly max?: number | undefined;
   readonly category: string;
 }
 
@@ -184,11 +188,18 @@ export async function proposeRules(
   // caller. A merchant pattern is a household rule; naming one transaction
   // outright is an override. A client that could choose would eventually choose
   // wrong, and precedence is the thing that decides whose answer wins.
+  // The rule is the filter. Built by the same function the search was, so a
+  // screen showing rows and then writing a rule is writing the rule it showed.
+  const matcher = request.merchant ? filterMatcher(request.merchant) : undefined;
+  if (request.merchant && matcher === undefined) {
+    throw new Error("A merchant rule needs at least one condition");
+  }
+
   const sets = request.merchant
     ? [
         setWith(before, HOUSEHOLD, [
           {
-            matcher: literalMatcher(request.merchant.term),
+            matcher: matcher!,
             contributes: { kind: "assert", category: request.merchant.category },
             appliesTo: "debits",
           },

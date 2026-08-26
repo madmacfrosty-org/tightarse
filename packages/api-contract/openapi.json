@@ -734,13 +734,25 @@
             "minLength": 1,
             "description": "What was typed. Matched literally, not as a pattern."
           },
+          "type": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The bank's own coarse category, e.g. DIRECT_DEBIT"
+          },
+          "min": {
+            "type": "integer",
+            "description": "Smallest amount that matches, by size, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "max": {
+            "type": "integer",
+            "description": "Largest amount that matches, by size, in integer minor units (pence). Divide by 100 for pounds."
+          },
           "category": {
             "type": "string",
             "minLength": 1
           }
         },
         "required": [
-          "term",
           "category"
         ],
         "additionalProperties": false

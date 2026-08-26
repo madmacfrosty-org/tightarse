@@ -267,6 +267,21 @@ export const CategoryChoiceView = z.object({
 });
 export type CategoryChoiceView = z.infer<typeof CategoryChoiceView>;
 
+/**
+ * The provider's own coarse categories, as observed in this household's ledger.
+ *
+ * A hint for populating a picker, not an enumeration the API enforces: the
+ * vocabulary belongs to the provider and it may send something not listed here.
+ * `type` accepts any string, and an unknown one simply matches nothing.
+ */
+export const PROVIDER_CATEGORIES = [
+  "PURCHASE",
+  "DEBIT",
+  "BILL_PAYMENT",
+  "DIRECT_DEBIT",
+  "STANDING_ORDER",
+] as const;
+
 export const CategoriesResponse = z.object({
   categories: z
     .array(CategoryChoiceView)
@@ -461,16 +476,22 @@ export const ProposedRuleSetView = z.object({
 export type ProposedRuleSetView = z.infer<typeof ProposedRuleSetView>;
 
 /**
- * Categorise everything a term matches.
+ * Categorise everything a filter matches.
  *
- * The term, not a pattern. Escaping a word somebody typed into an expression
- * happens once, on the server, by the same function that built the search which
- * found the transactions. A client doing it would be a second implementation of
- * what decides which transactions a rule takes, and the first time the two
- * disagreed the screen would have shown one thing and the rule done another.
+ * The filter as it was applied — term, type, amount bounds — not a matcher. The
+ * server builds it with the same function the search was built from, so the
+ * rule takes exactly what the screen showed. A client assembling the matcher
+ * would be a second implementation of what decides which transactions a rule
+ * takes, and the first time the two disagreed the screen would have shown one
+ * thing and the rule done another.
+ *
+ * At least one condition, since a rule with none would match everything.
  */
 export const MerchantRequestView = z.object({
-  term: z.string().min(1).describe("What was typed. Matched literally, not as a pattern."),
+  term: z.string().min(1).optional().describe("What was typed. Matched literally, not as a pattern."),
+  type: z.string().min(1).optional().describe("The bank's own coarse category, e.g. DIRECT_DEBIT"),
+  min: minorUnits("Smallest amount that matches, by size").optional(),
+  max: minorUnits("Largest amount that matches, by size").optional(),
   category: z.string().min(1),
 });
 export type MerchantRequestView = z.infer<typeof MerchantRequestView>;
