@@ -629,72 +629,102 @@
         ],
         "additionalProperties": false
       },
+      "AllMatcherView": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "all"
+            ]
+          },
+          "of": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LeafMatcherView"
+            },
+            "minItems": 2
+          }
+        },
+        "required": [
+          "kind",
+          "of"
+        ],
+        "additionalProperties": false
+      },
+      "AmountMatcherView": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "amount"
+            ]
+          },
+          "min": {
+            "type": "integer",
+            "description": "Smallest amount that matches, by size, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "max": {
+            "type": "integer",
+            "description": "Largest amount that matches, by size, in integer minor units (pence). Divide by 100 for pounds."
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "additionalProperties": false
+      },
+      "LeafMatcherView": {
+        "anyOf": [
+          {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MerchantMatcherView"
+              },
+              {
+                "$ref": "#/components/schemas/ProviderCategoryMatcherView"
+              },
+              {
+                "$ref": "#/components/schemas/TransactionMatcherView"
+              }
+            ]
+          },
+          {
+            "$ref": "#/components/schemas/AmountMatcherView"
+          }
+        ]
+      },
       "MatcherView": {
         "anyOf": [
           {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "merchant"
-                ]
-              },
-              "pattern": {
-                "type": "string",
-                "minLength": 1,
-                "description": "Case-insensitive regular expression matched against the description"
-              }
-            },
-            "required": [
-              "kind",
-              "pattern"
-            ],
-            "additionalProperties": false
+            "$ref": "#/components/schemas/LeafMatcherView"
           },
           {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "providerCategory"
-                ]
-              },
-              "value": {
-                "type": "string",
-                "minLength": 1,
-                "description": "The bank's own coarse category, e.g. DIRECT_DEBIT"
-              }
-            },
-            "required": [
-              "kind",
-              "value"
-            ],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "transaction"
-                ]
-              },
-              "dedupKey": {
-                "type": "string",
-                "minLength": 1,
-                "description": "One transaction, by its dedup key"
-              }
-            },
-            "required": [
-              "kind",
-              "dedupKey"
-            ],
-            "additionalProperties": false
+            "$ref": "#/components/schemas/AllMatcherView"
           }
         ]
+      },
+      "MerchantMatcherView": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "merchant"
+            ]
+          },
+          "pattern": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Case-insensitive regular expression matched against the description"
+          }
+        },
+        "required": [
+          "kind",
+          "pattern"
+        ],
+        "additionalProperties": false
       },
       "MerchantRequestView": {
         "type": "object",
@@ -712,6 +742,48 @@
         "required": [
           "term",
           "category"
+        ],
+        "additionalProperties": false
+      },
+      "ProviderCategoryMatcherView": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "providerCategory"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The bank's own coarse category, e.g. DIRECT_DEBIT"
+          }
+        },
+        "required": [
+          "kind",
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "TransactionMatcherView": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "transaction"
+            ]
+          },
+          "dedupKey": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One transaction, by its dedup key"
+          }
+        },
+        "required": [
+          "kind",
+          "dedupKey"
         ],
         "additionalProperties": false
       },

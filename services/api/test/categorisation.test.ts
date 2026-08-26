@@ -328,6 +328,31 @@ describe("proposing a change", () => {
     expect(body(res)["error"]).toContain("sets.0.order");
   });
 
+  it("refuses an amount matcher open at both ends, which matches everything", async () => {
+    const bad = { ...set, rules: [{ ...set.rules[0], matcher: { kind: "amount" } }] };
+    const res = await route(deps(), post({ body: JSON.stringify({ sets: [bad] }) }));
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("takes a conjunction of conditions", async () => {
+    const rule = {
+      ...set.rules[0],
+      matcher: {
+        kind: "all",
+        of: [
+          { kind: "providerCategory", value: "DIRECT_DEBIT" },
+          { kind: "amount", min: 90_00, max: 100_00 },
+        ],
+      },
+    };
+    const d = deps();
+    const res = await route(d, post({ body: JSON.stringify({ sets: [{ ...set, rules: [rule] }] }) }));
+
+    expect(res.statusCode).toBe(200);
+    expect((d.proposals[0] as any).sets[0].rules[0].matcher.of).toHaveLength(2);
+  });
+
   it("refuses a proposal that proposes nothing", async () => {
     const res = await route(deps(), post({ body: JSON.stringify({ sets: [] }) }));
 
@@ -368,7 +393,7 @@ describe("proposing a change", () => {
   });
 
   it("refuses a matcher kind the domain does not have, rather than passing it on", async () => {
-    const bad = { ...set, rules: [{ ...set.rules[0], matcher: { kind: "amount", value: 500 } }] };
+    const bad = { ...set, rules: [{ ...set.rules[0], matcher: { kind: "dayOfMonth", value: 15 } }] };
     const res = await route(deps(), post({ body: JSON.stringify({ sets: [bad] }) }));
 
     expect(res.statusCode).toBe(400);

@@ -68,6 +68,16 @@ export function matchesMatcher(m: Matcher, candidate: Candidate): boolean {
       return candidate.providerCategory === m.value;
     case "transaction":
       return candidate.dedupKey === m.dedupKey;
+    case "amount": {
+      // Absolute: direction is `appliesTo`'s business, said once per rule
+      // rather than encoded into every bound.
+      const size = Math.abs(candidate.amount);
+      if (m.min !== undefined && size < m.min) return false;
+      if (m.max !== undefined && size > m.max) return false;
+      return true;
+    }
+    case "all":
+      return m.of.every((leaf) => matchesMatcher(leaf, candidate));
   }
 }
 
