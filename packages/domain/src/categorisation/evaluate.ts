@@ -96,6 +96,44 @@ export function literalMatcher(term: string): Matcher {
   return { kind: "merchant", pattern: term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") };
 }
 
+/**
+ * What somebody filtered a screen to, as a matcher.
+ *
+ * The same function builds the search that finds transactions and the rule that
+ * categorises them, so "what is on screen is what the rule takes" is true by
+ * construction rather than by two implementations being kept in step. A screen
+ * that filtered one way and wrote a rule that meant another would be lying
+ * about what its button does.
+ *
+ * Undefined when nothing was asked for — no conditions is not a condition that
+ * matches everything, it is the absence of a filter, and the caller decides
+ * what that means.
+ */
+export function filterMatcher(filter: {
+  term?: string | undefined;
+  type?: string | undefined;
+  min?: number | undefined;
+  max?: number | undefined;
+}): Matcher | undefined {
+  const of: Matcher[] = [];
+  if (filter.term !== undefined && filter.term.length > 0) of.push(literalMatcher(filter.term));
+  if (filter.type !== undefined && filter.type.length > 0) of.push({ kind: "providerCategory", value: filter.type });
+  if (filter.min !== undefined || filter.max !== undefined) {
+    of.push({
+      kind: "amount",
+      ...(filter.min === undefined ? {} : { min: filter.min }),
+      ...(filter.max === undefined ? {} : { max: filter.max }),
+    });
+  }
+
+  if (of.length === 0) return undefined;
+  // One condition stays that condition. Wrapping it would be a second way to
+  // spell the same rule, and two spellings is two things to compare when a
+  // stored rule and a fresh one disagree.
+  if (of.length === 1) return of[0];
+  return { kind: "all", of: of as never };
+}
+
 /** Does this rule apply to this transaction at all? */
 export function matches(rule: Rule, candidate: Candidate): boolean {
   // Credits are excluded unless a rule says otherwise. An employer sharing a

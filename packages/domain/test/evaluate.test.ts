@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { evaluate, foldSet, literalMatcher, matches, matchesMatcher } from "../src/categorisation/evaluate.js";
+import { evaluate, filterMatcher, foldSet, literalMatcher, matches, matchesMatcher } from "../src/categorisation/evaluate.js";
 import { Matcher } from "../src/categorisation/rules.js";
 import type { Rule, RuleSet } from "../src/categorisation/rules.js";
 import type { Candidate } from "../src/categorisation/taxonomy.js";
@@ -378,5 +378,66 @@ describe("matching on several conditions at once", () => {
 
     expect(matches(rule, seen())).toBe(true);
     expect(matches(rule, seen({ amount: 95_00 }))).toBe(false);
+  });
+});
+
+describe("turning a filter into a matcher", () => {
+  const seen = (over: Partial<Candidate> = {}): Candidate => ({
+    dedupKey: "d1",
+    description: "SOMEMART 118",
+    amount: -95_00,
+    currency: "GBP",
+    providerCategory: "DIRECT_DEBIT",
+    ...over,
+  });
+
+  it("is nothing when nothing was asked for", () => {
+    // No conditions is the absence of a filter, not a condition matching
+    // everything. What that means is the caller's to decide.
+    expect(filterMatcher({})).toBeUndefined();
+    expect(filterMatcher({ term: "" })).toBeUndefined();
+  });
+
+  it.each([
+    ["a term", { term: "somemart" }, "merchant"],
+    ["a type", { type: "DIRECT_DEBIT" }, "providerCategory"],
+    ["a floor", { min: 90_00 }, "amount"],
+    ["a ceiling", { max: 100_00 }, "amount"],
+  ])("leaves %s as one condition rather than wrapping it", (_case, filter, kind) => {
+    // Two ways to spell one rule is two things to compare when a stored rule
+    // and a fresh one disagree.
+    expect(filterMatcher(filter)?.kind).toBe(kind);
+  });
+
+  it("joins several into a conjunction", () => {
+    const m = filterMatcher({ term: "somemart", type: "DIRECT_DEBIT", min: 90_00, max: 100_00 });
+
+    expect(m?.kind).toBe("all");
+    expect((m as { of: unknown[] }).of).toHaveLength(3);
+  });
+
+  it("escapes the term, as a rule built from the same filter would", () => {
+    const m = filterMatcher({ term: "PIZZA (EXPRESS)" });
+
+    expect(m).toEqual({ kind: "merchant", pattern: String.raw`PIZZA \(EXPRESS\)` });
+  });
+
+  it("matches what the filter describes and nothing else", () => {
+    const m = filterMatcher({ term: "somemart", type: "DIRECT_DEBIT", min: 90_00, max: 100_00 })!;
+
+    expect(matchesMatcher(m, seen())).toBe(true);
+    expect(matchesMatcher(m, seen({ providerCategory: "PURCHASE" }))).toBe(false);
+    expect(matchesMatcher(m, seen({ amount: -5_00 }))).toBe(false);
+    expect(matchesMatcher(m, seen({ description: "OTHERSHOP" }))).toBe(false);
+  });
+
+  it("carries only the bound it was given", () => {
+    expect(filterMatcher({ min: 90_00 })).toEqual({ kind: "amount", min: 90_00 });
+    expect(filterMatcher({ max: 100_00 })).toEqual({ kind: "amount", max: 100_00 });
+  });
+
+  it("produces a matcher the schema accepts, since it becomes a stored rule", () => {
+    expect(() => Matcher.parse(filterMatcher({ term: "a", type: "b" }))).not.toThrow();
+    expect(() => Matcher.parse(filterMatcher({ min: 1 }))).not.toThrow();
   });
 });

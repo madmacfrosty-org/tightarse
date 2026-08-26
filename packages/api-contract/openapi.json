@@ -1219,7 +1219,7 @@
       "get": {
         "operationId": "transactions",
         "summary": "Transactions in a date range",
-        "description": "Every transaction in the range, newest first, with its category where one has been assigned. Returns the whole range: there is no pagination, so a wide range is a large response. `q` narrows it to descriptions containing that text, case-insensitively and taken literally — a search, not a promise about what any rule would match.",
+        "description": "Every transaction in the range, newest first, with its category where one has been assigned. Returns the whole range: there is no pagination, so a wide range is a large response. `q`, `type`, `min` and `max` narrow it, and combine: every one given must hold. `q` matches descriptions containing that text, case-insensitively and taken literally; `type` is the bank's own coarse category; `min` and `max` bound the size of the amount, inclusive, ignoring sign. The same filter builds a rule, so what this returns is what a rule made from it would take.",
         "parameters": [
           {
             "name": "from",
@@ -1251,6 +1251,36 @@
             "schema": {
               "type": "string",
               "minLength": 1
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "description": "Narrow to the bank's own coarse category, e.g. DIRECT_DEBIT or STANDING_ORDER. Exact, and whatever the provider supplied.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "min",
+            "in": "query",
+            "required": false,
+            "description": "Smallest amount that matches, in minor units, inclusive. By size: debits are negative and this ignores the sign, because direction belongs to the rule.",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            }
+          },
+          {
+            "name": "max",
+            "in": "query",
+            "required": false,
+            "description": "Largest amount that matches, in minor units, inclusive. By size, as `min`.",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d+$"
             }
           }
         ],

@@ -330,13 +330,13 @@ describe("searching transactions", () => {
   });
 
   it("narrows to descriptions containing the term", async () => {
-    const r = await transactions({ ledger: ledger(rows) } as never, "frost", RANGE, "somemart");
+    const r = await transactions({ ledger: ledger(rows) } as never, "frost", RANGE, { term: "somemart" });
 
     expect(r.transactions.map((t) => t.description).sort()).toEqual(["SOMEMART 118", "SOMEMART FORECOURT"]);
   });
 
   it("ignores case, because descriptions arrive in whatever case the provider felt like", async () => {
-    const r = await transactions({ ledger: ledger(rows) } as never, "frost", RANGE, "SoMeMaRt");
+    const r = await transactions({ ledger: ledger(rows) } as never, "frost", RANGE, { term: "SoMeMaRt" });
 
     expect(r.transactions).toHaveLength(2);
   });
@@ -345,30 +345,30 @@ describe("searching transactions", () => {
     // Unescaped, `PIZZA (EXPRESS)` is a group and matches "PIZZA EXPRESS"; a
     // lone `+` or `[` is a syntax error that would throw on every row.
     const punctuated = [row("PIZZA (EXPRESS) 42"), row("PIZZA EXPRESS 42")];
-    const r = await transactions({ ledger: ledger(punctuated) } as never, "frost", RANGE, "PIZZA (EXPRESS)");
+    const r = await transactions({ ledger: ledger(punctuated) } as never, "frost", RANGE, { term: "PIZZA (EXPRESS)" });
 
     expect(r.transactions.map((t) => t.description)).toEqual(["PIZZA (EXPRESS) 42"]);
   });
 
   it("does not throw on a term that would be a broken expression", async () => {
-    await expect(transactions({ ledger: ledger(rows) } as never, "frost", RANGE, "a+[")).resolves.toBeDefined();
+    await expect(transactions({ ledger: ledger(rows) } as never, "frost", RANGE, { term: "a+[" })).resolves.toBeDefined();
   });
 
   it("treats an empty term as no term, because a cleared box is not a filter", async () => {
-    const r = await transactions({ ledger: ledger(rows) } as never, "frost", RANGE, "");
+    const r = await transactions({ ledger: ledger(rows) } as never, "frost", RANGE, { term: "" });
 
     expect(r.transactions).toHaveLength(3);
   });
 
   it("searches credits too, because direction is the rule's business and not the search's", async () => {
     const mixed = [row("REFUND SOMEMART", 25_00), row("SOMEMART 118")];
-    const r = await transactions({ ledger: ledger(mixed) } as never, "frost", RANGE, "somemart");
+    const r = await transactions({ ledger: ledger(mixed) } as never, "frost", RANGE, { term: "somemart" });
 
     expect(r.transactions).toHaveLength(2);
   });
 
   it("finds nothing rather than everything when the term matches nothing", async () => {
-    const r = await transactions({ ledger: ledger(rows) } as never, "frost", RANGE, "NOTHING HERE");
+    const r = await transactions({ ledger: ledger(rows) } as never, "frost", RANGE, { term: "NOTHING HERE" });
 
     expect(r.transactions).toEqual([]);
   });
