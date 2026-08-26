@@ -503,6 +503,47 @@ describe("what the package exposes", () => {
   });
 });
 
+describe("the category catalogue", () => {
+  it("serves what a picker needs", async () => {
+    const spy: ApiDeps = {
+      reporting: {
+        summary: vi.fn(),
+        accounts: vi.fn(),
+        balances: vi.fn(),
+        transactions: vi.fn(),
+        categories: vi.fn(async () => ({
+          categories: [{ id: "fuel", label: "Fuel", kind: "spending" }],
+        })),
+      } as unknown as Reporting,
+    };
+
+    const res = await route(spy, event({ rawPath: "/categories" }) as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ categories: [{ id: "fuel", label: "Fuel", kind: "spending" }] });
+  });
+
+  it("takes the household from the claim here too", async () => {
+    const seen: string[] = [];
+    const spy: ApiDeps = {
+      reporting: {
+        summary: vi.fn(),
+        accounts: vi.fn(),
+        balances: vi.fn(),
+        transactions: vi.fn(),
+        categories: vi.fn(async (t: string) => {
+          seen.push(t);
+          return { categories: [] };
+        }),
+      } as unknown as Reporting,
+    };
+
+    await route(spy, event({ rawPath: "/categories" }) as never);
+
+    expect(seen).toEqual(["frost"]);
+  });
+});
+
 describe("the search parameter", () => {
   it("passes the term through to the application", async () => {
     const seen: unknown[] = [];

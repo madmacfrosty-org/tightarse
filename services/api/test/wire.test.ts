@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { asBacklog, asProposalResponse } from "../src/wire.js";
+import { asBacklog, asCategories, asProposalResponse } from "../src/wire.js";
 import type { Backlog } from "@tightarse/domain";
 
 /**
@@ -122,6 +122,24 @@ describe("the backlog on the wire", () => {
       conflicts: [],
       scanned: 0,
     });
+  });
+});
+
+describe("the catalogue on the wire", () => {
+  it("carries every field a picker reads", () => {
+    const result = { categories: [{ id: "fuel", label: "Fuel", kind: "spending" }] };
+
+    expect(asCategories(result)).toEqual({ categories: [{ id: "fuel", label: "Fuel", kind: "spending" }] });
+  });
+
+  it("copies rather than serving the domain's own array", () => {
+    const result = { categories: [{ id: "fuel", label: "Fuel", kind: "spending" }] };
+
+    expect(asCategories(result).categories).not.toBe(result.categories);
+  });
+
+  it("has nothing to offer an empty catalogue", () => {
+    expect(asCategories({ categories: [] })).toEqual({ categories: [] });
   });
 });
 
