@@ -61,5 +61,6 @@ export {
 } from "./application/categorise.js";
 export * from "./application/reconcile.js";
 export * from "./application/inspect.js";
+export * from "./application/categories.js";
 export * from "./application/proposal.js";
 export * from "./ports/index.js";

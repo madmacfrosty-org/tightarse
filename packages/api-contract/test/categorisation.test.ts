@@ -11,6 +11,7 @@ import {
   ProposalResponse,
   RecurrenceView,
   pathFor,
+  ROUTES,
 } from "../src/index";
 
 /**
@@ -211,12 +212,21 @@ describe("the signed routes", () => {
   const gaps = CATEGORISATION_ROUTES.find((r) => r.path === "/categorisation/gaps")!;
   const proposals = CATEGORISATION_ROUTES.find((r) => r.path === "/categorisation/proposals")!;
 
-  it("publishes exactly the two, at versioned paths", () => {
-    expect(CATEGORISATION_ROUTES).toHaveLength(2);
+  it("publishes exactly these, at versioned paths", () => {
     expect(CATEGORISATION_ROUTES.map((r) => pathFor(r)).sort()).toEqual([
+      "/v1/categories",
       "/v1/categorisation/gaps",
       "/v1/categorisation/proposals",
     ]);
+  });
+
+  it("reads categories on one function and writes them on the other", () => {
+    // The dashboard's function is read-only by design, so the pair splits: the
+    // list is a read it serves, and adding one is a write it must not do.
+    expect(ROUTES.some((r) => r.path === "/categories" && r.method === "get")).toBe(true);
+    const add = CATEGORISATION_ROUTES.find((r) => r.path === "/categories")!;
+    expect(add.method).toBe("post");
+    expect(add.request?.name).toBe("NewCategoryRequest");
   });
 
   it("reads the backlog with a GET taking both ends of a range", () => {

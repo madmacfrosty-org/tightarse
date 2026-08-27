@@ -86,8 +86,11 @@ describe("what must survive generation", () => {
   it("serves every route under the version prefix, and none without it", () => {
     // #27. An unversioned path served by accident is one that has to be
     // supported for ever the moment something calls it.
-    expect(Object.keys(doc.paths).sort()).toEqual(
-      [...ROUTES, ...CATEGORISATION_ROUTES].map(pathFor).sort(),
+    // `/v1/categories` is both a read and a write, served by different
+    // functions, so the two lists overlap on the path and the document holds
+    // one entry with two operations.
+    expect(new Set(Object.keys(doc.paths))).toEqual(
+      new Set([...ROUTES, ...CATEGORISATION_ROUTES].map(pathFor)),
     );
     for (const path of Object.keys(doc.paths)) {
       expect(path.startsWith(`/${API_VERSION}/`), `${path} is not versioned`).toBe(true);
@@ -191,7 +194,27 @@ describe("routes that take a body", () => {
   it("joins a nested path into one operation id a generator can use", () => {
     const op = (buildOpenApiDocument([post]).paths["/v1/categorisation/proposals"] as any).post;
 
-    expect(op.operationId).toBe("categorisationProposals");
+    // Prefixed with the verb, because ids must be unique across the document
+    // and a path can carry both a read and a write.
+    expect(op.operationId).toBe("postCategorisationProposals");
+  });
+
+  it("keeps every GET id bare, since those are already published", () => {
+    // A generated client's method names are a promise to whatever installed it.
+    const ids = Object.values(buildOpenApiDocument().paths as Record<string, Record<string, { operationId: string }>>)
+      .flatMap((ops) => Object.entries(ops))
+      .filter(([method]) => method === "get")
+      .map(([, op]) => op.operationId);
+
+    expect(ids.sort()).toEqual(["accounts", "balances", "categories", "categorisationGaps", "summary", "transactions"]);
+  });
+
+  it("gives every operation in the document a distinct id", () => {
+    const ids = Object.values(buildOpenApiDocument().paths as Record<string, Record<string, { operationId: string }>>)
+      .flatMap((ops) => Object.values(ops))
+      .map((op) => op.operationId);
+
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it("leaves a single-segment operation id exactly as it was", () => {
@@ -253,5 +276,42 @@ describe("the published routes themselves", () => {
         expect(param.required, `${route.path} ${param.name}`).toBe(!NARROWING.has(param.name));
       }
     }
+  });
+});
+
+describe("a path served two ways", () => {
+  it("keeps both operations rather than the last one written", () => {
+    // `/categories` is a read on the dashboard's function and a write on the
+    // categorisation one. Assigning by path dropped the first silently, and the
+    // published document said the endpoint only accepted a POST — a generated
+    // client could not have listed categories.
+    const get = {
+      method: "get" as const,
+      path: "/thing",
+      summary: "Read",
+      description: "Reads.",
+      query: [],
+      response: { name: "A", schema: z.object({ ok: z.boolean() }) },
+    };
+    const post = { ...get, method: "post" as const, summary: "Write", description: "Writes." };
+
+    const built = buildOpenApiDocument([get, post]).paths["/v1/thing"] as Record<string, unknown>;
+
+    expect(Object.keys(built).sort()).toEqual(["get", "post"]);
+  });
+
+  it("gives each operation its own id, or a generator produces one method twice", () => {
+    const get = {
+      method: "get" as const,
+      path: "/categories",
+      summary: "Read",
+      description: "Reads.",
+      query: [],
+      response: { name: "A", schema: z.object({ ok: z.boolean() }) },
+    };
+    const post = { ...get, method: "post" as const };
+    const built = buildOpenApiDocument([get, post]).paths["/v1/categories"] as Record<string, { operationId: string }>;
+
+    expect(built["get"]!.operationId).not.toBe(built["post"]!.operationId);
   });
 });

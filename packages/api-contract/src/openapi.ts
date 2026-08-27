@@ -22,6 +22,7 @@ import {
   BalancesResponse,
   Cadence,
   CategoriesResponse,
+  NewCategoryRequest,
   CategoryChoiceView,
   CategoryTallyView,
   CategoryTotal,
@@ -96,6 +97,7 @@ const NAMED = {
   BalancesResponse,
   CategoryChoiceView,
   CategoriesResponse,
+  NewCategoryRequest,
   // Categorisation. Named for the same reason as the leaves above: unnamed,
   // a shape used by two responses is inlined into each, and a client generator
   // produces several structurally identical structs with different names.
@@ -197,7 +199,14 @@ function parametersFor(route: Route): unknown[] {
  */
 function operationIdFor(route: Route): string {
   const [first, ...rest] = route.path.replace(/^\//, "").split("/");
-  return [first, ...rest.map((s) => s.charAt(0).toUpperCase() + s.slice(1))].join("");
+  const fromPath = [first, ...rest.map((s) => s.charAt(0).toUpperCase() + s.slice(1))].join("");
+
+  // A GET keeps the bare name, because those are already published and a
+  // generated client's method names are a promise. Anything else carries its
+  // verb: operation ids must be unique across the document, and `/categories`
+  // is both a read and a write — two operations sharing an id makes a generator
+  // emit one method twice or refuse the document outright.
+  return route.method === "get" ? fromPath : route.method + fromPath.charAt(0).toUpperCase() + fromPath.slice(1);
 }
 
 /**
@@ -241,7 +250,13 @@ export function buildOpenApiDocument(
   const paths: Record<string, unknown> = {};
 
   for (const route of routes) {
-    paths[pathFor(route)] = {
+    const path = pathFor(route);
+    // Merged, not assigned. One path can carry two operations — `/categories`
+    // is a read on one function and a write on another — and assigning here
+    // dropped the first silently, publishing a document that said the endpoint
+    // only accepted a POST.
+    paths[path] = {
+      ...((paths[path] as Record<string, unknown> | undefined) ?? {}),
       [route.method]: {
         // Stable and derived from the path, so a client generator produces the
         // same method names every run rather than renumbering on reorder.
