@@ -36,6 +36,15 @@ const PAGE = 50;
 const NEW = "new category";
 
 /**
+ * The set id a transaction carries when no rule claimed it.
+ *
+ * Uncategorised does not mean an empty category: the API reports the payment
+ * rail — PURCHASE, DIRECT_DEBIT — marked provisional. What "nothing has
+ * categorised this" actually means is that no rule set answered.
+ */
+const PROVIDER = "provider";
+
+/**
  * A proposal waiting to be confirmed, and what it was predicted to do.
  *
  * Held rather than acted on, because the numbers are the point: a rule that
@@ -99,6 +108,7 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shown, setShown] = useState(PAGE);
+  const [onlyUncategorised, setOnlyUncategorised] = useState(false);
   const [categories, setCategories] = useState<CategoryChoiceView[]>([]);
   const [category, setCategory] = useState("");
   const [adding, setAdding] = useState(false);
@@ -244,6 +254,24 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
     }
   };
 
+  /**
+   * A view, not a filter on the search.
+   *
+   * Nothing here reaches a rule: a matcher sees what a transaction says about
+   * itself, and a category is the result of evaluating rules rather than an
+   * input to them — a rule saying "and it is currently uncategorised" would
+   * stop matching the moment it applied.
+   *
+   * So this hides rows without touching the selection. Everything the search
+   * matched stays selected, because the buttons act on the search and not on
+   * what is being looked at; hiding rows and quietly deselecting them would
+   * disable the merchant button exactly when someone had found what they were
+   * looking for.
+   */
+  const uncategorised = (t: TransactionView) => t.setId === PROVIDER;
+  const visible = onlyUncategorised ? rows.filter(uncategorised) : rows;
+  const hidden = rows.length - visible.length;
+
   const allSelected = rows.length > 0 && selected.size === rows.length;
   const credits = searched !== null && rows.length === 0;
   const chosen = categories.find((c) => c.id === category);
@@ -303,7 +331,7 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
         <p className="note">
           {rows.length === 0
             ? `Nothing matches ${describe(searched)}.`
-            : `${rows.length.toLocaleString("en-GB")} matching ${rows.length === 1 ? "transaction" : "transactions"}, ${selected.size.toLocaleString("en-GB")} selected.`}
+            : `${rows.length.toLocaleString("en-GB")} matching ${rows.length === 1 ? "transaction" : "transactions"}, ${selected.size.toLocaleString("en-GB")} selected${hidden > 0 ? `, ${hidden.toLocaleString("en-GB")} hidden` : ""}.`}
           {credits ? " Debits only — this merchant may still have credits." : ""}
         </p>
       ) : null}
@@ -437,6 +465,15 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
 
       {rows.length > 0 ? (
         <>
+          <label className="subtle" style={{ display: "block", margin: "8px 0" }}>
+            <input
+              type="checkbox"
+              checked={onlyUncategorised}
+              onChange={(e) => setOnlyUncategorised(e.target.checked)}
+            />{" "}
+            Show only what nothing has categorised — hides rows, and changes neither the selection nor
+            the rule
+          </label>
           <div className="chart-scroll">
             <table>
               <thead>
@@ -458,7 +495,7 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
                 </tr>
               </thead>
               <tbody>
-                {rows.slice(0, shown).map((t) => (
+                {visible.slice(0, shown).map((t) => (
                   <tr key={t.dedupKey}>
                     <td>
                       <input
@@ -483,9 +520,9 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
               </tbody>
             </table>
           </div>
-          {shown < rows.length ? (
+          {shown < visible.length ? (
             <button className="ghost" onClick={() => setShown((n) => n + PAGE)}>
-              Show {Math.min(PAGE, rows.length - shown).toLocaleString("en-GB")} more
+              Show {Math.min(PAGE, visible.length - shown).toLocaleString("en-GB")} more
             </button>
           ) : null}
         </>

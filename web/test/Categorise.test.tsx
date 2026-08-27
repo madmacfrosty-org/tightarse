@@ -323,6 +323,95 @@ describe("a long list", () => {
   });
 });
 
+describe("hiding what is already categorised", () => {
+  const mixed = {
+    transactions: [
+      tx({ dedupKey: "d1", description: "SOMEMART 118" }),
+      tx({ dedupKey: "d2", description: "SOMEMART 42", category: "groceries", setId: "built-in" }),
+    ],
+  };
+
+  const searched = async () => {
+    apiGet.mockImplementation(async (p: string) =>
+      p.includes("/categories") ? { categories: [{ id: "fuel", label: "Fuel", kind: "spending" }] } : mixed,
+    );
+    const Categorise = await load();
+    render(<Categorise api={api} {...RANGE} />);
+    await searchFor("somemart");
+    await waitFor(() => expect(screen.getByText("SOMEMART 118")).toBeDefined());
+  };
+
+  const toggle = () => screen.getByLabelText(/Show only what nothing has categorised/);
+
+  it("shows everything until asked not to", async () => {
+    await searched();
+
+    expect(screen.getByText("SOMEMART 118")).toBeDefined();
+    expect(screen.getByText("SOMEMART 42")).toBeDefined();
+  });
+
+  it("hides the ones a rule already claimed", async () => {
+    // Uncategorised is not an empty category: the API reports the payment rail
+    // marked provisional, and what it means is that no rule set answered.
+    await searched();
+
+    await userEvent.click(toggle());
+
+    expect(screen.getByText("SOMEMART 118")).toBeDefined();
+    expect(screen.queryByText("SOMEMART 42")).toBeNull();
+  });
+
+  it("leaves the selection alone, because the buttons act on the search", async () => {
+    // Hiding rows and quietly deselecting them would disable the merchant
+    // button exactly when somebody had found what they were looking for.
+    await searched();
+
+    await userEvent.click(toggle());
+
+    expect(screen.getByText(/2 matching transactions, 2 selected, 1 hidden/)).toBeDefined();
+  });
+
+  it("keeps the merchant button available, since the rule is the search", async () => {
+    await searched();
+    await userEvent.selectOptions(screen.getByLabelText("Categorise as"), "fuel");
+
+    await userEvent.click(toggle());
+
+    expect(screen.getByRole("button", { name: "Categorise this merchant" })).toHaveProperty("disabled", false);
+  });
+
+  it("writes a rule for everything matched, not just what was on show", async () => {
+    // The list is narrower than the rule's reach here, which is right: a
+    // merchant rule takes that merchant whatever the rows are filed as now.
+    apiPost.mockResolvedValue({
+      prediction: {
+        gained: { transactions: 1, outgoing: 0, merchants: 1, entries: [], truncated: false },
+        lost: { transactions: 0, outgoing: 0, merchants: 0, entries: [], truncated: false },
+        recategorised: { transactions: 1, outgoing: 0, merchants: 1, entries: [], truncated: false },
+        unchanged: { transactions: 0, outgoing: 0, merchants: 0, entries: [], truncated: false },
+        outranked: { transactions: 0, outgoing: 0, merchants: 0, entries: [], truncated: false },
+        introducedConflicts: [],
+        scanned: 2,
+      },
+    });
+    await searched();
+    await userEvent.selectOptions(screen.getByLabelText("Categorise as"), "fuel");
+    await userEvent.click(toggle());
+
+    await userEvent.click(screen.getByRole("button", { name: "Categorise this merchant" }));
+
+    await waitFor(() => expect(screen.getByText("Before this is written")).toBeDefined());
+    // The one it hid turns up here, as a recategorisation.
+    expect(screen.getByText(/not just what is on screen/)).toBeDefined();
+  });
+
+  it("says nothing about hidden rows when none are", async () => {
+    await searched();
+
+    expect(screen.getByText(/2 matching transactions, 2 selected\./)).toBeDefined();
+  });
+});
+
 describe("choosing", () => {
   const two = { transactions: [tx(), tx({ dedupKey: "d2", description: "SOMEMART 42" })] };
 
