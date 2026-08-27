@@ -280,6 +280,26 @@ describe("building the rule from what was asked for", () => {
     expect(out.prediction.gained.entries[0]).toMatchObject({ to: "groceries" });
   });
 
+  it("refuses a merchant rule with no conditions, which would take the ledger", async () => {
+    await expect(
+      proposeRules(deps(), "frost", {
+        merchant: { category: "groceries" },
+        commit: "preview", by: "me", now: NOW, range: RANGE,
+      }),
+    ).rejects.toThrow(/at least one condition/);
+  });
+
+  it("builds the rule from the whole filter, not just the term", async () => {
+    const d = deps({ transactions: [tx("SOMEMART 118")] });
+    await proposeRules(d, "frost", {
+      merchant: { term: "somemart", type: "DIRECT_DEBIT", min: 90_00, category: "groceries" },
+      commit: "apply", by: "me", now: NOW, range: RANGE,
+    });
+
+    expect(d.written[0]!.rules.at(-1)!.matcher).toMatchObject({ kind: "all" });
+    expect((d.written[0]!.rules.at(-1)!.matcher as { of: unknown[] }).of).toHaveLength(3);
+  });
+
   it("refuses a proposal that says nothing", async () => {
     await expect(
       proposeRules(deps(), "frost", { commit: "preview", by: "me", now: NOW, range: RANGE }),

@@ -1,4 +1,5 @@
 import {
+  PROVIDER_CATEGORIES,
   pathFor,
   type CategoryChoiceView,
   type ProposalResponse,
@@ -39,12 +40,52 @@ interface Proposal {
   readonly prediction: ProposalResponse["prediction"];
 }
 
+/**
+ * What was asked for, as the server understands it.
+ *
+ * Held rather than re-read from the inputs, so that editing the boxes after a
+ * search does not silently change what a button is about to write. The rule is
+ * built from what was searched, not from what is currently typed.
+ */
+interface Filter {
+  readonly term?: string;
+  readonly type?: string;
+  readonly min?: number;
+  readonly max?: number;
+}
+
+/** Pounds as typed, to the pence the API wants. Empty is not a bound. */
+const pence = (pounds: string): number | undefined => {
+  const trimmed = pounds.trim();
+  if (trimmed.length === 0) return undefined;
+  const value = Number(trimmed);
+  return Number.isFinite(value) && value >= 0 ? Math.round(value * 100) : undefined;
+};
+
+const describe = (f: Filter): string => {
+  const parts = [
+    f.term === undefined ? undefined : `“${f.term}”`,
+    f.type,
+    f.min !== undefined && f.max !== undefined
+      ? `£${(f.min / 100).toFixed(2)}–£${(f.max / 100).toFixed(2)}`
+      : f.min !== undefined
+        ? `over £${(f.min / 100).toFixed(2)}`
+        : f.max !== undefined
+          ? `under £${(f.max / 100).toFixed(2)}`
+          : undefined,
+  ].filter((p): p is string => p !== undefined);
+  return parts.join(" · ");
+};
+
 const money = (minor: number) =>
   (Math.abs(minor) / 100).toLocaleString("en-GB", { style: "currency", currency: "GBP" });
 
 export function Categorise({ api, from, to }: { api: Api; from: string; to: string }) {
   const [term, setTerm] = useState("");
-  const [searched, setSearched] = useState<string | null>(null);
+  const [type, setType] = useState("");
+  const [min, setMin] = useState("");
+  const [max, setMax] = useState("");
+  const [searched, setSearched] = useState<Filter | null>(null);
   const [rows, setRows] = useState<TransactionView[]>([]);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -66,16 +107,30 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
 
   const search = async (event: React.FormEvent) => {
     event.preventDefault();
-    const wanted = term.trim();
-    if (wanted.length === 0) return;
+    const wanted: Filter = {
+      ...(term.trim().length > 0 ? { term: term.trim() } : {}),
+      ...(type.length > 0 ? { type } : {}),
+      ...(pence(min) === undefined ? {} : { min: pence(min) }),
+      ...(pence(max) === undefined ? {} : { max: pence(max) }),
+    };
+    // Nothing asked for is not a search for everything: that is the whole
+    // ledger, which is the dashboard's job and not this screen's.
+    if (Object.keys(wanted).length === 0) return;
     await run(wanted);
   };
 
-  const run = async (wanted: string) => {
+  const run = async (wanted: Filter) => {
     setBusy(true);
     setError(null);
     setPending(null);
-    const q = new URLSearchParams({ from, to, q: wanted }).toString();
+    const q = new URLSearchParams({
+      from,
+      to,
+      ...(wanted.term === undefined ? {} : { q: wanted.term }),
+      ...(wanted.type === undefined ? {} : { type: wanted.type }),
+      ...(wanted.min === undefined ? {} : { min: String(wanted.min) }),
+      ...(wanted.max === undefined ? {} : { max: String(wanted.max) }),
+    }).toString();
     try {
       const r = await api.get<{ transactions: TransactionView[] }>(`${pathFor("/transactions")}?${q}`);
       // Debits only. The API searches both directions because direction is the
@@ -145,6 +200,10 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
     }
   };
 
+  // Every condition is optional, but a search with none of them is the whole
+  // ledger — which is the dashboard's job, not this screen's.
+  const nothingAsked =
+    term.trim().length === 0 && type.length === 0 && pence(min) === undefined && pence(max) === undefined;
   const allSelected = rows.length > 0 && selected.size === rows.length;
   const credits = searched !== null && rows.length === 0;
   const chosen = categories.find((c) => c.id === category);
@@ -157,17 +216,45 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
         different question, and a rule that took it would be answering one you had not asked.
       </p>
 
-      <form onSubmit={(e) => void search(e)} className="provider-row" style={{ gap: 8 }}>
-        <input
-          aria-label="Merchant"
-          value={term}
-          onChange={(e) => setTerm(e.target.value)}
-          placeholder="Merchant name"
-          style={{ flex: 1, minWidth: 0 }}
-        />
-        <button type="submit" disabled={busy || term.trim().length === 0}>
-          {busy ? "Searching…" : "Search"}
-        </button>
+      <form onSubmit={(e) => void search(e)}>
+        <div className="provider-row" style={{ gap: 8 }}>
+          <input
+            aria-label="Merchant"
+            value={term}
+            onChange={(e) => setTerm(e.target.value)}
+            placeholder="Merchant name"
+            style={{ flex: 1, minWidth: 0 }}
+          />
+          <button type="submit" disabled={busy || nothingAsked}>
+            {busy ? "Searching…" : "Search"}
+          </button>
+        </div>
+        <div className="provider-row" style={{ gap: 8, marginTop: 8, alignItems: "center" }}>
+          <select aria-label="Type" value={type} onChange={(e) => setType(e.target.value)}>
+            <option value="">Any type</option>
+            {PROVIDER_CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {c.replace(/_/g, " ").toLowerCase()}
+              </option>
+            ))}
+          </select>
+          <input
+            aria-label="Smallest amount"
+            value={min}
+            onChange={(e) => setMin(e.target.value)}
+            placeholder="£ from"
+            inputMode="decimal"
+            style={{ width: 90 }}
+          />
+          <input
+            aria-label="Largest amount"
+            value={max}
+            onChange={(e) => setMax(e.target.value)}
+            placeholder="£ to"
+            inputMode="decimal"
+            style={{ width: 90 }}
+          />
+        </div>
       </form>
 
       {error ? <p className="error" style={{ padding: "12px 0 0", fontSize: 13 }}>{error}</p> : null}
@@ -175,7 +262,7 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
       {searched !== null && !busy ? (
         <p className="note">
           {rows.length === 0
-            ? `Nothing matches “${searched}”.`
+            ? `Nothing matches ${describe(searched)}.`
             : `${rows.length.toLocaleString("en-GB")} matching ${rows.length === 1 ? "transaction" : "transactions"}, ${selected.size.toLocaleString("en-GB")} selected.`}
           {credits ? " Debits only — this merchant may still have credits." : ""}
         </p>
@@ -205,7 +292,12 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
             type="button"
             disabled={busy || category === "" || !allSelected}
             title={allSelected ? undefined : "Select every match, or categorise them individually"}
-            onClick={() => void propose({ merchant: { term: searched, category } }, `everything matching “${searched}”`)}
+            onClick={() =>
+              void propose(
+                { merchant: { ...searched, category } },
+                `everything matching ${describe(searched!)}`,
+              )
+            }
           >
             Categorise this merchant
           </button>

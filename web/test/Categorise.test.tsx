@@ -143,6 +143,108 @@ describe("searching", () => {
   });
 });
 
+describe("narrowing by type and amount", () => {
+  const fill = async (fields: { term?: string; type?: string; min?: string; max?: string }) => {
+    if (fields.term) await userEvent.type(screen.getByLabelText("Merchant"), fields.term);
+    if (fields.type) await userEvent.selectOptions(screen.getByLabelText("Type"), fields.type);
+    if (fields.min) await userEvent.type(screen.getByLabelText("Smallest amount"), fields.min);
+    if (fields.max) await userEvent.type(screen.getByLabelText("Largest amount"), fields.max);
+    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+  };
+
+  it("sends every condition, and they combine on the server", async () => {
+    const Categorise = await load();
+    render(<Categorise api={api} {...RANGE} />);
+
+    await fill({ term: "somemart", type: "DIRECT_DEBIT", min: "90", max: "100" });
+
+    await waitFor(() => expect(searches()).toHaveLength(1));
+    const url = searches()[0]!;
+    expect(url).toContain("q=somemart");
+    expect(url).toContain("type=DIRECT_DEBIT");
+    // Pounds on screen, pence on the wire.
+    expect(url).toContain("min=9000");
+    expect(url).toContain("max=10000");
+  });
+
+  it("searches on a type alone, with no merchant named", async () => {
+    // The point of the filter: find the direct debits, then look at them.
+    const Categorise = await load();
+    render(<Categorise api={api} {...RANGE} />);
+
+    await fill({ type: "STANDING_ORDER" });
+
+    await waitFor(() => expect(searches()[0]).toContain("type=STANDING_ORDER"));
+    expect(searches()[0]).not.toContain("q=");
+  });
+
+  it("searches on an amount alone", async () => {
+    const Categorise = await load();
+    render(<Categorise api={api} {...RANGE} />);
+
+    await fill({ min: "1000" });
+
+    await waitFor(() => expect(searches()[0]).toContain("min=100000"));
+  });
+
+  it("ignores an amount that is not one, and will not search on nothing else", async () => {
+    // The server refuses a malformed bound outright; here it simply is not a
+    // bound. What stops that becoming a search for the whole ledger is the
+    // button staying disabled when nothing else was asked for.
+    const Categorise = await load();
+    render(<Categorise api={api} {...RANGE} />);
+
+    await userEvent.type(screen.getByLabelText("Smallest amount"), "abc");
+
+    expect(screen.getByRole("button", { name: "Search" })).toHaveProperty("disabled", true);
+  });
+
+  it("searches on the rest when only the amount is unusable", async () => {
+    const Categorise = await load();
+    render(<Categorise api={api} {...RANGE} />);
+
+    await fill({ term: "somemart", min: "-5" });
+
+    await waitFor(() => expect(searches()[0]).toContain("q=somemart"));
+    expect(searches()[0]).not.toContain("min=");
+  });
+
+  it("will not search for nothing at all", async () => {
+    // No conditions is the whole ledger, which is the dashboard's job.
+    const Categorise = await load();
+    render(<Categorise api={api} {...RANGE} />);
+
+    expect(screen.getByRole("button", { name: "Search" })).toHaveProperty("disabled", true);
+  });
+
+  it.each([
+    [{ min: "90", max: "100" }, /£90\.00–£100\.00/],
+    [{ min: "90" }, /over £90\.00/],
+    [{ max: "100" }, /under £100\.00/],
+    [{ type: "DIRECT_DEBIT" }, /DIRECT_DEBIT/],
+  ])("says what it searched for when nothing matches: %o", async (fields, expected) => {
+    apiGet.mockImplementation(async (p: string) =>
+      p.includes("/categories") ? { categories: [] } : { transactions: [] },
+    );
+    const Categorise = await load();
+    render(<Categorise api={api} {...RANGE} />);
+
+    await fill(fields);
+
+    await waitFor(() => expect(screen.getByText(expected)).toBeDefined());
+  });
+
+  it("leaves out a bound that was not given", async () => {
+    const Categorise = await load();
+    render(<Categorise api={api} {...RANGE} />);
+
+    await fill({ term: "somemart", min: "90" });
+
+    await waitFor(() => expect(searches()[0]).toContain("min=9000"));
+    expect(searches()[0]).not.toContain("max=");
+  });
+});
+
 describe("what the list shows", () => {
   it("leaves out credits, because a refund is a question nobody asked", async () => {
     // The API searches both directions — direction is the rule's business — so
@@ -386,6 +488,44 @@ describe("proposing", () => {
 
     expect(screen.queryByText("Before this is written")).toBeNull();
     expect(apiPost).toHaveBeenCalledTimes(1);
+  });
+
+  it("writes a rule from the whole filter, not just the term", async () => {
+    // The filter is the rule. A rule built from the term alone would take rows
+    // the filters had hidden, and the screen would have lied about the button.
+    apiPost.mockResolvedValue({ prediction });
+    apiGet.mockImplementation(async (p: string) =>
+      p.includes("/categories") ? { categories: [{ id: "bills", label: "Bills", kind: "spending" }] } : two,
+    );
+    const Categorise = await load();
+    render(<Categorise api={api} {...RANGE} />);
+    await userEvent.type(screen.getByLabelText("Merchant"), "somemart");
+    await userEvent.selectOptions(screen.getByLabelText("Type"), "DIRECT_DEBIT");
+    await userEvent.type(screen.getByLabelText("Smallest amount"), "90");
+    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+    await waitFor(() => expect(screen.getByLabelText("Categorise as")).toBeDefined());
+    await userEvent.selectOptions(screen.getByLabelText("Categorise as"), "bills");
+
+    await userEvent.click(screen.getByRole("button", { name: "Categorise this merchant" }));
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalled());
+    expect(apiPost.mock.calls[0][1]).toEqual({
+      merchant: { term: "somemart", type: "DIRECT_DEBIT", min: 9000, category: "bills" },
+    });
+  });
+
+  it("writes what was searched, not what is currently typed", async () => {
+    // Editing the boxes after a search must not silently change what the
+    // button is about to write.
+    apiPost.mockResolvedValue({ prediction });
+    await ready();
+    await userEvent.clear(screen.getByLabelText("Merchant"));
+    await userEvent.type(screen.getByLabelText("Merchant"), "somethingelse");
+
+    await userEvent.click(screen.getByRole("button", { name: "Categorise this merchant" }));
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalled());
+    expect(apiPost.mock.calls[0][1]).toEqual({ merchant: { term: "somemart", category: "groceries" } });
   });
 
   it("names the selected transactions rather than a pattern, when that is the button", async () => {

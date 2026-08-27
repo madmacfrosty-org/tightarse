@@ -385,6 +385,23 @@ describe("proposing a change", () => {
     });
   });
 
+  it("refuses a merchant rule with no conditions, naming what is missing", async () => {
+    const res = await route(deps(), post({ body: JSON.stringify({ merchant: { category: "groceries" } }) }));
+
+    expect(res.statusCode).toBe(400);
+    expect(body(res)["error"]).toContain("a term, a type or an amount bound");
+  });
+
+  it("takes a merchant rule built from several conditions", async () => {
+    const d = deps();
+    await route(
+      d,
+      post({ body: JSON.stringify({ merchant: { type: "DIRECT_DEBIT", min: 9000, category: "bills" } }) }),
+    );
+
+    expect(d.proposals[0]).toMatchObject({ merchant: { type: "DIRECT_DEBIT", min: 9000, category: "bills" } });
+  });
+
   it("takes named transactions", async () => {
     const d = deps();
     await route(d, post({ body: JSON.stringify({ transactions: { dedupKeys: ["a", "b"], category: "groceries" } }) }));
