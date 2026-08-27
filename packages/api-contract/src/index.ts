@@ -282,6 +282,30 @@ export const PROVIDER_CATEGORIES = [
   "STANDING_ORDER",
 ] as const;
 
+/**
+ * A category somebody is adding.
+ *
+ * A label. The id is derived from it on the server — the same way the seeded
+ * ones were — so a client cannot mint an identifier that rules and
+ * categorisations will name for ever.
+ *
+ * `kind` defaults to spending, which is what nearly everything filed from a
+ * list of debits is. It is offered rather than assumed because totals branch on
+ * it and nothing else, and a movement filed as spending is wrong invisibly.
+ */
+export const NewCategoryRequest = z.object({
+  label: z.string().min(1).describe("What a person reads. The id is derived from it."),
+  kind: z
+    .enum(["spending", "income", "movement"])
+    .default("spending")
+    .describe(
+      "What it does to the household's money. Defaults to spending, which is what nearly everything " +
+        "filed from a list of debits is — but a transfer into savings is a movement, and filed as " +
+        "spending it overstates every spending figure until somebody questions one.",
+    ),
+});
+export type NewCategoryRequest = z.infer<typeof NewCategoryRequest>;
+
 export const CategoriesResponse = z.object({
   categories: z
     .array(CategoryChoiceView)

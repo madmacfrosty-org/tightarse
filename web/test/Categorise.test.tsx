@@ -398,6 +398,119 @@ describe("choosing", () => {
   });
 });
 
+describe("adding a category", () => {
+  const withCategories = async () => {
+    apiGet.mockImplementation(async (p: string) =>
+      p.includes("/categories") ? { categories: [{ id: "fuel", label: "Fuel", kind: "spending" }] } : { transactions: [tx()] },
+    );
+    const Categorise = await load();
+    render(<Categorise api={api} {...RANGE} />);
+    await userEvent.type(screen.getByLabelText("Merchant"), "somemart");
+    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+    await waitFor(() => expect(screen.getByLabelText("Categorise as")).toBeDefined());
+  };
+
+  it("offers a way to add one where you would have picked one", async () => {
+    await withCategories();
+
+    expect(screen.getByRole("option", { name: "New category…" })).toBeDefined();
+  });
+
+  it("creates it before it is used, and selects it", async () => {
+    // Created first rather than folded into the proposal: a rule naming a
+    // category that does not exist is refused, so one invented inside a
+    // proposal would be previewed against a catalogue the apply would not use.
+    apiPost.mockResolvedValue({ id: "season-ticket", label: "Season Ticket", kind: "spending" });
+    await withCategories();
+
+    await userEvent.selectOptions(screen.getByLabelText("Categorise as"), "new category");
+    await userEvent.type(screen.getByLabelText("New category"), "Season Ticket");
+    await userEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith(pathFor("/categories"), {
+      label: "Season Ticket",
+      kind: "spending",
+    }));
+    await waitFor(() =>
+      expect((screen.getByLabelText("Categorise as") as HTMLSelectElement).value).toBe("season-ticket"),
+    );
+  });
+
+  it("puts it in the list, in order, so it can be picked again", async () => {
+    apiPost.mockResolvedValue({ id: "aardvark", label: "Aardvark", kind: "spending" });
+    await withCategories();
+
+    await userEvent.selectOptions(screen.getByLabelText("Categorise as"), "new category");
+    await userEvent.type(screen.getByLabelText("New category"), "Aardvark");
+    await userEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    await waitFor(() => expect(screen.getByRole("option", { name: "Aardvark" })).toBeDefined());
+    const labels = [...screen.getByLabelText("Categorise as").querySelectorAll("option")].map((o) => o.textContent);
+    expect(labels.indexOf("Aardvark")).toBeLessThan(labels.indexOf("Fuel"));
+  });
+
+  it("defaults to spending, and takes the other two", async () => {
+    apiPost.mockResolvedValue({ id: "savings", label: "Savings", kind: "movement" });
+    await withCategories();
+
+    await userEvent.selectOptions(screen.getByLabelText("Categorise as"), "new category");
+    await userEvent.type(screen.getByLabelText("New category"), "Savings");
+    expect((screen.getByLabelText("What it does to the money") as HTMLSelectElement).value).toBe("spending");
+
+    await userEvent.selectOptions(screen.getByLabelText("What it does to the money"), "movement");
+    await userEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    await waitFor(() => expect(apiPost.mock.calls[0][1]).toMatchObject({ kind: "movement" }));
+  });
+
+  it("will not add one with no name", async () => {
+    await withCategories();
+
+    await userEvent.selectOptions(screen.getByLabelText("Categorise as"), "new category");
+
+    expect(screen.getByRole("button", { name: "Add" })).toHaveProperty("disabled", true);
+  });
+
+  it("says which category already has the name", async () => {
+    // The sentence that tells you to pick that one instead of trying another
+    // spelling.
+    apiPost.mockImplementationOnce(async () => {
+      throw new Error("“Eating Out” already uses the name eating-out");
+    });
+    await withCategories();
+
+    await userEvent.selectOptions(screen.getByLabelText("Categorise as"), "new category");
+    await userEvent.type(screen.getByLabelText("New category"), "eating out");
+    await userEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    await waitFor(() => expect(screen.getByText(/already uses the name eating-out/)).toBeDefined());
+  });
+
+  it("leaves the form open after a refusal, so the name can be changed", async () => {
+    apiPost.mockImplementationOnce(async () => {
+      throw new Error("“Eating Out” already uses the name eating-out");
+    });
+    await withCategories();
+
+    await userEvent.selectOptions(screen.getByLabelText("Categorise as"), "new category");
+    await userEvent.type(screen.getByLabelText("New category"), "eating out");
+    await userEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    await waitFor(() => expect(screen.getByText(/already uses/)).toBeDefined());
+    expect(screen.getByLabelText("New category")).toBeDefined();
+  });
+
+  it("closes without adding anything on cancel", async () => {
+    await withCategories();
+
+    await userEvent.selectOptions(screen.getByLabelText("Categorise as"), "new category");
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByLabelText("New category")).toBeNull();
+    expect(apiPost).not.toHaveBeenCalled();
+  });
+});
+
 describe("proposing", () => {
   const two = { transactions: [tx(), tx({ dedupKey: "d2", description: "SOMEMART 42" })] };
   const prediction = {

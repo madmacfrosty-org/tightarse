@@ -402,6 +402,30 @@
         ],
         "additionalProperties": false
       },
+      "NewCategoryRequest": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What a person reads. The id is derived from it."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "spending",
+              "income",
+              "movement"
+            ],
+            "default": "spending",
+            "description": "What it does to the household's money. Defaults to spending, which is what nearly everything filed from a list of debits is — but a transfer into savings is a movement, and filed as spending it overstates every spending figure until somebody questions one."
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "additionalProperties": false
+      },
       "CategoryTallyView": {
         "type": "object",
         "properties": {
@@ -1398,6 +1422,43 @@
             "description": "A valid token carrying no household claim"
           }
         }
+      },
+      "post": {
+        "operationId": "postCategories",
+        "summary": "Add a category",
+        "description": "Creates a category from a label, deriving its id the same way the seeded ones were derived. Refuses a label whose id is already taken rather than overwriting, and names the one that has it. Created before it is used: a rule naming a category that does not exist is refused, so a category invented inside a proposal would be previewed against a catalogue that is not the one applying it would use.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewCategoryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Add a category",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoryChoiceView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The range is missing, malformed, or `from` is after `to`"
+          },
+          "401": {
+            "description": "No bearer token, or one this API does not trust"
+          },
+          "403": {
+            "description": "A valid token carrying no household claim"
+          }
+        }
       }
     },
     "/v1/accounts": {
@@ -1431,7 +1492,7 @@
     },
     "/v1/categorisation/proposals": {
       "post": {
-        "operationId": "categorisationProposals",
+        "operationId": "postCategorisationProposals",
         "summary": "Propose a change to the rules, and say what it would do",
         "description": "Computes what the proposed sets would gain, lose, recategorise, leave alone and be outranked on, along with any conflict they would introduce, then writes each set as its next version marked `proposed`. `commit` says how far to take it: computing only, writing the proposal, or writing it, accepting it and recategorising the range. The prediction is always computed here and never taken from the caller.",
         "parameters": [

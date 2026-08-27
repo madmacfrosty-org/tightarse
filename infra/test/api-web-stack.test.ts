@@ -38,6 +38,7 @@ describe("api", () => {
     expect(byKey["GET /v1/connect/callback"]).toBe("JWT");
     expect(byKey["GET /v1/categorisation/gaps"]).toBe("JWT");
     expect(byKey["POST /v1/categorisation/proposals"]).toBe("JWT");
+    expect(byKey["POST /v1/categories"]).toBe("JWT");
   });
 
   /** DynamoDB actions granted to whichever role a named function runs as. */
@@ -62,6 +63,18 @@ describe("api", () => {
     for (const action of dynamoActionsFor("ApiHandler")) {
       expect(action, `the dashboard's function may ${action}`).not.toMatch(/Put|Update|Delete|Write/);
     }
+  });
+
+  it("reads categories on the read-only function and writes them on the other", () => {
+    // One path, two functions. Adding a category is a write, and the
+    // dashboard's function must stay unable to make one.
+    const routes = Object.values(api.findResources("AWS::ApiGatewayV2::Route")).map((r: any) => r.Properties);
+    const get = routes.find((r) => r.RouteKey === "GET /v1/categories");
+    const post = routes.find((r) => r.RouteKey === "POST /v1/categories");
+
+    expect(get, "no read route for categories").toBeDefined();
+    expect(post, "no write route for categories").toBeDefined();
+    expect(get.Target).not.toEqual(post.Target);
   });
 
   it("lets the categorisation function write, because proposals are a write", () => {
@@ -122,6 +135,7 @@ describe("api", () => {
       "GET /v1/connect/start",
       "GET /v1/summary",
       "GET /v1/transactions",
+      "POST /v1/categories",
       "POST /v1/categorisation/proposals",
     ]);
   });

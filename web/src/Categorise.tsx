@@ -28,6 +28,14 @@ import type { Api } from "./ports";
 const PAGE = 50;
 
 /**
+ * The picker's escape hatch.
+ *
+ * A value no category id can be, since ids are slugs of a label and cannot
+ * contain a space.
+ */
+const NEW = "new category";
+
+/**
  * A proposal waiting to be confirmed, and what it was predicted to do.
  *
  * Held rather than acted on, because the numbers are the point: a rule that
@@ -93,6 +101,9 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
   const [shown, setShown] = useState(PAGE);
   const [categories, setCategories] = useState<CategoryChoiceView[]>([]);
   const [category, setCategory] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const [newKind, setNewKind] = useState<"spending" | "income" | "movement">("spending");
   const [pending, setPending] = useState<Proposal | null>(null);
   const [applied, setApplied] = useState<string | null>(null);
 
@@ -204,6 +215,35 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
   // ledger — which is the dashboard's job, not this screen's.
   const nothingAsked =
     term.trim().length === 0 && type.length === 0 && pence(min) === undefined && pence(max) === undefined;
+  /**
+   * Add a category, then select it.
+   *
+   * Created before it is used rather than folded into the proposal: a rule
+   * naming a category that does not exist is refused, so one invented inside a
+   * proposal would be previewed against a catalogue that is not the one
+   * applying it would use.
+   */
+  const addCategory = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const made = await api.post<CategoryChoiceView>(pathFor("/categories"), {
+        label: newLabel.trim(),
+        kind: newKind,
+      });
+      setCategories((current) => [...current, made].sort((a, b) => a.label.localeCompare(b.label)));
+      setCategory(made.id);
+      setAdding(false);
+      setNewLabel("");
+    } catch (e: unknown) {
+      // A taken name comes back with the existing label in it, which is the
+      // sentence that says to pick that one instead.
+      setError(e instanceof Error ? e.message : "Could not add that category");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const allSelected = rows.length > 0 && selected.size === rows.length;
   const credits = searched !== null && rows.length === 0;
   const chosen = categories.find((c) => c.id === category);
@@ -270,6 +310,33 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
 
       {applied ? <p className="note">{applied}</p> : null}
 
+      {adding ? (
+        <div className="provider-row" style={{ gap: 8, alignItems: "center", marginTop: 8 }}>
+          <input
+            aria-label="New category"
+            value={newLabel}
+            onChange={(e) => setNewLabel(e.target.value)}
+            placeholder="Category name"
+            style={{ flex: 1, minWidth: 0 }}
+          />
+          <select
+            aria-label="What it does to the money"
+            value={newKind}
+            onChange={(e) => setNewKind(e.target.value as typeof newKind)}
+          >
+            <option value="spending">spending</option>
+            <option value="income">income</option>
+            <option value="movement">movement</option>
+          </select>
+          <button type="button" disabled={busy || newLabel.trim().length === 0} onClick={() => void addCategory()}>
+            Add
+          </button>
+          <button type="button" className="ghost" disabled={busy} onClick={() => setAdding(false)}>
+            Cancel
+          </button>
+        </div>
+      ) : null}
+
       {rows.length > 0 && pending === null ? (
         <div className="provider-row" style={{ gap: 8, alignItems: "center" }}>
           <label htmlFor="category" className="subtle">
@@ -278,7 +345,14 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
           <select
             id="category"
             value={category}
-            onChange={(e) => setCategory(e.target.value)}
+            onChange={(e) => {
+              if (e.target.value === NEW) {
+                setAdding(true);
+                setCategory("");
+              } else {
+                setCategory(e.target.value);
+              }
+            }}
             style={{ flex: 1, minWidth: 0 }}
           >
             <option value="">Choose a category…</option>
@@ -287,6 +361,7 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
                 {c.label}
               </option>
             ))}
+            <option value={NEW}>New category…</option>
           </select>
           <button
             type="button"

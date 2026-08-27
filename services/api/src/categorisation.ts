@@ -1,7 +1,7 @@
-import { ProposalRequest } from "@tightarse/api-contract";
+import { NewCategoryRequest, ProposalRequest } from "@tightarse/api-contract";
 import { DynamoStore } from "@tightarse/dynamodb";
 import type { Commit, Inspection, ProposalDeps, ProposalOutcome, RuleSet } from "@tightarse/domain";
-import { inspection, proposeRules } from "@tightarse/domain";
+import { createCategory, inspection, proposeRules } from "@tightarse/domain";
 import { ledgerConfig, tenantFrom } from "./handler.js";
 import { asBacklog, asProposalResponse } from "./wire.js";
 
@@ -37,6 +37,11 @@ interface HttpEvent {
 
 export interface CategorisationDeps {
   readonly inspection: Inspection;
+  /** Adding a category, which has to exist before a rule may name it. */
+  readonly addCategory: (
+    tenantId: string,
+    request: { label: string; kind?: "spending" | "income" | "movement" },
+  ) => Promise<{ id: string; label: string; kind: string }>;
   /**
    * Proposing, which is a write.
    *
@@ -89,6 +94,29 @@ export function commitFrom(event: HttpEvent): Commit {
  * authorised, not correct, and a malformed set reaching the domain is a rule
  * that matches nothing or everything.
  */
+/** The body, decoded and parsed, or a 400 saying which of those failed. */
+function jsonBody(event: HttpEvent): unknown {
+  if (!event.body) {
+    throw Object.assign(new Error("A body is required"), { statusCode: 400 });
+  }
+  const raw = event.isBase64Encoded ? Buffer.from(event.body, "base64").toString("utf8") : event.body;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw Object.assign(new Error("Body is not JSON"), { statusCode: 400 });
+  }
+}
+
+/**
+ * Every malformed field, not just the first.
+ *
+ * A proposal with three bad rules should not take three round trips to correct.
+ */
+function badRequest(issues: ReadonlyArray<{ path: PropertyKey[]; message: string }>): Error {
+  const detail = issues.map((i) => `${i.path.join(".") || "body"}: ${i.message}`).join("; ");
+  return Object.assign(new Error(detail), { statusCode: 400 });
+}
+
 export function proposalFrom(event: HttpEvent): {
   sets?: readonly RuleSet[];
   merchant?: {
@@ -100,28 +128,8 @@ export function proposalFrom(event: HttpEvent): {
   };
   transactions?: { dedupKeys: readonly string[]; category: string };
 } {
-  if (!event.body) {
-    throw Object.assign(new Error("A proposal needs a body"), { statusCode: 400 });
-  }
-  const raw = event.isBase64Encoded ? Buffer.from(event.body, "base64").toString("utf8") : event.body;
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw Object.assign(new Error("Body is not JSON"), { statusCode: 400 });
-  }
-
-  const result = ProposalRequest.safeParse(parsed);
-  if (!result.success) {
-    // Names the field, which is the difference between a caller fixing it and a
-    // caller guessing. Every issue, because a proposal with three malformed
-    // rules should not take three round trips to correct.
-    const detail = result.error.issues
-      .map((issue) => `${issue.path.join(".") || "body"}: ${issue.message}`)
-      .join("; ");
-    throw Object.assign(new Error(detail), { statusCode: 400 });
-  }
+  const result = ProposalRequest.safeParse(jsonBody(event));
+  if (!result.success) throw badRequest(result.error.issues);
 
   // Exactly one. Two is a caller that has not decided what it wants, none is a
   // proposal that proposes nothing, and building a rule from whichever happened
@@ -197,6 +205,23 @@ export async function route(deps: CategorisationDeps, event: HttpEvent) {
       return json(200, asBacklog(range, await deps.inspection.backlog(tenantId, range)));
     }
 
+    if (path.endsWith("/categories")) {
+      const body = jsonBody(event);
+      const parsed = NewCategoryRequest.safeParse(body);
+      if (!parsed.success) throw badRequest(parsed.error.issues);
+      const added = await deps.addCategory(tenantId, parsed.data).catch((e: unknown) => {
+        // A taken name is an answer, not a fault. Reported as a conflict with
+        // the reason intact, because "internal error" hides the one sentence
+        // that says to pick the existing category instead.
+        if (e instanceof Error && e.name === "CategoryExists") {
+          throw Object.assign(e, { statusCode: 409 });
+        }
+        throw e;
+      });
+      // 201: it made something, and the body is where to find it.
+      return json(201, { id: added.id, label: added.label, kind: added.kind });
+    }
+
     if (path.endsWith("/categorisation/proposals")) {
       const range = rangeFrom(event);
       const outcome = await deps.propose(tenantId, {
@@ -231,6 +256,9 @@ export function realDeps(): CategorisationDeps {
   };
   return {
     inspection: inspection({ transactions: store, ruleSets: store }),
+    // Bound rather than wrapped, for the same reason as above: a wrapper here
+    // is a function no test can reach without a table.
+    addCategory: createCategory.bind(null, { categories: store }),
     // Bound rather than wrapped: a wrapper here is a function no test can reach
     // without a table, and an unreachable line in the composition root is how
     // the routing itself went untested before.

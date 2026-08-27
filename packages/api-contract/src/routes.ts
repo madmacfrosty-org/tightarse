@@ -14,6 +14,8 @@ import {
   AccountsResponse,
   BacklogResponse,
   CategoriesResponse,
+  CategoryChoiceView,
+  NewCategoryRequest,
   ProposalRequest,
   ProposalResponse,
   BalancesResponse,
@@ -218,6 +220,20 @@ export const ROUTES: readonly Route[] = [
  * token, or use the CLIs that reach the table directly.
  */
 export const CATEGORISATION_ROUTES: readonly Route[] = [
+  {
+    method: "post",
+    path: "/categories",
+    summary: "Add a category",
+    description:
+      "Creates a category from a label, deriving its id the same way the seeded ones were derived. " +
+      "Refuses a label whose id is already taken rather than overwriting, and names the one that has " +
+      "it. Created before it is used: a rule naming a category that does not exist is refused, so a " +
+      "category invented inside a proposal would be previewed against a catalogue that is not the one " +
+      "applying it would use.",
+    query: [],
+    request: { name: "NewCategoryRequest", schema: NewCategoryRequest },
+    response: { name: "CategoryChoiceView", schema: CategoryChoiceView },
+  },
   {
     method: "post",
     path: "/categorisation/proposals",

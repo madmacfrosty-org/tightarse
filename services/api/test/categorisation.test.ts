@@ -27,12 +27,14 @@ function EMPTY_EFFECT() {
   return { transactions: 0, outgoing: 0, merchants: 0, entries: [] };
 }
 
-const deps = (backlog: Backlog = EMPTY): CategorisationDeps & { seen: string[]; proposals: unknown[] } => {
+const deps = (backlog: Backlog = EMPTY): CategorisationDeps & { seen: string[]; proposals: unknown[]; categories: unknown[] } => {
   const seen: string[] = [];
   const proposals: unknown[] = [];
+  const categories: unknown[] = [];
   return {
     seen,
     proposals,
+    categories,
     inspection: {
       backlog: vi.fn(async (tenantId: string) => {
         seen.push(tenantId);
@@ -44,7 +46,16 @@ const deps = (backlog: Backlog = EMPTY): CategorisationDeps & { seen: string[]; 
       proposals.push(request);
       return { prediction: EMPTY_PREDICTION };
     }),
-  } as unknown as CategorisationDeps & { seen: string[]; proposals: unknown[] };
+    addCategory: vi.fn(async (tenantId: string, request: { label: string; kind?: string }) => {
+      seen.push(tenantId);
+      categories.push(request);
+      return {
+        id: request.label.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+        label: request.label,
+        kind: request.kind ?? "spending",
+      };
+    }),
+  } as unknown as CategorisationDeps & { seen: string[]; proposals: unknown[]; categories: unknown[] };
 };
 
 const event = (over: Record<string, unknown> = {}) => ({
@@ -318,7 +329,7 @@ describe("proposing a change", () => {
     const res = await route(deps(), post({ body: undefined }));
 
     expect(res.statusCode).toBe(400);
-    expect(body(res)["error"]).toContain("needs a body");
+    expect(body(res)["error"]).toContain("A body is required");
   });
 
   it("names the field that was wrong, which is the difference between fixing and guessing", async () => {
@@ -446,6 +457,94 @@ describe("proposing a change", () => {
     await route(d, post());
 
     expect(d.proposals[0]).toMatchObject({ by: "frost" });
+  });
+});
+
+describe("adding a category", () => {
+  const add = (over: Record<string, unknown> = {}) =>
+    event({ rawPath: "/v1/categories", body: JSON.stringify({ label: "Season Ticket" }), ...over });
+
+  it("creates one and says where to find it", async () => {
+    const d = deps();
+    const res = await route(d, add());
+
+    expect(res.statusCode).toBe(201);
+    expect(body(res)).toEqual({ id: "season-ticket", label: "Season Ticket", kind: "spending" });
+  });
+
+  it("takes the household from the claim, like everything else", async () => {
+    const d = deps();
+    await route(d, add());
+
+    expect(d.seen).toEqual(["frost"]);
+  });
+
+  it("files it as spending when nothing says otherwise", async () => {
+    const d = deps();
+    await route(d, add());
+
+    expect(d.categories[0]).toMatchObject({ label: "Season Ticket", kind: "spending" });
+  });
+
+  it.each(["income", "movement"])("takes %s when asked", async (kind) => {
+    const d = deps();
+    await route(d, add({ body: JSON.stringify({ label: "Savings", kind }) }));
+
+    expect(d.categories[0]).toMatchObject({ kind });
+  });
+
+  it("refuses a kind it does not have", async () => {
+    const res = await route(deps(), add({ body: JSON.stringify({ label: "X", kind: "outgoings" }) }));
+
+    expect(res.statusCode).toBe(400);
+    expect(body(res)["error"]).toContain("kind");
+  });
+
+  it("refuses an empty label", async () => {
+    const res = await route(deps(), add({ body: JSON.stringify({ label: "" }) }));
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("refuses a body that is not JSON", async () => {
+    const res = await route(deps(), add({ body: "{oh dear" }));
+
+    expect(res.statusCode).toBe(400);
+    expect(body(res)["error"]).toBe("Body is not JSON");
+  });
+
+  it("refuses no body at all", async () => {
+    const res = await route(deps(), add({ body: undefined }));
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("reports a taken name as a conflict, with the reason intact", async () => {
+    // The application says it is taken, without knowing what a status code is.
+    // Mapped here, because "internal error" would hide the one sentence that
+    // says to pick the existing category instead.
+    const taken = new Error("“Eating Out” already uses the name eating-out");
+    taken.name = "CategoryExists";
+    const d = { ...deps(), addCategory: vi.fn(async () => { throw taken; }) } as unknown as CategorisationDeps;
+
+    const res = await route(d, add());
+
+    expect(res.statusCode).toBe(409);
+    expect(body(res)["error"]).toContain("already uses the name eating-out");
+  });
+
+  it("still hides a genuine failure, which may carry table structure", async () => {
+    const d = {
+      ...deps(),
+      addCategory: vi.fn(async () => {
+        throw new Error("ResourceNotFoundException: table Ledger-prod");
+      }),
+    } as unknown as CategorisationDeps;
+
+    const res = await route(d, add());
+
+    expect(res.statusCode).toBe(500);
+    expect(body(res)).toEqual({ error: "Internal error" });
   });
 });
 
