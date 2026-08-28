@@ -1,7 +1,7 @@
 # Books
 
 What a category actually is, and why the ledger is about to be described in
-terms of books and transfers. Written before the code, so the reasoning survives
+terms of books and trades. Written before the code, so the reasoning survives
 the implementation.
 
 This describes a model being **moved to**, not the one in place. See
@@ -49,9 +49,9 @@ existed is a position for those books.
 ```mermaid
 erDiagram
     BOOK ||--o{ LEG : accumulates
-    TRANSFER ||--|{ LEG : "balances to zero"
-    TRANSACTION ||--|{ TRANSFER : "gives rise to"
-    RULE ||--o{ TRANSFER : "gives rise to"
+    TRADE ||--|{ LEG : "balances to zero"
+    TRANSACTION ||--|{ TRADE : "gives rise to"
+    RULE ||--o{ TRADE : "gives rise to"
     BOOK ||--o| ACCOUNT : "is one, when we hold it"
     BOOK ||--o| LOAN : "is one, when it accrues"
     RULE_SET ||--|{ RULE : contains
@@ -61,27 +61,32 @@ erDiagram
 **Book** — a named place legs accumulate. A bank account is a book; so is a
 category; so is a loan.
 
-**Leg** — one side of one transfer: an amount into a book, with the date it
-applies and the date we recorded it.
+**Leg** — one side of one trade: an amount into a book, with the date it applies
+and the date we recorded it.
 
-**Transfer** — the legs that balance to zero. A transaction arriving is a
-transfer of two legs: the account, and the book named by the provider's own
-category. A rule firing is another: out of that book, into ours.
+**Trade** — the legs that balance to zero. A transaction arriving is a trade of
+two legs: the account, and the book named by the provider's own category. A rule
+firing is another: out of that book, into ours.
 
-Every transfer balances. That is an invariant rather than part of the name, and
-it can never be false — so a transfer that does not is a defect, not a variety.
+Every trade balances. That is an invariant rather than part of the name, and it
+can never be false — so a trade that does not is a defect, not a variety.
 
-**Transaction** — the bank's fact. It gives rise to transfers; it is not one.
+**Transaction** — the bank's fact. It gives rise to trades; it is not one.
 
 **Account** and **Loan** are what a book additionally *is*, when it is one.
 Neither is a separate thing to move money into.
 
 ### Money arriving
 
-An arrival looks like it has only one side. It does not: money entering the
-ledger is a transfer from the book standing for the outside world, which is the
-one named by the provider's own category. That is what makes the books balance
-even before anybody has categorised anything.
+An arrival looks like it has only one side. It does not: its other leg is the
+book standing for the outside world, which is the one named by the provider's own
+category. That is what makes the books balance before anybody has categorised
+anything.
+
+It is also the case the name fits least well — nothing is exchanged when a salary
+lands. `Trade` was chosen for its pairing with `Leg`, which is how trading and
+payment systems have always described the two sides of one movement, and the
+awkwardness is confined to arrivals.
 
 ## Position and flow are the same arithmetic
 
@@ -112,7 +117,7 @@ Both are running sums over books, asked different questions.
 ## Nothing is uncategorised
 
 A transaction arrives into the book named by the provider — `PURCHASE`,
-`DIRECT_DEBIT` — and a rule transfers it out into one of ours. The books
+`DIRECT_DEBIT` — and a rule moves it out into one of ours. The books
 therefore always balance, and what has been called the backlog is a balance
 sitting in provider books rather than an absence of data.
 
@@ -127,12 +132,12 @@ The division is what keeps re-application total.
 record per book — its label, its nature, an opening position where one was never
 transacted, and for a loan its basis.
 
-**Derived**: every leg, every transfer, and therefore every position and every
+**Derived**: every leg, every trade, and therefore every position and every
 flow. They are a function of the transactions and the rules, recomputed rather
 than kept.
 
-A correcting transfer is derived too. Recategorising does not write a correction;
-it changes what the rules say, and the legs follow. Anything else would mean
+A correcting trade is derived too. Recategorising does not write a correction; it
+changes what the rules say, and the legs follow. Anything else would mean
 re-running the rules no longer reproduces the ledger, and two records that can
 disagree.
 
@@ -143,7 +148,7 @@ corrects March's food figure. It is **recorded at** the moment the rule ran, so
 what March said in April remains answerable.
 
 Two, not three. Which pair coincides differs by leg, which is why three looks
-necessary: a rule transfer applies when the money moved and is recorded when the
+necessary: a rule's trade applies when the money moved and is recorded when the
 rule ran, while an interest accrual has no bank fact at all and applies in the
 month it accrued. So `appliesAt` is **inherited** where there is a transaction
 behind it and **chosen** where there is not.
