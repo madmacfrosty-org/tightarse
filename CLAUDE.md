@@ -13,6 +13,8 @@ Read before writing code:
 - [docs/design/categorisation.md](docs/design/categorisation.md) — the entity
   model behind categories, rules and categorisations, and why a model proposes
   rules rather than classifying transactions
+- [docs/design/books.md](docs/design/books.md) — what a category actually is, and
+  the model the ledger is moving to. Describes where it is going, not where it is
 - [This repository is public](CONTRIBUTING.md#this-repository-is-public)
 - [Money](CONTRIBUTING.md#money) and [Schemas](CONTRIBUTING.md#schemas)
 
