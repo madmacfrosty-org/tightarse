@@ -28,9 +28,20 @@ import { Category } from "../categorisation/category.js";
 import { filterMatcher, matchesMatcher } from "../categorisation/evaluate.js";
 import { candidateOf } from "../application/candidate.js";
 import { effectiveCategories, orderOf } from "./categories.js";
-import { mergeCategories, summarise, toAccountState, type LedgerRow } from "./summary.js";
-import { daysBetween, netPositionSeries, type AccountFacts, type Movement } from "./balances.js";
-import { clampToCoverage, completeFrom, coverageOf, type AccountCoverage } from "./coverage.js";
+import { mergeCategories, summarise, toAccountState } from "./summary.js";
+import type { RecordedTransaction } from "../ledger/transaction.js";
+import {
+  daysBetween,
+  netPositionSeries,
+  type AccountFacts,
+  type Movement,
+} from "./balances.js";
+import {
+  clampToCoverage,
+  completeFrom,
+  coverageOf,
+  type AccountCoverage,
+} from "./coverage.js";
 
 /**
  * The port's own vocabulary, re-exported under the name this module used.
@@ -59,12 +70,15 @@ export interface Deps {
  * This constraint belongs to the use case. It lived in the HTTP handler, where
  * the next person adding a route would not have seen it.
  */
-async function allHistory(deps: Deps, tenantId: string): Promise<LedgerRow[]> {
+async function allHistory(
+  deps: Deps,
+  tenantId: string,
+): Promise<RecordedTransaction[]> {
   const { transactions } = await deps.ledger.listRange(tenantId, {
     from: "1970-01-01",
     to: new Date().toISOString().slice(0, 10),
   });
-  return transactions as unknown as LedgerRow[];
+  return transactions;
 }
 
 /** The ledger's account row, narrowed to what the balance maths needs. */
@@ -72,7 +86,9 @@ export function toAccountFacts(row: Record<string, unknown>): AccountFacts {
   return {
     accountId: String(row["accountId"] ?? ""),
     ...(typeof row["isCard"] === "boolean" ? { isCard: row["isCard"] } : {}),
-    ...(typeof row["currentBalance"] === "number" ? { currentBalance: row["currentBalance"] } : {}),
+    ...(typeof row["currentBalance"] === "number"
+      ? { currentBalance: row["currentBalance"] }
+      : {}),
     ...(typeof row["lastSyncedAt"] === "string"
       ? { balanceAsOf: (row["lastSyncedAt"] as string).slice(0, 10) }
       : {}),
@@ -80,7 +96,7 @@ export function toAccountFacts(row: Record<string, unknown>): AccountFacts {
 }
 
 /** Transactions, narrowed the same way. */
-export function toMovements(rows: readonly LedgerRow[]): Movement[] {
+export function toMovements(rows: readonly RecordedTransaction[]): Movement[] {
   return rows.map((r) => ({
     accountId: r.accountId,
     timestamp: r.timestamp,
@@ -101,15 +117,19 @@ export function toMovements(rows: readonly LedgerRow[]): Movement[] {
  */
 function coverageFor(
   rows: readonly Record<string, unknown>[],
-  txns: readonly LedgerRow[],
+  txns: readonly RecordedTransaction[],
 ): Map<string, AccountCoverage> {
   const movements = toMovements(txns);
   const byAccount = new Map<string, Movement[]>();
-  for (const m of movements) byAccount.set(m.accountId, [...(byAccount.get(m.accountId) ?? []), m]);
+  for (const m of movements)
+    byAccount.set(m.accountId, [...(byAccount.get(m.accountId) ?? []), m]);
   return new Map(
     rows.map((row) => {
       const facts = toAccountFacts(row);
-      return [facts.accountId, coverageOf(facts, byAccount.get(facts.accountId) ?? [])] as const;
+      return [
+        facts.accountId,
+        coverageOf(facts, byAccount.get(facts.accountId) ?? []),
+      ] as const;
     }),
   );
 }
@@ -125,8 +145,8 @@ export async function summary(
     deps.ledger.listRuleSets(tenantId),
   ]);
   return summarise(
-    transactions as unknown as LedgerRow[],
-    effectiveCategories(transactions as unknown as LedgerRow[], categorisations, orderOf(sets)),
+    transactions,
+    effectiveCategories(transactions, categorisations, orderOf(sets)),
     range,
     // `transfers: false` disables detection; the default enables it.
     opts.nettingTransfers === false ? { transfers: false } : {},
@@ -158,14 +178,14 @@ export async function transactions(
     deps.ledger.listRuleSets(tenantId),
   ]);
 
-  const rows = txns as unknown as LedgerRow[];
+  const rows = txns;
   // Built once, not per row: escaping a term eleven thousand times to reach the
   // same answer is work for nothing.
   const matcher = filter === undefined ? undefined : filterMatcher(filter);
   const wanted =
     matcher === undefined
       ? rows
-      : rows.filter((row) => matchesMatcher(matcher, candidateOf(row as unknown as Record<string, unknown>)));
+      : rows.filter((row) => matchesMatcher(matcher, candidateOf(row)));
 
   return {
     range,
@@ -187,8 +207,13 @@ export async function transactions(
  *
  * Sorted by label, because a list somebody reads is ordered the way they read.
  */
-export async function categories(deps: Deps, tenantId: string): Promise<CategoriesResult> {
-  const catalogue = (await deps.ledger.listCategories(tenantId)).map((r) => Category.parse(r));
+export async function categories(
+  deps: Deps,
+  tenantId: string,
+): Promise<CategoriesResult> {
+  const catalogue = (await deps.ledger.listCategories(tenantId)).map((r) =>
+    Category.parse(r),
+  );
   return {
     categories: catalogue
       .filter((c) => !c.retired)
@@ -197,8 +222,14 @@ export async function categories(deps: Deps, tenantId: string): Promise<Categori
   };
 }
 
-export async function accounts(deps: Deps, tenantId: string): Promise<AccountsResult> {
-  const [rows, all] = await Promise.all([deps.ledger.listAccounts(tenantId), allHistory(deps, tenantId)]);
+export async function accounts(
+  deps: Deps,
+  tenantId: string,
+): Promise<AccountsResult> {
+  const [rows, all] = await Promise.all([
+    deps.ledger.listAccounts(tenantId),
+    allHistory(deps, tenantId),
+  ]);
   const coverage = coverageFor(rows, all);
   const complete = completeFrom([...coverage.values()]);
   return {
@@ -207,7 +238,9 @@ export async function accounts(deps: Deps, tenantId: string): Promise<AccountsRe
       return {
         ...toAccountState(row),
         ...(c?.historyFrom !== undefined ? { historyFrom: c.historyFrom } : {}),
-        ...(c?.historyComplete !== undefined ? { historyComplete: c.historyComplete } : {}),
+        ...(c?.historyComplete !== undefined
+          ? { historyComplete: c.historyComplete }
+          : {}),
       };
     }),
     ...(complete !== undefined ? { completeFrom: complete } : {}),
@@ -222,8 +255,15 @@ export async function accounts(deps: Deps, tenantId: string): Promise<AccountsRe
  * entirely plausible. The range actually served is returned, so a caller can
  * tell it was narrowed.
  */
-export async function balances(deps: Deps, tenantId: string, range: Range): Promise<BalancesResult> {
-  const [rows, all] = await Promise.all([deps.ledger.listAccounts(tenantId), allHistory(deps, tenantId)]);
+export async function balances(
+  deps: Deps,
+  tenantId: string,
+  range: Range,
+): Promise<BalancesResult> {
+  const [rows, all] = await Promise.all([
+    deps.ledger.listAccounts(tenantId),
+    allHistory(deps, tenantId),
+  ]);
   const complete = completeFrom([...coverageFor(rows, all).values()]);
   const served = clampToCoverage(range, complete);
   return {
@@ -254,7 +294,8 @@ export async function balances(deps: Deps, tenantId: string, range: Range): Prom
 export function reporting(deps: Deps): Reporting {
   return {
     summary: (tenantId, range, opts) => summary(deps, tenantId, range, opts),
-    transactions: (tenantId, range, filter) => transactions(deps, tenantId, range, filter),
+    transactions: (tenantId, range, filter) =>
+      transactions(deps, tenantId, range, filter),
     categories: (tenantId) => categories(deps, tenantId),
     accounts: (tenantId) => accounts(deps, tenantId),
     balances: (tenantId, range) => balances(deps, tenantId, range),

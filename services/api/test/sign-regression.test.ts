@@ -2,7 +2,11 @@ import { describe, it, expect } from "vitest";
 import { generateHousehold } from "@tightarse/fixtures";
 import { mapTransaction } from "@tightarse/transform";
 import { dedupKey } from "@tightarse/domain";
-import { detectTransfers, summarise, type LedgerRow } from "@tightarse/domain";
+import {
+  detectTransfers,
+  summarise,
+  RecordedTransaction,
+} from "@tightarse/domain";
 
 /**
  * The regression test for the most expensive bug this project has had.
@@ -18,7 +22,11 @@ import { detectTransfers, summarise, type LedgerRow } from "@tightarse/domain";
  * self-consistent; the defect only existed in the seam between them, so a unit
  * test of any one of them would have passed.
  */
-const household = generateHousehold({ seed: 99, from: "2025-01-01", to: "2025-07-01" });
+const household = generateHousehold({
+  seed: 99,
+  from: "2025-01-01",
+  to: "2025-07-01",
+});
 
 /**
  * Map, then attach the dedupKey the ledger would compute on write.
@@ -29,33 +37,57 @@ const household = generateHousehold({ seed: 99, from: "2025-01-01", to: "2025-07
  * single transfer. The types say otherwise, but tsconfig excludes test files
  * from the build, so nothing checked them.
  */
-const map = (raws: ReturnType<typeof generateHousehold>["cardTransactions"], accountId: string) =>
+const INGESTED_AT = "2026-01-01T00:00:00.000Z";
+
+const map = (
+  raws: ReturnType<typeof generateHousehold>["cardTransactions"],
+  accountId: string,
+) =>
   raws.map((r) => {
-    const t = mapTransaction(r, { tenantId: "t", accountId, status: "settled" as const });
-    return { ...t, dedupKey: dedupKey(t) };
+    const t = mapTransaction(r, {
+      tenantId: "t",
+      accountId,
+      status: "settled" as const,
+    });
+    // Exactly what `transactionItem` adds on the way in: the identity, and when
+    // we wrote it. Parsed rather than cast, so this really is the row the
+    // adapter would hand back.
+    return RecordedTransaction.parse({
+      ...t,
+      dedupKey: dedupKey(t),
+      ingestedAt: INGESTED_AT,
+    });
   });
 
 /**
- * mapTransaction produces a full Transaction; the aggregation reads the smaller
- * LedgerRow it projects onto. The cast states that relationship rather than
- * widening a production type to suit a test — the shapes differ only in
- * optional fields, which exactOptionalPropertyTypes treats as incompatible.
+ * The cast that used to be here is gone.
+ *
+ * `mapTransaction` produces a `Transaction`; the aggregation reads what the
+ * ledger stores, and the two really are different — a stored row carries the
+ * dedup key the aggregation joins on, which a mapped one has never had. The
+ * cast asserted a relationship between them. Building the stored row instead
+ * demonstrates it, and would have caught the missing `dedupKey` described
+ * above without needing the bug first.
  */
-const rows = [
+const rows: RecordedTransaction[] = [
   ...map(household.currentAccountTransactions, "acc-current-0001"),
   ...map(household.savingsTransactions, "acc-savings-0001"),
   ...map(household.cardTransactions, "card-0001"),
-] as unknown as LedgerRow[];
+];
 
 describe("card sign regression", () => {
   it("treats a card purchase as spending", () => {
-    const purchases = rows.filter((r) => r.accountId === "card-0001" && r.transactionType === "DEBIT");
+    const purchases = rows.filter(
+      (r) => r.accountId === "card-0001" && r.transactionType === "DEBIT",
+    );
     expect(purchases.length).toBeGreaterThan(0);
     expect(purchases.every((r) => r.amount < 0)).toBe(true);
   });
 
   it("treats a card payment as money arriving on the card", () => {
-    const payments = rows.filter((r) => r.accountId === "card-0001" && r.transactionType === "CREDIT");
+    const payments = rows.filter(
+      (r) => r.accountId === "card-0001" && r.transactionType === "CREDIT",
+    );
     expect(payments.length).toBeGreaterThan(0);
     expect(payments.every((r) => r.amount > 0)).toBe(true);
   });
@@ -74,7 +106,10 @@ describe("card sign regression", () => {
 
   it("counts no card spending as income", () => {
     // The headline symptom: card purchases inflating income.
-    const summary = summarise(rows, [], { from: "2025-01-01", to: "2025-07-01" });
+    const summary = summarise(rows, [], {
+      from: "2025-01-01",
+      to: "2025-07-01",
+    });
     const cardSpend = household.cardTransactions
       .filter((t) => t.transaction_type === "DEBIT")
       .reduce((s, t) => s + Math.round(t.amount * 100), 0);

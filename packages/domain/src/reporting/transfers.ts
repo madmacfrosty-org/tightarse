@@ -1,4 +1,4 @@
-import type { LedgerRow } from "./summary.js";
+import type { RecordedTransaction } from "../ledger/transaction.js";
 
 /**
  * Internal transfer detection.
@@ -51,7 +51,7 @@ export interface TransferOptions {
 const DAY_MS = 86_400_000;
 
 export function detectTransfers(
-  rows: readonly LedgerRow[],
+  rows: readonly RecordedTransaction[],
   opts: TransferOptions = {},
 ): TransferDetection {
   const windowDays = opts.windowDays ?? 3;
@@ -65,7 +65,7 @@ export function detectTransfers(
   // that produce no candidates. They are kept because they say what the code
   // means and cost nothing over nine thousand rows — not because removing them
   // would change an answer.
-  const byAmount = new Map<number, LedgerRow[]>();
+  const byAmount = new Map<number, RecordedTransaction[]>();
   for (const r of rows) {
     if (r.amount === 0) continue;
     const key = Math.abs(r.amount);
@@ -87,13 +87,18 @@ export function detectTransfers(
     // Candidate pairs, closest in time first. Matching nearest-first matters
     // when the same amount moves repeatedly — a monthly £500 standing order
     // would otherwise pair January's debit with June's credit.
-    const candidates: Array<{ d: LedgerRow; c: LedgerRow; days: number }> = [];
+    const candidates: Array<{
+      d: RecordedTransaction;
+      c: RecordedTransaction;
+      days: number;
+    }> = [];
     for (const d of debits) {
       for (const c of credits) {
         // Same account cannot be an internal transfer; it is a correction or a
         // reversal, which is a different thing entirely.
         if (d.accountId === c.accountId) continue;
-        const days = Math.abs(Date.parse(d.timestamp) - Date.parse(c.timestamp)) / DAY_MS;
+        const days =
+          Math.abs(Date.parse(d.timestamp) - Date.parse(c.timestamp)) / DAY_MS;
         if (days <= windowDays) candidates.push({ d, c, days });
       }
     }

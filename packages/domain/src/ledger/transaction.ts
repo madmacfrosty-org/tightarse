@@ -105,6 +105,47 @@ export const Transaction = z.object({
 export type Transaction = z.infer<typeof Transaction>;
 
 /**
+ * A transaction as it was recorded, rather than as it was received.
+ *
+ * `Transaction` is what a provider response becomes at the boundary. It has no
+ * identity of its own: `dedupKey` is a *function* over its content, computed
+ * when the row is written. So a transaction read back carries two things a
+ * freshly mapped one cannot — the identity it was stored under, and when we
+ * first saw it.
+ *
+ * Only those two. The stored row also carries `sourceObject`, the key of the
+ * raw S3 object it came from, and it is not here: nothing in the domain reads
+ * it, and parsing drops what is not declared. It remains on the row, where it
+ * turns "this number looks wrong" into a lookup, and `FIRST_OBSERVATION` still
+ * protects it from being rewritten. A port says what a component may see, and
+ * the answer for a debugging pointer is nothing.
+ *
+ * The distinction is not pedantry. `dedupKey` is what every categorisation
+ * joins on, and `Transaction` does not have it. Typing a read as `Transaction`
+ * would parse the stored row, strip the key, and leave every category silently
+ * unmatched — which is precisely the failure #41 describes, where a green build
+ * returns confidently wrong answers.
+ *
+ * Pending rows are deliberately NOT this type. They are a transient cache that
+ * never becomes a ledger row, and `pendingItem` writes no `dedupKey` at all.
+ */
+export const RecordedTransaction = Transaction.extend({
+  /** The identity the row was stored under. See `dedupKey`. */
+  dedupKey: z.string().min(1),
+  /**
+   * When we FIRST saw it — not when it happened, and not part of what it says.
+   *
+   * Load-bearing, not provenance: `providerCategorisation` uses it as the
+   * version of the provider's set, because the provider publishes no taxonomy
+   * version and an observation stamp is the honest substitute. `LedgerRow` did
+   * not declare it, so the cast into `resolve` was passing along a field the
+   * type said was absent and the code was reading anyway.
+   */
+  ingestedAt: z.string(),
+});
+export type RecordedTransaction = z.infer<typeof RecordedTransaction>;
+
+/**
  * Identity of a settled transaction.
  *
  * Measured against 9,653 real First Direct transactions, because two plausible
@@ -137,7 +178,12 @@ export function dedupKey(t: {
   amount: number;
   description: string;
 }): string {
-  const content = [t.accountId, t.timestamp, String(t.amount), t.description].join("|");
+  const content = [
+    t.accountId,
+    t.timestamp,
+    String(t.amount),
+    t.description,
+  ].join("|");
   const digest = (input: string): string =>
     createHash("sha256").update(input).digest("hex").slice(0, 32);
 

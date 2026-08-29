@@ -31,7 +31,14 @@ import type { TableOptions } from "./table.js";
 export type DynamoStoreOptions = TableOptions;
 
 export class DynamoStore
-  implements Transactions, Categorisations, Categories, Accounts, Balances, RuleSets, Household
+  implements
+    Transactions,
+    Categorisations,
+    Categories,
+    Accounts,
+    Balances,
+    RuleSets,
+    Household
 {
   private readonly transactions: DynamoTransactions;
   private readonly categorisations: DynamoCategorisations;
@@ -51,34 +58,62 @@ export class DynamoStore
     this.household = new DynamoHousehold(opts);
   }
 
-  readonly listRange: Transactions["listRange"] = (...a) => this.transactions.listRange(...a);
-  readonly listAccountRange: Transactions["listAccountRange"] = (...a) => this.transactions.listAccountRange(...a);
-  readonly putTransactions: Transactions["putTransactions"] = (...a) => this.transactions.putTransactions(...a);
-  readonly listPending: Transactions["listPending"] = (...a) => this.transactions.listPending(...a);
-  readonly replacePending: Transactions["replacePending"] = (...a) => this.transactions.replacePending(...a);
-  readonly putCategorisation: Categorisations["putCategorisation"] = (...a) => this.categorisations.putCategorisation(...a);
-  readonly listCategorisationHistory: Categorisations["listCategorisationHistory"] = (...a) => this.categorisations.listCategorisationHistory(...a);
-  readonly listAccounts: Accounts["listAccounts"] = (...a) => this.accounts.listAccounts(...a);
-  readonly putAccount: Accounts["putAccount"] = (...a) => this.accounts.putAccount(...a);
-  readonly putBalances: Accounts["putBalances"] = (...a) => this.accounts.putBalances(...a);
-  readonly putBalanceReading: Balances["putBalanceReading"] = (...a) => this.balances.putBalanceReading(...a);
-  readonly listBalanceReadings: Balances["listBalanceReadings"] = (...a) => this.balances.listBalanceReadings(...a);
-  readonly markBalanceReadingDirty: Balances["markBalanceReadingDirty"] = (...a) => this.balances.markBalanceReadingDirty(...a);
-  readonly clearBalanceReadingDirty: Balances["clearBalanceReadingDirty"] = (...a) => this.balances.clearBalanceReadingDirty(...a);
-  readonly listRuleSets: RuleSets["listRuleSets"] = (...a) => this.rulesets.listRuleSets(...a);
-  readonly listRuleSetHistory: RuleSets["listRuleSetHistory"] = (...a) => this.rulesets.listRuleSetHistory(...a);
-  readonly putCategory: Categories["putCategory"] = (...a) => this.categories.putCategory(...a);
-  readonly listCategories: Categories["listCategories"] = (...a) => this.categories.listCategories(...a);
-  readonly putRuleSetVersion: RuleSets["putRuleSetVersion"] = (...a) => this.rulesets.putRuleSetVersion(...a);
+  readonly listRange: Transactions["listRange"] = (...a) =>
+    this.transactions.listRange(...a);
+  readonly listAccountRange: Transactions["listAccountRange"] = (...a) =>
+    this.transactions.listAccountRange(...a);
+  readonly putTransactions: Transactions["putTransactions"] = (...a) =>
+    this.transactions.putTransactions(...a);
+  readonly replacePending: Transactions["replacePending"] = (...a) =>
+    this.transactions.replacePending(...a);
+  readonly putCategorisation: Categorisations["putCategorisation"] = (...a) =>
+    this.categorisations.putCategorisation(...a);
+  readonly listCategorisationHistory: Categorisations["listCategorisationHistory"] =
+    (...a) => this.categorisations.listCategorisationHistory(...a);
+  readonly listAccounts: Accounts["listAccounts"] = (...a) =>
+    this.accounts.listAccounts(...a);
+  readonly putAccount: Accounts["putAccount"] = (...a) =>
+    this.accounts.putAccount(...a);
+  readonly putBalances: Accounts["putBalances"] = (...a) =>
+    this.accounts.putBalances(...a);
+  readonly putBalanceReading: Balances["putBalanceReading"] = (...a) =>
+    this.balances.putBalanceReading(...a);
+  readonly listBalanceReadings: Balances["listBalanceReadings"] = (...a) =>
+    this.balances.listBalanceReadings(...a);
+  readonly markBalanceReadingDirty: Balances["markBalanceReadingDirty"] = (
+    ...a
+  ) => this.balances.markBalanceReadingDirty(...a);
+  readonly clearBalanceReadingDirty: Balances["clearBalanceReadingDirty"] = (
+    ...a
+  ) => this.balances.clearBalanceReadingDirty(...a);
+  readonly listRuleSets: RuleSets["listRuleSets"] = (...a) =>
+    this.rulesets.listRuleSets(...a);
+  readonly listRuleSetHistory: RuleSets["listRuleSetHistory"] = (...a) =>
+    this.rulesets.listRuleSetHistory(...a);
+  readonly putCategory: Categories["putCategory"] = (...a) =>
+    this.categories.putCategory(...a);
+  readonly listCategories: Categories["listCategories"] = (...a) =>
+    this.categories.listCategories(...a);
+  readonly putRuleSetVersion: RuleSets["putRuleSetVersion"] = (...a) =>
+    this.rulesets.putRuleSetVersion(...a);
   readonly decideRuleSetVersion: RuleSets["decideRuleSetVersion"] = (...a) =>
     this.rulesets.decideRuleSetVersion(...a);
-  readonly getCustomRules: RuleSets["getCustomRules"] = (...a) => this.rulesets.getCustomRules(...a);
-  readonly getMemberTenant: Household["getMemberTenant"] = (...a) => this.household.getMemberTenant(...a);
-  readonly putMember: Household["putMember"] = (...a) => this.household.putMember(...a);
-  readonly deleteMember: Household["deleteMember"] = (...a) => this.household.deleteMember(...a);
-  readonly listMembers: Household["listMembers"] = (...a) => this.household.listMembers(...a);
-  readonly getSettings: Household["getSettings"] = (...a) => this.household.getSettings(...a);
-  readonly putSettings: Household["putSettings"] = (...a) => this.household.putSettings(...a);
-  readonly listConsents: Household["listConsents"] = (...a) => this.household.listConsents(...a);
-  readonly putConsent: Household["putConsent"] = (...a) => this.household.putConsent(...a);
+  readonly getCustomRules: RuleSets["getCustomRules"] = (...a) =>
+    this.rulesets.getCustomRules(...a);
+  readonly getMemberTenant: Household["getMemberTenant"] = (...a) =>
+    this.household.getMemberTenant(...a);
+  readonly putMember: Household["putMember"] = (...a) =>
+    this.household.putMember(...a);
+  readonly deleteMember: Household["deleteMember"] = (...a) =>
+    this.household.deleteMember(...a);
+  readonly listMembers: Household["listMembers"] = (...a) =>
+    this.household.listMembers(...a);
+  readonly getSettings: Household["getSettings"] = (...a) =>
+    this.household.getSettings(...a);
+  readonly putSettings: Household["putSettings"] = (...a) =>
+    this.household.putSettings(...a);
+  readonly listConsents: Household["listConsents"] = (...a) =>
+    this.household.listConsents(...a);
+  readonly putConsent: Household["putConsent"] = (...a) =>
+    this.household.putConsent(...a);
 }

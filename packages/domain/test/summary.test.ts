@@ -1,30 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { summarise, mergeCategories, toAccountState, type LedgerRow, type AssignedCategory } from "../src/reporting/summary.js";
+import {
+  summarise,
+  mergeCategories,
+  toAccountState,
+} from "../src/reporting/summary.js";
+import type { Categorisation } from "../src/categorisation/categorisation.js";
+import { recorded, assigned } from "./recorded.js";
 
-/**
- * Overrides for a test-data builder.
- *
- * `Partial<T>` cannot express "remove this field" under
- * exactOptionalPropertyTypes, and a blanket `| undefined` would let a REQUIRED
- * field be blanked, which is a different bug. Undefined is allowed only where
- * the property is already optional.
- */
-type Overrides<T> = { [K in keyof T]?: undefined extends T[K] ? T[K] | undefined : T[K] };
-
-const row = (over: Overrides<LedgerRow> = {}): LedgerRow =>
-  // An optional field set to undefined is absent for our purposes; the spread
-  // type cannot say that under exactOptionalPropertyTypes.
-  ({
-    dedupKey: "n:1",
-    timestamp: "2026-03-15T00:00:00Z",
-    amount: -1299,
-    currency: "GBP",
-    description: "SHOP",
-    accountId: "acc1",
-    providerCategory: "PURCHASE",
-    transactionType: "DEBIT",
-    ...over,
-  }) as LedgerRow;
+const row = recorded;
 
 const range = { from: "2026-01-01", to: "2026-12-31" };
 
@@ -47,7 +30,7 @@ describe("summarise", () => {
   });
 
   it("prefers our category over the provider's and marks the difference", () => {
-    const enr: AssignedCategory[] = [{ dedupKey: "n:1", category: "Groceries", setId: "built-in" }];
+    const enr: Categorisation[] = [assigned("n:1", "Groceries")];
     const s = summarise([row()], enr, range);
     expect(s.byCategory[0]!.category).toBe("Groceries");
     expect(s.byCategory[0]!.provisional).toBe(false);
@@ -96,7 +79,10 @@ describe("summarise", () => {
     // and income. The flag is reported either way so a caller can never mistake
     // an inflated total for a real one.
     expect(summarise([row()], [], range).internalTransfersNetted).toBe(true);
-    expect(summarise([row()], [], range, { transfers: false }).internalTransfersNetted).toBe(false);
+    expect(
+      summarise([row()], [], range, { transfers: false })
+        .internalTransfersNetted,
+    ).toBe(false);
   });
 
   it("handles an empty range without inventing a currency", () => {
@@ -108,10 +94,53 @@ describe("summarise", () => {
 });
 
 describe("mergeCategories", () => {
+  it("serves the contract's fields and nothing else the row was carrying", () => {
+    // The spread this replaced put the table keys, the tenant id, the provider's
+    // transaction ids and the raw object's S3 key into every response. Nothing
+    // read them and the contract never named them, but they were served, and a
+    // served field is a promise. `wire.ts` copies the array rather than
+    // projecting it, so this function is where the boundary actually is.
+    const [merged] = mergeCategories(
+      [recorded({ providerCategory: undefined })],
+      [],
+    );
+
+    expect(Object.keys(merged!).sort()).toEqual([
+      "accountId",
+      "amount",
+      "category",
+      "currency",
+      "dedupKey",
+      "description",
+      "setId",
+      "timestamp",
+      "transactionType",
+    ]);
+  });
+
+  it("includes the provider's category only when the row has one", () => {
+    const [with_] = mergeCategories(
+      [recorded({ providerCategory: "PURCHASE" })],
+      [],
+    );
+    expect(with_).toHaveProperty("providerCategory", "PURCHASE");
+
+    // Absent, not present-and-undefined: the contract marks it optional, and
+    // `undefined` would serialise the key with a null in some clients.
+    const [without] = mergeCategories(
+      [recorded({ providerCategory: undefined })],
+      [],
+    );
+    expect(Object.keys(without!)).not.toContain("providerCategory");
+  });
+
   it("returns newest first with categories attached", () => {
     const merged = mergeCategories(
-      [row({ timestamp: "2026-01-01T00:00:00Z" }), row({ dedupKey: "n:2", timestamp: "2026-06-01T00:00:00Z" })],
-      [{ dedupKey: "n:2", category: "Transport", setId: "built-in" }],
+      [
+        row({ timestamp: "2026-01-01T00:00:00Z" }),
+        row({ dedupKey: "n:2", timestamp: "2026-06-01T00:00:00Z" }),
+      ],
+      [assigned("n:2", "Transport")],
     );
     expect(merged[0]!.timestamp).toBe("2026-06-01T00:00:00Z");
     expect(merged[0]!.category).toBe("Transport");
@@ -158,13 +187,21 @@ describe("projecting a stored account for a client", () => {
     // putBalances creates a row with balances and no identity, so every one of
     // these is genuinely absent in production. A default here would be a client
     // reading a made-up institution name, or worse a made-up isCard.
-    expect(toAccountState({ accountId: "acc-2" })).toEqual({ accountId: "acc-2" });
+    expect(toAccountState({ accountId: "acc-2" })).toEqual({
+      accountId: "acc-2",
+    });
   });
 
   it("ignores a field of the wrong type instead of passing it through", () => {
     // The row is Record<string, unknown> straight from DynamoDB. A number where
     // a name belongs should not reach a generated client that expects a string.
-    expect(toAccountState({ accountId: "acc-3", displayName: 42, currentBalance: "lots" })).toEqual({
+    expect(
+      toAccountState({
+        accountId: "acc-3",
+        displayName: 42,
+        currentBalance: "lots",
+      }),
+    ).toEqual({
       accountId: "acc-3",
     });
   });
