@@ -1,17 +1,25 @@
 import { describe, it, expect } from "vitest";
 import { detectTransfers } from "../src/reporting/transfers.js";
 import { summarise } from "../src/reporting/summary.js";
-import type { LedgerRow } from "../src/reporting/summary.js";
+import type { RecordedTransaction } from "../src/ledger/transaction.js";
+import { recorded, type Overrides } from "./recorded.js";
 
-const row = (over: Partial<LedgerRow> & { dedupKey: string }): LedgerRow => ({
-  timestamp: "2026-03-15T00:00:00Z",
-  amount: -50000,
-  currency: "GBP",
-  description: "TRANSFER",
-  accountId: "accA",
-  transactionType: "DEBIT",
-  ...over,
-});
+// The defaults this file relies on, over the shared builder's. `providerCategory`
+// is blanked deliberately: these cases are about pairing and totals, and a
+// provider category would put a second opinion into the resolution.
+const row = (
+  over: Overrides<RecordedTransaction> & { dedupKey: string },
+): RecordedTransaction =>
+  recorded({
+    timestamp: "2026-03-15T00:00:00Z",
+    amount: -50000,
+    currency: "GBP",
+    description: "TRANSFER",
+    accountId: "accA",
+    transactionType: "DEBIT",
+    providerCategory: undefined,
+    ...over,
+  });
 
 describe("detectTransfers", () => {
   it("pairs equal and opposite amounts across different accounts", () => {
@@ -20,7 +28,12 @@ describe("detectTransfers", () => {
       row({ dedupKey: "in", amount: 50000, accountId: "accB" }),
     ]);
     expect(d.pairs).toHaveLength(1);
-    expect(d.pairs[0]).toMatchObject({ out: "out", in: "in", amount: 50000, daysApart: 0 });
+    expect(d.pairs[0]).toMatchObject({
+      out: "out",
+      in: "in",
+      amount: 50000,
+      daysApart: 0,
+    });
     expect(d.totalMoved).toBe(50000);
   });
 
@@ -37,8 +50,18 @@ describe("detectTransfers", () => {
   it("does not pair outside the window", () => {
     const d = detectTransfers(
       [
-        row({ dedupKey: "out", amount: -50000, accountId: "accA", timestamp: "2026-03-01T00:00:00Z" }),
-        row({ dedupKey: "in", amount: 50000, accountId: "accB", timestamp: "2026-03-20T00:00:00Z" }),
+        row({
+          dedupKey: "out",
+          amount: -50000,
+          accountId: "accA",
+          timestamp: "2026-03-01T00:00:00Z",
+        }),
+        row({
+          dedupKey: "in",
+          amount: 50000,
+          accountId: "accB",
+          timestamp: "2026-03-20T00:00:00Z",
+        }),
       ],
       { windowDays: 3 },
     );
@@ -62,10 +85,30 @@ describe("detectTransfers", () => {
     // debit with June's credit and leave the real pairs unmatched.
     const d = detectTransfers(
       [
-        row({ dedupKey: "outJan", amount: -50000, accountId: "accA", timestamp: "2026-01-05T00:00:00Z" }),
-        row({ dedupKey: "inJan", amount: 50000, accountId: "accB", timestamp: "2026-01-05T00:00:00Z" }),
-        row({ dedupKey: "outFeb", amount: -50000, accountId: "accA", timestamp: "2026-02-05T00:00:00Z" }),
-        row({ dedupKey: "inFeb", amount: 50000, accountId: "accB", timestamp: "2026-02-05T00:00:00Z" }),
+        row({
+          dedupKey: "outJan",
+          amount: -50000,
+          accountId: "accA",
+          timestamp: "2026-01-05T00:00:00Z",
+        }),
+        row({
+          dedupKey: "inJan",
+          amount: 50000,
+          accountId: "accB",
+          timestamp: "2026-01-05T00:00:00Z",
+        }),
+        row({
+          dedupKey: "outFeb",
+          amount: -50000,
+          accountId: "accA",
+          timestamp: "2026-02-05T00:00:00Z",
+        }),
+        row({
+          dedupKey: "inFeb",
+          amount: 50000,
+          accountId: "accB",
+          timestamp: "2026-02-05T00:00:00Z",
+        }),
       ],
       { windowDays: 60 },
     );
@@ -89,11 +132,21 @@ describe("netting invariant", () => {
     // untouched. Measured against the real ledger: gross fell by £574,551 on
     // each side and net stayed at -£51,834.45. If netting ever moves net, the
     // matcher has paired two unrelated transactions.
-    const rows: LedgerRow[] = [
+    const rows: RecordedTransaction[] = [
       row({ dedupKey: "out", amount: -50000, accountId: "accA" }),
       row({ dedupKey: "in", amount: 50000, accountId: "accB" }),
-      row({ dedupKey: "shop", amount: -1299, accountId: "accA", description: "SHOP" }),
-      row({ dedupKey: "pay", amount: 200000, accountId: "accA", description: "SALARY" }),
+      row({
+        dedupKey: "shop",
+        amount: -1299,
+        accountId: "accA",
+        description: "SHOP",
+      }),
+      row({
+        dedupKey: "pay",
+        amount: 200000,
+        accountId: "accA",
+        description: "SALARY",
+      }),
     ];
     const range = { from: "2026-01-01", to: "2026-12-31" };
 
@@ -109,10 +162,25 @@ describe("netting invariant", () => {
   });
 
   it("keeps transfer legs out of category totals", () => {
-    const rows: LedgerRow[] = [
-      row({ dedupKey: "out", amount: -50000, accountId: "accA", providerCategory: "TRANSFER" }),
-      row({ dedupKey: "in", amount: 50000, accountId: "accB", providerCategory: "TRANSFER" }),
-      row({ dedupKey: "shop", amount: -1299, accountId: "accA", providerCategory: "PURCHASE" }),
+    const rows: RecordedTransaction[] = [
+      row({
+        dedupKey: "out",
+        amount: -50000,
+        accountId: "accA",
+        providerCategory: "TRANSFER",
+      }),
+      row({
+        dedupKey: "in",
+        amount: 50000,
+        accountId: "accB",
+        providerCategory: "TRANSFER",
+      }),
+      row({
+        dedupKey: "shop",
+        amount: -1299,
+        accountId: "accA",
+        providerCategory: "PURCHASE",
+      }),
     ];
     const s = summarise(rows, [], { from: "2026-01-01", to: "2026-12-31" });
     expect(s.byCategory.map((c) => c.category)).toEqual(["PURCHASE"]);
@@ -126,7 +194,8 @@ describe("netting invariant", () => {
  * misstates the totals rather than crashing.
  */
 describe("detectTransfers, the edges", () => {
-  const at = (day: number) => `2026-03-${String(day).padStart(2, "0")}T00:00:00Z`;
+  const at = (day: number) =>
+    `2026-03-${String(day).padStart(2, "0")}T00:00:00Z`;
 
   it("ignores zero-amount rows instead of pairing them with each other", () => {
     // Two zeroes are equal and opposite in the most useless possible way.
@@ -138,7 +207,9 @@ describe("detectTransfers, the edges", () => {
   });
 
   it("never pairs an amount that appears only once", () => {
-    const d = detectTransfers([row({ dedupKey: "lonely", amount: -1234, accountId: "accA" })]);
+    const d = detectTransfers([
+      row({ dedupKey: "lonely", amount: -1234, accountId: "accA" }),
+    ]);
     expect(d.pairs).toHaveLength(0);
   });
 
@@ -163,8 +234,18 @@ describe("detectTransfers, the edges", () => {
     // The gap is measured absolutely. Banks do not agree on which leg posts
     // first, and a card payment often shows on the card before the account.
     const d = detectTransfers([
-      row({ dedupKey: "out", amount: -7500, accountId: "accA", timestamp: at(10) }),
-      row({ dedupKey: "in", amount: 7500, accountId: "accB", timestamp: at(8) }),
+      row({
+        dedupKey: "out",
+        amount: -7500,
+        accountId: "accA",
+        timestamp: at(10),
+      }),
+      row({
+        dedupKey: "in",
+        amount: 7500,
+        accountId: "accB",
+        timestamp: at(8),
+      }),
     ]);
     expect(d.pairs).toHaveLength(1);
   });
@@ -172,8 +253,18 @@ describe("detectTransfers, the edges", () => {
   it("pairs at the window boundary and not beyond it", () => {
     const pair = (daysApart: number) =>
       detectTransfers([
-        row({ dedupKey: "out", amount: -900, accountId: "accA", timestamp: at(10) }),
-        row({ dedupKey: "in", amount: 900, accountId: "accB", timestamp: at(10 + daysApart) }),
+        row({
+          dedupKey: "out",
+          amount: -900,
+          accountId: "accA",
+          timestamp: at(10),
+        }),
+        row({
+          dedupKey: "in",
+          amount: 900,
+          accountId: "accB",
+          timestamp: at(10 + daysApart),
+        }),
       ]).pairs;
     expect(pair(3)).toHaveLength(1);
     expect(pair(4)).toHaveLength(0);
@@ -182,8 +273,18 @@ describe("detectTransfers, the edges", () => {
   it("honours a widened window", () => {
     const d = detectTransfers(
       [
-        row({ dedupKey: "out", amount: -900, accountId: "accA", timestamp: at(10) }),
-        row({ dedupKey: "in", amount: 900, accountId: "accB", timestamp: at(16) }),
+        row({
+          dedupKey: "out",
+          amount: -900,
+          accountId: "accA",
+          timestamp: at(10),
+        }),
+        row({
+          dedupKey: "in",
+          amount: 900,
+          accountId: "accB",
+          timestamp: at(16),
+        }),
       ],
       { windowDays: 7 },
     );
@@ -195,10 +296,30 @@ describe("detectTransfers, the edges", () => {
     // matching, March's debit pairs with a credit weeks away and the real
     // pairs are left unmatched — which shows up as phantom spending.
     const d = detectTransfers([
-      row({ dedupKey: "out1", amount: -50000, accountId: "accA", timestamp: at(1) }),
-      row({ dedupKey: "in1", amount: 50000, accountId: "accB", timestamp: at(2) }),
-      row({ dedupKey: "out2", amount: -50000, accountId: "accA", timestamp: at(20) }),
-      row({ dedupKey: "in2", amount: 50000, accountId: "accB", timestamp: at(21) }),
+      row({
+        dedupKey: "out1",
+        amount: -50000,
+        accountId: "accA",
+        timestamp: at(1),
+      }),
+      row({
+        dedupKey: "in1",
+        amount: 50000,
+        accountId: "accB",
+        timestamp: at(2),
+      }),
+      row({
+        dedupKey: "out2",
+        amount: -50000,
+        accountId: "accA",
+        timestamp: at(20),
+      }),
+      row({
+        dedupKey: "in2",
+        amount: 50000,
+        accountId: "accB",
+        timestamp: at(21),
+      }),
     ]);
     expect(d.pairs).toHaveLength(2);
     for (const p of d.pairs) {
@@ -221,7 +342,8 @@ describe("detectTransfers, the edges", () => {
 });
 
 describe("nearest-first matching", () => {
-  const at = (day: number) => `2026-03-${String(day).padStart(2, "0")}T00:00:00Z`;
+  const at = (day: number) =>
+    `2026-03-${String(day).padStart(2, "0")}T00:00:00Z`;
 
   it("prefers the closest counterpart even when array order suggests otherwise", () => {
     // Constructed so the first pairing the loops reach is NOT the nearest:
@@ -229,14 +351,37 @@ describe("nearest-first matching", () => {
     // Without the sort both still pair — inside the window — but against the
     // wrong partners, and `daysApart` is the only thing that shows it.
     const d = detectTransfers([
-      row({ dedupKey: "out1", amount: -4200, accountId: "accA", timestamp: at(1) }),
-      row({ dedupKey: "out2", amount: -4200, accountId: "accA", timestamp: at(3) }),
-      row({ dedupKey: "in1", amount: 4200, accountId: "accB", timestamp: at(4) }),
-      row({ dedupKey: "in2", amount: 4200, accountId: "accB", timestamp: at(2) }),
+      row({
+        dedupKey: "out1",
+        amount: -4200,
+        accountId: "accA",
+        timestamp: at(1),
+      }),
+      row({
+        dedupKey: "out2",
+        amount: -4200,
+        accountId: "accA",
+        timestamp: at(3),
+      }),
+      row({
+        dedupKey: "in1",
+        amount: 4200,
+        accountId: "accB",
+        timestamp: at(4),
+      }),
+      row({
+        dedupKey: "in2",
+        amount: 4200,
+        accountId: "accB",
+        timestamp: at(2),
+      }),
     ]);
 
     expect(d.pairs).toHaveLength(2);
     expect(d.pairs.every((p) => p.daysApart <= 1)).toBe(true);
-    expect(d.pairs.map((p) => `${p.out}->${p.in}`).sort()).toEqual(["out1->in2", "out2->in1"]);
+    expect(d.pairs.map((p) => `${p.out}->${p.in}`).sort()).toEqual([
+      "out1->in2",
+      "out2->in1",
+    ]);
   });
 });

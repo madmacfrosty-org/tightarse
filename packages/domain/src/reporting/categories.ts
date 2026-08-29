@@ -16,13 +16,15 @@
 
 import { resolve, type SetOrder } from "../categorisation/resolve.js";
 import { Categorisation } from "../categorisation/categorisation.js";
-import type { AssignedCategory, LedgerRow } from "./summary.js";
+import type { RecordedTransaction } from "../ledger/transaction.js";
 import type { Row } from "../ports/outbound/index.js";
 
 /** Set precedence, from the sets themselves. Data, never load order. */
 export function orderOf(sets: readonly Row[]): SetOrder[] {
   return sets
-    .filter((s) => typeof s["setId"] === "string" && typeof s["order"] === "number")
+    .filter(
+      (s) => typeof s["setId"] === "string" && typeof s["order"] === "number",
+    )
     .map((s) => ({ setId: String(s["setId"]), order: Number(s["order"]) }));
 }
 
@@ -35,10 +37,10 @@ export function orderOf(sets: readonly Row[]): SetOrder[] {
  * spending category.
  */
 export function effectiveCategories(
-  transactions: readonly LedgerRow[],
+  transactions: readonly RecordedTransaction[],
   categorisations: readonly Row[],
   order: readonly SetOrder[],
-): AssignedCategory[] {
+): Categorisation[] {
   const stored = new Map<string, Categorisation[]>();
   for (const row of categorisations) {
     const parsed = Categorisation.safeParse(row);
@@ -48,19 +50,19 @@ export function effectiveCategories(
     stored.set(parsed.data.dedupKey, forKey);
   }
 
-  const out = new Map<string, AssignedCategory>();
+  const out = new Map<string, Categorisation>();
 
   for (const tx of transactions) {
     const forTx = stored.get(tx.dedupKey);
     if (forTx === undefined) continue;
 
-    const effective = resolve(tx as never, forTx, order).effective;
+    const effective = resolve(tx, forTx, order).effective;
     // Skip the provider's own: it is not stored, so it cannot be here, but a
     // future source might be — and a report should not silently promote a
     // payment rail to a spending category.
     if (effective === undefined || effective.setId === "provider") continue;
 
-    out.set(tx.dedupKey, { dedupKey: tx.dedupKey, category: effective.category, setId: effective.setId });
+    out.set(tx.dedupKey, effective);
   }
 
   return [...out.values()];

@@ -1,4 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
+import { recorded, type Overrides } from "./recorded.js";
+import type { RecordedTransaction } from "../src/ledger/transaction.js";
+import type { Categorisation } from "../src/categorisation/categorisation.js";
 import { backlog, inspection } from "../src/application/inspect.js";
 import type { InspectDeps } from "../src/application/inspect.js";
 import type { Row } from "../src/ports/outbound/index.js";
@@ -17,14 +20,21 @@ import type { Row } from "../src/ports/outbound/index.js";
 
 const RANGE = { from: "2026-01-01", to: "2026-12-31" };
 
-const row = (description: string, over: Partial<Row> = {}): Row => ({
-  dedupKey: `d-${description}`,
-  description,
-  amount: -10_00,
-  currency: "GBP",
-  timestamp: "2026-01-05T00:00:00.000Z",
-  ...over,
-});
+const row = (
+  description: string,
+  over: Overrides<RecordedTransaction> = {},
+): RecordedTransaction =>
+  recorded({
+    dedupKey: `d-${description}`,
+    description,
+    amount: -10_00,
+    currency: "GBP",
+    timestamp: "2026-01-05T00:00:00.000Z",
+    // Blank: the backlog is about what the rules do and do not reach, and a
+    // provider category would answer for descriptions no rule covers.
+    providerCategory: undefined,
+    ...over,
+  });
 
 const ruleSetRow = (over: Record<string, unknown> = {}): Row => ({
   setId: "built-in",
@@ -44,12 +54,17 @@ const ruleSetRow = (over: Record<string, unknown> = {}): Row => ({
   ...over,
 });
 
-const deps = (transactions: Row[], sets: Row[] = [ruleSetRow()]): InspectDeps => ({
+const deps = (
+  transactions: RecordedTransaction[],
+  sets: Row[] = [ruleSetRow()],
+): InspectDeps => ({
   transactions: {
-    listRange: vi.fn(async () => ({ transactions, categorisations: [] as Row[] })),
-    listAccountRange: vi.fn(async () => [] as Row[]),
+    listRange: vi.fn(async () => ({
+      transactions,
+      categorisations: [] as Categorisation[],
+    })),
+    listAccountRange: vi.fn(async () => [] as RecordedTransaction[]),
     putTransactions: vi.fn(async () => ({ written: 0 })),
-    listPending: vi.fn(async () => [] as Row[]),
     replacePending: vi.fn(async () => ({ deleted: 0, written: 0 })),
   },
   ruleSets: {
@@ -62,11 +77,18 @@ const deps = (transactions: Row[], sets: Row[] = [ruleSetRow()]): InspectDeps =>
 
 describe("describing the backlog", () => {
   it("collapses what the rules leave uncovered", async () => {
-    const b = await backlog(deps([row("SOMEMART 118"), row("UNKNOWN SHOP")]), "frost", RANGE);
+    const b = await backlog(
+      deps([row("SOMEMART 118"), row("UNKNOWN SHOP")]),
+      "frost",
+      RANGE,
+    );
 
     expect(b.scanned).toBe(2);
     expect(b.gaps.map((g) => g.description)).toEqual(["UNKNOWN SHOP"]);
-    expect(b.descriptions.map((d) => d.description).sort()).toEqual(["SOMEMART 118", "UNKNOWN SHOP"]);
+    expect(b.descriptions.map((d) => d.description).sort()).toEqual([
+      "SOMEMART 118",
+      "UNKNOWN SHOP",
+    ]);
   });
 
   it("takes the category from the rules as they stand, not from what was stored", async () => {
@@ -77,15 +99,26 @@ describe("describing the backlog", () => {
     const [only] = b.descriptions;
 
     expect(only).toMatchObject({ uncategorised: 0 });
-    expect(only!.categories).toEqual([{ category: "groceries", transactions: 1 }]);
+    expect(only!.categories).toEqual([
+      { category: "groceries", transactions: 1 },
+    ]);
   });
 
   it("finds a recurring amount that arrives under a different description each time", async () => {
     const b = await backlog(
       deps([
-        row("DD REF 1", { amount: -95_00, timestamp: "2026-01-05T00:00:00.000Z" }),
-        row("DD REF 2", { amount: -95_00, timestamp: "2026-02-02T00:00:00.000Z" }),
-        row("DD REF 3", { amount: -95_00, timestamp: "2026-03-02T00:00:00.000Z" }),
+        row("DD REF 1", {
+          amount: -95_00,
+          timestamp: "2026-01-05T00:00:00.000Z",
+        }),
+        row("DD REF 2", {
+          amount: -95_00,
+          timestamp: "2026-02-02T00:00:00.000Z",
+        }),
+        row("DD REF 3", {
+          amount: -95_00,
+          timestamp: "2026-03-02T00:00:00.000Z",
+        }),
       ]),
       "frost",
       RANGE,
@@ -104,14 +137,32 @@ describe("describing the backlog", () => {
       setId: "household",
       order: 0,
       rules: [
-        { matcher: { kind: "merchant", pattern: "somemart" }, contributes: { kind: "assert", category: "groceries" }, appliesTo: "debits" },
-        { matcher: { kind: "merchant", pattern: "somemart" }, contributes: { kind: "assert", category: "fuel" }, appliesTo: "debits" },
+        {
+          matcher: { kind: "merchant", pattern: "somemart" },
+          contributes: { kind: "assert", category: "groceries" },
+          appliesTo: "debits",
+        },
+        {
+          matcher: { kind: "merchant", pattern: "somemart" },
+          contributes: { kind: "assert", category: "fuel" },
+          appliesTo: "debits",
+        },
       ],
     });
-    const b = await backlog(deps([row("SOMEMART 118")], [clashing]), "frost", RANGE);
+    const b = await backlog(
+      deps([row("SOMEMART 118")], [clashing]),
+      "frost",
+      RANGE,
+    );
 
     expect(b.conflicts).toEqual([
-      { setId: "household", categories: ["groceries", "fuel"], rules: [0, 1], transactions: 1, example: "SOMEMART 118" },
+      {
+        setId: "household",
+        categories: ["groceries", "fuel"],
+        rules: [0, 1],
+        transactions: 1,
+        example: "SOMEMART 118",
+      },
     ]);
     // Deliberately not a gap. Conflating the two would lose the distinction
     // between "no rule covers this" and "two rules fight over it", which are
@@ -138,20 +189,31 @@ describe("describing the backlog", () => {
   it("skips a rule set it cannot read rather than refusing to describe the ledger", async () => {
     // A scan returns whatever is stored. An unreadable set matches nothing,
     // which is exactly what it would do during application.
-    const b = await backlog(deps([row("SOMEMART 118")], [{ setId: "broken" }, ruleSetRow()]), "frost", RANGE);
+    const b = await backlog(
+      deps([row("SOMEMART 118")], [{ setId: "broken" }, ruleSetRow()]),
+      "frost",
+      RANGE,
+    );
 
-    expect(b.descriptions[0]!.categories).toEqual([{ category: "groceries", transactions: 1 }]);
+    expect(b.descriptions[0]!.categories).toEqual([
+      { category: "groceries", transactions: 1 },
+    ]);
   });
 
-  it("treats a row with no timestamp as readable, because one bad row is not the ledger", async () => {
-    const b = await backlog(deps([row("UNKNOWN SHOP", { timestamp: undefined })]), "frost", RANGE);
-
-    expect(b.scanned).toBe(1);
-    expect(b.recurrences).toEqual([]);
-    // Empty, not the string "undefined" and not invented — a missing booking
-    // date is missing, and anything that reads this can tell.
-    expect(b.descriptions[0]).toMatchObject({ firstSeen: "", lastSeen: "" });
-  });
+  /*
+   * A transaction with no timestamp used to be tested here, because the port
+   * handed back untyped rows and the domain had to cope with whatever a scan
+   * returned. It no longer can: `listRange` returns `RecordedTransaction`, and
+   * a row that is not one never reaches this function.
+   *
+   * The tolerance did not disappear, it moved and changed sides. Rule sets are
+   * still skipped when unreadable (above) because a rule that matches nothing
+   * is safe. A transaction is not configuration — it is money that moved, and
+   * dropping one does not degrade a total, it changes it. That is the same
+   * choice `assertSingleCurrency` already makes: an error rather than a
+   * plausible wrong number. The refusal is now pinned where it happens, in
+   * packages/dynamodb/test/parse.test.ts.
+   */
 });
 
 describe("the inbound port", () => {

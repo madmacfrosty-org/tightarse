@@ -18,9 +18,15 @@
  */
 
 import type { Account } from "../../ledger/account.js";
-import type { Transaction } from "../../ledger/transaction.js";
+import type {
+  Transaction,
+  RecordedTransaction,
+} from "../../ledger/transaction.js";
 import type { BalanceReading } from "../../ledger/balance.js";
-import type { ReconciliationMovement, Reading } from "../../ledger/reconciliation.js";
+import type {
+  ReconciliationMovement,
+  Reading,
+} from "../../ledger/reconciliation.js";
 import type { AccountId } from "../../ledger/account.js";
 import type { Categorisation } from "../../categorisation/categorisation.js";
 import type { Category } from "../../categorisation/category.js";
@@ -45,20 +51,33 @@ export interface Transactions {
   listRange(
     tenantId: string,
     range: DateRange,
-  ): Promise<{ transactions: Row[]; categorisations: Row[] }>;
-  listAccountRange(tenantId: string, accountId: string, range: DateRange): Promise<Row[]>;
+  ): Promise<{
+    transactions: RecordedTransaction[];
+    categorisations: Categorisation[];
+  }>;
+  listAccountRange(
+    tenantId: string,
+    accountId: string,
+    range: DateRange,
+  ): Promise<RecordedTransaction[]>;
   putTransactions(
     txns: readonly Transaction[],
     opts?: { sourceObject?: string },
   ): Promise<{ written: number }>;
-  listPending(tenantId: string, accountId: string): Promise<Row[]>;
+  /**
+   * Pending rows are not listed here.
+   *
+   * Nothing in the domain reads them: they are a transient cache the adapter
+   * replaces wholesale, and the only caller is `replacePending`, which needs
+   * the storage keys in order to delete. A port states what the domain MAY ask
+   * for, and reading pending rows is not something it asks for at all.
+   */
   replacePending(
     tenantId: string,
     accountId: string,
     txns: readonly Transaction[],
   ): Promise<{ deleted: number; written: number }>;
 }
-
 
 /**
  * The category catalogue.
@@ -94,7 +113,10 @@ export interface RuleProposer {
    *
    * Returning nothing is a legitimate answer, and the default one.
    */
-  propose(evidence: Evidence, sets: readonly RuleSet[]): Promise<readonly RuleSet[]>;
+  propose(
+    evidence: Evidence,
+    sets: readonly RuleSet[],
+  ): Promise<readonly RuleSet[]>;
 }
 
 /** Categorisations. Current rows arrive via `Transactions.listRange`. */
@@ -108,11 +130,19 @@ export interface Accounts {
   listAccounts(tenantId: string): Promise<Row[]>;
   /** Balances are optional: the accounts list carries none, and a later balance
    *  fetch fills them in without disturbing the identity fields. */
-  putAccount(account: Account, balances?: { current?: number; available?: number }): Promise<void>;
+  putAccount(
+    account: Account,
+    balances?: { current?: number; available?: number },
+  ): Promise<void>;
   putBalances(
     tenantId: string,
     accountId: string,
-    balances: { current?: number; available?: number; currency?: string; isCard?: boolean },
+    balances: {
+      current?: number;
+      available?: number;
+      currency?: string;
+      isCard?: boolean;
+    },
   ): Promise<void>;
 }
 
@@ -315,7 +345,10 @@ export interface LedgerReads {
   listRange(
     tenantId: string,
     range: DateRange,
-  ): Promise<{ transactions: Row[]; categorisations: Row[] }>;
+  ): Promise<{
+    transactions: RecordedTransaction[];
+    categorisations: Categorisation[];
+  }>;
   listAccounts(tenantId: string): Promise<Row[]>;
   /**
    * The rule sets, for their precedence.
@@ -356,11 +389,19 @@ export interface LedgerWrites {
   ): Promise<{ deleted: number; written: number }>;
   /** Balances are optional: the accounts list carries none, and a later balance
    *  fetch fills them in without disturbing the identity fields. */
-  putAccount(account: Account, balances?: { current?: number; available?: number }): Promise<void>;
+  putAccount(
+    account: Account,
+    balances?: { current?: number; available?: number },
+  ): Promise<void>;
   putBalances(
     tenantId: string,
     accountId: string,
-    balances: { current?: number; available?: number; currency?: string; isCard?: boolean },
+    balances: {
+      current?: number;
+      available?: number;
+      currency?: string;
+      isCard?: boolean;
+    },
   ): Promise<void>;
   putBalanceReading(reading: BalanceReading): Promise<void>;
 }
@@ -415,7 +456,6 @@ export interface ReconciliationMarks {
     fetchedAt: string,
   ): Promise<void>;
 }
-
 
 /** What a provider hands back for a set of credentials. */
 export interface BankToken {

@@ -6,6 +6,8 @@ import type {
   Summary,
 } from "../index.js";
 import { PROVIDER_SET } from "../categorisation/provider.js";
+import type { Categorisation } from "../categorisation/categorisation.js";
+import type { RecordedTransaction } from "../ledger/transaction.js";
 import { assertSingleCurrency } from "../index.js";
 import { detectTransfers, type TransferOptions } from "./transfers.js";
 
@@ -20,16 +22,14 @@ import { detectTransfers, type TransferOptions } from "./transfers.js";
  * of the application's own vocabulary. They are domain shapes; how they are spelled
  * on the wire is `wire.ts`'s problem.
  *
- * `LedgerRow` and `AssignedCategory` stay below: they describe what comes back from
- * the ledger, which is an input to this file rather than a result.
+ * The ledger's own shapes are not redeclared here either. `RecordedTransaction`
+ * and `Categorisation` come from the domain that defines them, so a field
+ * renamed there fails here rather than quietly reading as undefined (#41).
  */
 // No re-export: these are declared in ports/inbound and reach consumers through
 // the package index. Passing them through here was for the API's convenience when
 // this file lived in that service, and inside one package it is a second export
 // of the same name.
-
-/** Mutable while accumulating. See `summarise`. */
-type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 /**
  * Aggregation over ledger rows. Pure — no DynamoDB, no HTTP.
@@ -39,32 +39,8 @@ type Mutable<T> = { -readonly [K in keyof T]: T[K] };
  * plausible wrong total is worse than an error.
  */
 
-export interface LedgerRow {
-  dedupKey: string;
-  timestamp: string;
-  amount: number;
-  currency: string;
-  description: string;
-  accountId: string;
-  providerCategory?: string;
-  transactionType: string;
-}
-
-/**
- * A category assigned to a transaction, and by which set.
- *
- * The set is here because trust is a property of a set, not a flag on a row —
- * a client that knows a category came from the provider's own taxonomy knows
- * everything the retired `provisional` boolean used to tell it, and can say
- * more besides.
- */
-export interface AssignedCategory {
-  dedupKey: string;
-  category: string;
-  setId: string;
-}
-
-
+/** Mutable while accumulating. See `summarise`. */
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 /**
  * Category for a row: what a rule set assigned, or the provider's own value.
@@ -74,15 +50,21 @@ export interface AssignedCategory {
  * DIRECT_DEBIT and so on. Useful as a shape, not as a spending category, which
  * is why it names its own set rather than passing as one of ours.
  */
-function categoryOf(row: LedgerRow, assigned: Map<string, AssignedCategory>): { category: string; setId: string } {
+function categoryOf(
+  row: RecordedTransaction,
+  assigned: Map<string, Categorisation>,
+): { category: string; setId: string } {
   const a = assigned.get(row.dedupKey);
   if (a) return { category: a.category, setId: a.setId };
-  return { category: row.providerCategory ?? "UNCATEGORISED", setId: PROVIDER_SET };
+  return {
+    category: row.providerCategory ?? "UNCATEGORISED",
+    setId: PROVIDER_SET,
+  };
 }
 
 export function summarise(
-  transactions: readonly LedgerRow[],
-  categorised: readonly AssignedCategory[],
+  transactions: readonly RecordedTransaction[],
+  categorised: readonly Categorisation[],
   range: { from: string; to: string },
   opts: { transfers?: TransferOptions | false } = {},
 ): Summary {
@@ -119,7 +101,12 @@ export function summarise(
 
     const { category, setId } = categoryOf(row, assigned);
     const fromProvider = setId === PROVIDER_SET;
-    const c = categories.get(category) ?? { category, total: 0, count: 0, provisional: fromProvider };
+    const c = categories.get(category) ?? {
+      category,
+      total: 0,
+      count: 0,
+      provisional: fromProvider,
+    };
     c.total += row.amount;
     c.count += 1;
     // Still a boolean on the aggregate, because "which set" is not single-valued
@@ -129,7 +116,13 @@ export function summarise(
     categories.set(category, c);
 
     const month = row.timestamp.slice(0, 7);
-    const m = months.get(month) ?? { month, income: 0, spend: 0, net: 0, count: 0 };
+    const m = months.get(month) ?? {
+      month,
+      income: 0,
+      spend: 0,
+      net: 0,
+      count: 0,
+    };
     if (row.amount >= 0) m.income += row.amount;
     else m.spend += row.amount;
     m.net += row.amount;
@@ -147,7 +140,9 @@ export function summarise(
     net: income + spend,
     // Largest spend first: negative totals ascending.
     byCategory: [...categories.values()].sort((a, b) => a.total - b.total),
-    byMonth: [...months.values()].sort((a, b) => a.month.localeCompare(b.month)),
+    byMonth: [...months.values()].sort((a, b) =>
+      a.month.localeCompare(b.month),
+    ),
     internalTransfersNetted: opts.transfers !== false,
     transferCount: detection.keys.size,
     transferTotal: detection.totalMoved,
@@ -155,15 +150,43 @@ export function summarise(
   };
 }
 
-/** Transactions with their category attached, newest first. */
+/**
+ * Transactions with their category attached, newest first.
+ *
+ * A projection, not a spread. This used to end `{ ...row, ...categoryOf(row) }`,
+ * which put every attribute the row happened to carry into the response — the
+ * table's partition and sort keys, both GSI keys, `kind`, the tenant id, the
+ * provider's transaction ids and the raw object's S3 key. The return type did
+ * not stop it: TypeScript checks excess properties on an object literal, not on
+ * a spread, so `CategorisedTransaction` naming ten fields constrained nothing at
+ * run time and `wire.ts` copies the array rather than projecting it.
+ *
+ * `AccountView` already says why this matters — the stored row's keys and ids
+ * are "none of which a client has any use for, and all of which become a promise
+ * the moment they are served". `/accounts` got `toAccountState`; `/transactions`
+ * never got the equivalent. Naming the fields is what makes the contract and the
+ * response the same thing.
+ */
 export function mergeCategories(
-  transactions: readonly LedgerRow[],
-  categorised: readonly AssignedCategory[],
+  transactions: readonly RecordedTransaction[],
+  categorised: readonly Categorisation[],
 ): CategorisedTransaction[] {
   const assigned = new Map(categorised.map((a) => [a.dedupKey, a]));
   return [...transactions]
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
-    .map((row) => ({ ...row, ...categoryOf(row, assigned) }));
+    .map((row) => ({
+      dedupKey: row.dedupKey,
+      timestamp: row.timestamp,
+      amount: row.amount,
+      currency: row.currency,
+      description: row.description,
+      accountId: row.accountId,
+      transactionType: row.transactionType,
+      ...(row.providerCategory === undefined
+        ? {}
+        : { providerCategory: row.providerCategory }),
+      ...categoryOf(row, assigned),
+    }));
 }
 
 /**
@@ -191,13 +214,25 @@ export function toAccountState(row: Record<string, unknown>): AccountState {
     // Absent rather than defaulted. See the contract: for isCard in particular,
     // "not yet known" and "not a card" are different answers and #29 is about
     // what a client should do with the difference.
-    ...(str("displayName") !== undefined ? { displayName: str("displayName")! } : {}),
-    ...(str("institutionName") !== undefined ? { institutionName: str("institutionName")! } : {}),
+    ...(str("displayName") !== undefined
+      ? { displayName: str("displayName")! }
+      : {}),
+    ...(str("institutionName") !== undefined
+      ? { institutionName: str("institutionName")! }
+      : {}),
     ...(str("currency") !== undefined ? { currency: str("currency")! } : {}),
     ...(typeof row["isCard"] === "boolean" ? { isCard: row["isCard"] } : {}),
-    ...(str("accountType") !== undefined ? { accountType: str("accountType")! } : {}),
-    ...(num("currentBalance") !== undefined ? { currentBalance: num("currentBalance")! } : {}),
-    ...(num("availableBalance") !== undefined ? { availableBalance: num("availableBalance")! } : {}),
-    ...(str("lastSyncedAt") !== undefined ? { lastSyncedAt: str("lastSyncedAt")! } : {}),
+    ...(str("accountType") !== undefined
+      ? { accountType: str("accountType")! }
+      : {}),
+    ...(num("currentBalance") !== undefined
+      ? { currentBalance: num("currentBalance")! }
+      : {}),
+    ...(num("availableBalance") !== undefined
+      ? { availableBalance: num("availableBalance")! }
+      : {}),
+    ...(str("lastSyncedAt") !== undefined
+      ? { lastSyncedAt: str("lastSyncedAt")! }
+      : {}),
   };
 }

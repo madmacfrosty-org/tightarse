@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import {
-  type Transaction,
-} from "@tightarse/domain";
+import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { type Transaction } from "@tightarse/domain";
 import { DynamoStore } from "../src/dynamo-store";
+import { DynamoTransactions } from "../src/transactions";
 import { resolveTestTarget } from "../src/test-table";
+import { keys } from "../src/keys";
 
 /**
  * Integration tests against a real DynamoDB.
@@ -61,7 +61,11 @@ const suite = TABLE ? describe : describe.skip;
  * wrong. If these are ever pointed at a store that outlives the run, that
  * assumption is what breaks.
  */
-function testLedger(): { ledger: DynamoStore; doc: DynamoDBDocumentClient } {
+function testLedger(): {
+  ledger: DynamoStore;
+  transactions: DynamoTransactions;
+  doc: DynamoDBDocumentClient;
+} {
   // Throws rather than falling back if this run is aimed anywhere it should not
   // be. Reached only inside a suite that already skipped without a table, so an
   // unconfigured machine still gets a skip rather than a failure.
@@ -84,9 +88,19 @@ function testLedger(): { ledger: DynamoStore; doc: DynamoDBDocumentClient } {
     }),
     { marshallOptions: { removeUndefinedValues: true } },
   );
-  return { ledger: new DynamoStore({ tableName: target.tableName, client: doc }), doc };
+  return {
+    ledger: new DynamoStore({ tableName: target.tableName, client: doc }),
+    // Pending rows are not on any port: nothing in the domain reads them, and
+    // `replacePending` is the only caller. Observing them here means holding
+    // the adapter that owns them rather than widening the store's surface to
+    // suit a test.
+    transactions: new DynamoTransactions({
+      tableName: target.tableName,
+      client: doc,
+    }),
+    doc,
+  };
 }
-
 
 const txn = (over: Partial<Transaction> = {}): Transaction => ({
   tenantId: TENANT,
@@ -104,34 +118,80 @@ const txn = (over: Partial<Transaction> = {}): Transaction => ({
 
 suite("DynamoStore (integration)", () => {
   let ledger: DynamoStore;
+  let transactions: DynamoTransactions;
+  let doc: DynamoDBDocumentClient;
 
   beforeAll(() => {
-    ({ ledger } = testLedger());
+    ({ ledger, transactions, doc } = testLedger());
   });
+
+  /**
+   * The row as it is stored, storage attributes and all.
+   *
+   * `listRange` returns `RecordedTransaction`, which deliberately does not
+   * carry `sourceObject`: nothing in the domain reads it. Asserting that it
+   * survives a rewrite therefore has to look at the row rather than at what
+   * the port hands the domain.
+   */
+  const storedRows = async (from: string, to: string): Promise<Record<string, unknown>[]> => {
+    const res = await doc.send(
+      new QueryCommand({
+        TableName: TABLE,
+        KeyConditionExpression: "pk = :pk AND sk BETWEEN :from AND :to",
+        ExpressionAttributeValues: {
+          ":pk": keys.transaction(TENANT, from, "").pk,
+          ":from": from,
+          ":to": `${to}\uffff`,
+        },
+      }),
+    );
+    return (res.Items ?? []) as Record<string, unknown>[];
+  };
 
   it("round-trips transactions through a date range query", async () => {
     await ledger.putTransactions([
-      txn({ normalisedProviderTransactionId: "norm-1", timestamp: "2026-03-15T00:00:00Z" }),
-      txn({ normalisedProviderTransactionId: "norm-2", timestamp: "2026-04-02T00:00:00Z" }),
-      txn({ normalisedProviderTransactionId: "norm-3", timestamp: "2026-09-01T00:00:00Z" }),
+      txn({
+        normalisedProviderTransactionId: "norm-1",
+        timestamp: "2026-03-15T00:00:00Z",
+      }),
+      txn({
+        normalisedProviderTransactionId: "norm-2",
+        timestamp: "2026-04-02T00:00:00Z",
+      }),
+      txn({
+        normalisedProviderTransactionId: "norm-3",
+        timestamp: "2026-09-01T00:00:00Z",
+      }),
     ]);
 
-    const march = await ledger.listRange(TENANT, { from: "2026-03-01", to: "2026-05-01" });
+    const march = await ledger.listRange(TENANT, {
+      from: "2026-03-01",
+      to: "2026-05-01",
+    });
     expect(march.transactions).toHaveLength(2);
 
     // Spanning months is one query, not one per month — the point of dropping
     // the month partition.
-    const all = await ledger.listRange(TENANT, { from: "2026-01-01", to: "2027-01-01" });
+    const all = await ledger.listRange(TENANT, {
+      from: "2026-01-01",
+      to: "2027-01-01",
+    });
     expect(all.transactions).toHaveLength(3);
   });
 
   it("is idempotent, so replaying raw converges instead of duplicating", async () => {
-    const t = txn({ normalisedProviderTransactionId: "dupe", timestamp: "2026-05-01T00:00:00Z" });
+    const t = txn({
+      normalisedProviderTransactionId: "dupe",
+      timestamp: "2026-05-01T00:00:00Z",
+    });
     await ledger.putTransactions([t]);
     await ledger.putTransactions([t]);
     await ledger.putTransactions([t]);
 
-    const found = await ledger.listRange(TENANT, { from: "2026-05-01", to: "2026-05-02" });
+    const found = await ledger.listRange(TENANT, {
+      from: "2026-05-01",
+      to: "2026-05-02",
+    });
     expect(found.transactions).toHaveLength(1);
   });
 
@@ -144,29 +204,43 @@ suite("DynamoStore (integration)", () => {
     //
     // The rolling sync window refetches ten days daily, so this is the ordinary
     // case and not an edge one.
-    const t = txn({ normalisedProviderTransactionId: "stable", timestamp: "2026-05-02T00:00:00Z" });
+    const t = txn({
+      normalisedProviderTransactionId: "stable",
+      timestamp: "2026-05-02T00:00:00Z",
+    });
     await ledger.putTransactions([t], { sourceObject: "raw/first.json.gz" });
-    const [before] = (await ledger.listRange(TENANT, { from: "2026-05-02", to: "2026-05-03" })).transactions;
+    const [before] = (
+      await ledger.listRange(TENANT, { from: "2026-05-02", to: "2026-05-03" })
+    ).transactions;
 
     // Far enough apart that a rewritten timestamp could not coincide.
     await new Promise((r) => setTimeout(r, 1100));
     await ledger.putTransactions([t], { sourceObject: "raw/second.json.gz" });
-    const [after] = (await ledger.listRange(TENANT, { from: "2026-05-02", to: "2026-05-03" })).transactions;
+    const [after] = (
+      await ledger.listRange(TENANT, { from: "2026-05-02", to: "2026-05-03" })
+    ).transactions;
 
     expect(after).toEqual(before);
     // Named individually, so a failure says which half of the guarantee broke.
-    expect(after!["ingestedAt"]).toBe(before!["ingestedAt"]);
-    expect(after!["sourceObject"]).toBe("raw/first.json.gz");
+    expect(after!.ingestedAt).toBe(before!.ingestedAt);
+    // The raw row, because `sourceObject` does not cross the port.
+    const [stored] = await storedRows("2026-05-02", "2026-05-03");
+    expect(stored!["sourceObject"]).toBe("raw/first.json.gz");
   });
 
   it("drops an attribute that is explicitly undefined rather than failing", async () => {
     // An optional field the provider did not send arrives as undefined once it
     // has been through a mapper. DynamoDB rejects undefined outright, so writing
     // it would fail the whole object and stall the ledger on one absent field.
-    const t = txn({ normalisedProviderTransactionId: "undef", timestamp: "2026-05-04T00:00:00Z" });
+    const t = txn({
+      normalisedProviderTransactionId: "undef",
+      timestamp: "2026-05-04T00:00:00Z",
+    });
     await ledger.putTransactions([{ ...t, merchantName: undefined }]);
 
-    const [row] = (await ledger.listRange(TENANT, { from: "2026-05-04", to: "2026-05-05" })).transactions;
+    const [row] = (
+      await ledger.listRange(TENANT, { from: "2026-05-04", to: "2026-05-05" })
+    ).transactions;
     expect(row).toBeDefined();
     expect(row).not.toHaveProperty("merchantName");
   });
@@ -174,21 +248,27 @@ suite("DynamoStore (integration)", () => {
   it("still updates what the transaction itself says", async () => {
     // Preserving provenance must not freeze the row. A settled amount can be
     // corrected by the provider, and the correction has to land.
-    const t = txn({ normalisedProviderTransactionId: "amend", timestamp: "2026-05-03T00:00:00Z", amount: -1000 });
+    const t = txn({
+      normalisedProviderTransactionId: "amend",
+      timestamp: "2026-05-03T00:00:00Z",
+      amount: -1000,
+    });
     await ledger.putTransactions([t]);
     await ledger.putTransactions([{ ...t, amount: -1250 }]);
 
-    const [row] = (await ledger.listRange(TENANT, { from: "2026-05-03", to: "2026-05-04" })).transactions;
+    const [row] = (
+      await ledger.listRange(TENANT, { from: "2026-05-03", to: "2026-05-04" })
+    ).transactions;
     expect(row!["amount"]).toBe(-1250);
   });
 
-
-
-
-
   it("serves per-account history from gsi1", async () => {
     await ledger.putTransactions([
-      txn({ accountId: "accB", normalisedProviderTransactionId: "b1", timestamp: "2026-02-01T00:00:00Z" }),
+      txn({
+        accountId: "accB",
+        normalisedProviderTransactionId: "b1",
+        timestamp: "2026-02-01T00:00:00Z",
+      }),
     ]);
 
     // A global secondary index is eventually consistent: a write is visible on
@@ -197,7 +277,11 @@ suite("DynamoStore (integration)", () => {
     // that property rather than hiding it behind a fixed sleep, which would be
     // both slower and still occasionally wrong.
     const rows = await eventually(
-      () => ledger.listAccountRange(TENANT, "accB", { from: "2026-01-01", to: "2026-03-01" }),
+      () =>
+        ledger.listAccountRange(TENANT, "accB", {
+          from: "2026-01-01",
+          to: "2026-03-01",
+        }),
       (r) => r.length === 1,
     );
     expect(rows).toHaveLength(1);
@@ -206,17 +290,29 @@ suite("DynamoStore (integration)", () => {
 
   it("replaces the pending set rather than merging it", async () => {
     await ledger.replacePending(TENANT, "accA", [
-      txn({ status: "pending", providerTransactionId: "p1", timestamp: "2026-08-01T00:00:00Z" }),
-      txn({ status: "pending", providerTransactionId: "p2", timestamp: "2026-08-02T00:00:00Z" }),
+      txn({
+        status: "pending",
+        providerTransactionId: "p1",
+        timestamp: "2026-08-01T00:00:00Z",
+      }),
+      txn({
+        status: "pending",
+        providerTransactionId: "p2",
+        timestamp: "2026-08-02T00:00:00Z",
+      }),
     ]);
-    expect(await ledger.listPending(TENANT, "accA")).toHaveLength(2);
+    expect(await transactions.listPending(TENANT, "accA")).toHaveLength(2);
 
     // p1 settled and p2 vanished — the classic pending behaviour.
     const second = await ledger.replacePending(TENANT, "accA", [
-      txn({ status: "pending", providerTransactionId: "p3", timestamp: "2026-08-03T00:00:00Z" }),
+      txn({
+        status: "pending",
+        providerTransactionId: "p3",
+        timestamp: "2026-08-03T00:00:00Z",
+      }),
     ]);
     expect(second.deleted).toBe(2);
-    const now = await ledger.listPending(TENANT, "accA");
+    const now = await transactions.listPending(TENANT, "accA");
     expect(now).toHaveLength(1);
     expect(String(now[0]!["sk"])).toContain("p3");
   });
@@ -269,9 +365,15 @@ suite("DynamoStore account merge (integration)", () => {
       currency: "GBP",
       isCard: false,
     });
-    await ledger.putBalances(TENANT, "accBal", { current: 12345, available: 20000, currency: "GBP" });
+    await ledger.putBalances(TENANT, "accBal", {
+      current: 12345,
+      available: 20000,
+      currency: "GBP",
+    });
 
-    const found = (await ledger.listAccounts(TENANT)).find((r) => r["accountId"] === "accBal");
+    const found = (await ledger.listAccounts(TENANT)).find(
+      (r) => r["accountId"] === "accBal",
+    );
     expect(found?.["institutionName"]).toBe("FIRST-DIRECT");
     expect(found?.["displayName"]).toBe("Current Account");
     expect(found?.["currentBalance"]).toBe(12345);
@@ -291,10 +393,20 @@ suite("household access", () => {
   // Member rows live in their own partitions, so the other suites' sweeps by
   // tenant partition do not reach them. Left behind, they are live grants.
   it("grants, lists and revokes", async () => {
-    await ledger.putMember({ email: alice, tenantId: TENANT, addedAt: new Date().toISOString() });
-    await ledger.putMember({ email: bob, tenantId: TENANT, addedAt: new Date().toISOString() });
+    await ledger.putMember({
+      email: alice,
+      tenantId: TENANT,
+      addedAt: new Date().toISOString(),
+    });
+    await ledger.putMember({
+      email: bob,
+      tenantId: TENANT,
+      addedAt: new Date().toISOString(),
+    });
 
-    const mine = (await ledger.listMembers()).filter((m) => m.tenantId === TENANT);
+    const mine = (await ledger.listMembers()).filter(
+      (m) => m.tenantId === TENANT,
+    );
     expect(mine.map((m) => m.email).sort()).toEqual([alice, bob].sort());
 
     await ledger.deleteMember(alice);
@@ -305,8 +417,14 @@ suite("household access", () => {
   it("matches an address regardless of case or surrounding space", async () => {
     // Identity providers are not consistent about either, and a lookup miss
     // here reads as "no household assigned" — a broken app, not a missing row.
-    await ledger.putMember({ email: alice, tenantId: TENANT, addedAt: new Date().toISOString() });
-    expect(await ledger.getMemberTenant(`  ${alice.toUpperCase()} `)).toBe(TENANT);
+    await ledger.putMember({
+      email: alice,
+      tenantId: TENANT,
+      addedAt: new Date().toISOString(),
+    });
+    expect(await ledger.getMemberTenant(`  ${alice.toUpperCase()} `)).toBe(
+      TENANT,
+    );
   });
 
   it("returns null for someone who was never granted access", async () => {
@@ -336,18 +454,30 @@ suite("balance readings (integration)", () => {
   it("keeps every reading rather than replacing the last one", async () => {
     // The whole point: putBalances overwrites, so the ledger held one balance
     // per account and there was nothing to reconcile against.
-    await ledger.putBalanceReading(reading("bal-1", "2026-01-01T05:00:00.000Z", 100_00));
-    await ledger.putBalanceReading(reading("bal-1", "2026-01-02T05:00:00.000Z", 90_00));
-    await ledger.putBalanceReading(reading("bal-1", "2026-01-03T05:00:00.000Z", 80_00));
+    await ledger.putBalanceReading(
+      reading("bal-1", "2026-01-01T05:00:00.000Z", 100_00),
+    );
+    await ledger.putBalanceReading(
+      reading("bal-1", "2026-01-02T05:00:00.000Z", 90_00),
+    );
+    await ledger.putBalanceReading(
+      reading("bal-1", "2026-01-03T05:00:00.000Z", 80_00),
+    );
 
     const rows = await ledger.listBalanceReadings(TENANT, "bal-1");
     expect(rows).toHaveLength(3);
   });
 
   it("returns them oldest first, which is the order reconciliation walks", async () => {
-    await ledger.putBalanceReading(reading("bal-2", "2026-03-01T05:00:00.000Z", 300));
-    await ledger.putBalanceReading(reading("bal-2", "2026-01-01T05:00:00.000Z", 100));
-    await ledger.putBalanceReading(reading("bal-2", "2026-02-01T05:00:00.000Z", 200));
+    await ledger.putBalanceReading(
+      reading("bal-2", "2026-03-01T05:00:00.000Z", 300),
+    );
+    await ledger.putBalanceReading(
+      reading("bal-2", "2026-01-01T05:00:00.000Z", 100),
+    );
+    await ledger.putBalanceReading(
+      reading("bal-2", "2026-02-01T05:00:00.000Z", 200),
+    );
 
     const rows = await ledger.listBalanceReadings(TENANT, "bal-2");
     expect(rows.map((r) => r["balance"])).toEqual([100, 200, 300]);
@@ -363,13 +493,19 @@ suite("balance readings (integration)", () => {
   });
 
   it("keeps one account's readings out of another's", async () => {
-    await ledger.putBalanceReading(reading("bal-4", "2026-01-01T05:00:00.000Z", 1));
-    await ledger.putBalanceReading(reading("bal-5", "2026-01-01T05:00:00.000Z", 2));
+    await ledger.putBalanceReading(
+      reading("bal-4", "2026-01-01T05:00:00.000Z", 1),
+    );
+    await ledger.putBalanceReading(
+      reading("bal-5", "2026-01-01T05:00:00.000Z", 2),
+    );
     expect(await ledger.listBalanceReadings(TENANT, "bal-4")).toHaveLength(1);
   });
 
   it("stores a negative balance, which is a card or an overdraft", async () => {
-    await ledger.putBalanceReading(reading("bal-6", "2026-01-01T05:00:00.000Z", -56_790));
+    await ledger.putBalanceReading(
+      reading("bal-6", "2026-01-01T05:00:00.000Z", -56_790),
+    );
     const [row] = await ledger.listBalanceReadings(TENANT, "bal-6");
     expect(row!["balance"]).toBe(-56_790);
   });
@@ -377,11 +513,18 @@ suite("balance readings (integration)", () => {
 
 suite("marking a reading dirty (integration)", () => {
   let ledger: DynamoStore;
-  beforeAll(() => { ({ ledger } = testLedger()); });
+  beforeAll(() => {
+    ({ ledger } = testLedger());
+  });
 
   const at = "2026-06-01T05:00:00.000Z";
   const reading = (accountId: string) => ({
-    tenantId: TENANT, accountId, asOf: at, fetchedAt: at, balance: 100_00, currency: "GBP",
+    tenantId: TENANT,
+    accountId,
+    asOf: at,
+    fetchedAt: at,
+    balance: 100_00,
+    currency: "GBP",
   });
 
   it("marks a reading and records how far off it was", async () => {
@@ -407,7 +550,9 @@ suite("marking a reading dirty (integration)", () => {
     await expect(
       ledger.markBalanceReadingDirty(TENANT, "dirty-none", at, at, -1),
     ).rejects.toThrow();
-    expect(await ledger.listBalanceReadings(TENANT, "dirty-none")).toHaveLength(0);
+    expect(await ledger.listBalanceReadings(TENANT, "dirty-none")).toHaveLength(
+      0,
+    );
   });
 
   it("leaves the balance itself untouched when marking", async () => {
@@ -463,27 +608,46 @@ suite("versioned rule sets and categorisations", () => {
     expect(current[0]!["version"]).toBe(2);
     // And version 1 is still readable, because a categorisation naming it has to
     // stay interpretable.
-    const history = await ledger.listRuleSetHistory(TENANT, `household-${TENANT}`);
+    const history = await ledger.listRuleSetHistory(
+      TENANT,
+      `household-${TENANT}`,
+    );
     expect(history.map((h) => h["version"])).toEqual([1, 2]);
   });
 
   it("refuses to rewrite a published version", async () => {
     // Provenance would otherwise change meaning after the fact: a categorisation
     // says it was produced by version 1, and version 1 must still be what it was.
-    await expect(ledger.putRuleSetVersion(TENANT, set(1, 999))).rejects.toThrow();
-    const history = await ledger.listRuleSetHistory(TENANT, `household-${TENANT}`);
+    await expect(
+      ledger.putRuleSetVersion(TENANT, set(1, 999)),
+    ).rejects.toThrow();
+    const history = await ledger.listRuleSetHistory(
+      TENANT,
+      `household-${TENANT}`,
+    );
     expect(history.find((h) => h["version"] === 1)?.["order"]).toBe(100);
   });
 
   it("keeps current rule sets out of the history partition and vice versa", async () => {
     // The read every fold run makes must not grow as history accumulates.
     const current = await ledger.listRuleSets(TENANT);
-    expect(current.every((r) => String(r["sk"]).startsWith("RULESET#"))).toBe(true);
-    const history = await ledger.listRuleSetHistory(TENANT, `household-${TENANT}`);
-    expect(history.every((r) => !String(r["sk"]).startsWith("RULESET#"))).toBe(true);
+    expect(current.every((r) => String(r["sk"]).startsWith("RULESET#"))).toBe(
+      true,
+    );
+    const history = await ledger.listRuleSetHistory(
+      TENANT,
+      `household-${TENANT}`,
+    );
+    expect(history.every((r) => !String(r["sk"]).startsWith("RULESET#"))).toBe(
+      true,
+    );
   });
 
-  const categorisation = (setId: string, version: number, category: string) => ({
+  const categorisation = (
+    setId: string,
+    version: number,
+    category: string,
+  ) => ({
     dedupKey: `cat-${TENANT}`,
     timestamp: "2026-03-01T00:00:00Z",
     category,
@@ -499,20 +663,37 @@ suite("versioned rule sets and categorisations", () => {
   it("gives each set its own current row rather than colliding", async () => {
     // Without the set id in the key these overwrite each other, and the second
     // set silently wins.
-    await ledger.putCategorisation(TENANT, categorisation("household", 1, "Groceries"));
-    await ledger.putCategorisation(TENANT, categorisation("built-in", 1, "Shopping"));
+    await ledger.putCategorisation(
+      TENANT,
+      categorisation("household", 1, "Groceries"),
+    );
+    await ledger.putCategorisation(
+      TENANT,
+      categorisation("built-in", 1, "Shopping"),
+    );
 
     const { categorisations } = await ledger.listRange(TENANT, {
       from: "2026-03-01",
       to: "2026-03-02",
     });
-    const mine = categorisations.filter((c) => c["dedupKey"] === `cat-${TENANT}`);
-    expect(mine.map((c) => c["setId"]).sort()).toEqual(["built-in", "household"]);
+    const mine = categorisations.filter(
+      (c) => c["dedupKey"] === `cat-${TENANT}`,
+    );
+    expect(mine.map((c) => c["setId"]).sort()).toEqual([
+      "built-in",
+      "household",
+    ]);
   });
 
   it("returns one row per set in the batch read however deep the history", async () => {
-    await ledger.putCategorisation(TENANT, categorisation("household", 2, "Fuel"));
-    await ledger.putCategorisation(TENANT, categorisation("household", 3, "Transport"));
+    await ledger.putCategorisation(
+      TENANT,
+      categorisation("household", 2, "Fuel"),
+    );
+    await ledger.putCategorisation(
+      TENANT,
+      categorisation("household", 3, "Transport"),
+    );
 
     const { categorisations } = await ledger.listRange(TENANT, {
       from: "2026-03-01",
@@ -529,11 +710,15 @@ suite("versioned rule sets and categorisations", () => {
   });
 
   it("keeps every version, ordered, for the question 'why did this change?'", async () => {
-    const history = (await ledger.listCategorisationHistory(TENANT, `cat-${TENANT}`)).filter(
-      (h) => h["setId"] === "household",
-    );
+    const history = (
+      await ledger.listCategorisationHistory(TENANT, `cat-${TENANT}`)
+    ).filter((h) => h["setId"] === "household");
     expect(history.map((h) => h["version"])).toEqual([1, 2, 3]);
-    expect(history.map((h) => h["category"])).toEqual(["Groceries", "Fuel", "Transport"]);
+    expect(history.map((h) => h["category"])).toEqual([
+      "Groceries",
+      "Fuel",
+      "Transport",
+    ]);
   });
 });
 
@@ -556,7 +741,11 @@ suite("control plane: settings, consents and the legacy rules row", () => {
   });
 
   it("round-trips settings", async () => {
-    const settings = { tenantId: TENANT, baseCurrency: "GBP", updatedAt: "2026-08-18T00:00:00Z" };
+    const settings = {
+      tenantId: TENANT,
+      baseCurrency: "GBP",
+      updatedAt: "2026-08-18T00:00:00Z",
+    };
     await store.putSettings({ ...settings, enrichment: "off" });
     expect((await store.getSettings(TENANT))?.enrichment).toBe("off");
     await store.putSettings({ ...settings, enrichment: "rules" });
@@ -570,7 +759,6 @@ suite("control plane: settings, consents and the legacy rules row", () => {
     expect(await store.getCustomRules(`${TENANT}-absent`)).toEqual([]);
   });
 
-
   it("records a consent and lists it", async () => {
     await store.putConsent({
       tenantId: TENANT,
@@ -583,7 +771,6 @@ suite("control plane: settings, consents and the legacy rules row", () => {
     const consents = await store.listConsents(TENANT);
     expect(consents.map((c) => c["consentId"])).toContain(`conn-${TENANT}`);
   });
-
 });
 
 suite("the category catalogue", () => {
@@ -605,16 +792,26 @@ suite("the category catalogue", () => {
     // marker of the same name overwrote it, which made every category read as
     // kind "CATEGORY" and would have broken every total that branches on it.
     const all = await store.listCategories(TENANT);
-    expect(all.find((c) => c["id"] === "groceries")).toMatchObject({ label: "Groceries", kind: "spending" });
+    expect(all.find((c) => c["id"] === "groceries")).toMatchObject({
+      label: "Groceries",
+      kind: "spending",
+    });
   });
 
   it("overwrites a label in place, because a label is presentation", async () => {
     // The whole point of the entity: renaming is a one-field edit rather than a
     // rewrite of every row referencing it.
-    const base = { id: "renamed", kind: "spending" as const, taxonomy: "household" as const, retired: false };
+    const base = {
+      id: "renamed",
+      kind: "spending" as const,
+      taxonomy: "household" as const,
+      retired: false,
+    };
     await store.putCategory(TENANT, { ...base, label: "Before" });
     await store.putCategory(TENANT, { ...base, label: "After" });
-    const found = (await store.listCategories(TENANT)).filter((c) => c["id"] === "renamed");
+    const found = (await store.listCategories(TENANT)).filter(
+      (c) => c["id"] === "renamed",
+    );
     expect(found).toHaveLength(1);
     expect(found[0]).toMatchObject({ label: "After" });
   });
@@ -668,7 +865,9 @@ suite("proposals", () => {
   });
 
   it("makes it current when it is accepted", async () => {
-    await ledger.decideRuleSetVersion(TEN, "built-in", 1, { status: "effective" });
+    await ledger.decideRuleSetVersion(TEN, "built-in", 1, {
+      status: "effective",
+    });
     const current = await ledger.listRuleSets(TEN);
     expect(current).toHaveLength(1);
     expect(current[0]).toMatchObject({ version: 1, status: "effective" });
@@ -677,18 +876,27 @@ suite("proposals", () => {
   it("refuses to decide the same version twice", async () => {
     // Two people deciding at once must not both win.
     await expect(
-      ledger.decideRuleSetVersion(TEN, "built-in", 1, { status: "rejected", because: "changed my mind" }),
+      ledger.decideRuleSetVersion(TEN, "built-in", 1, {
+        status: "rejected",
+        because: "changed my mind",
+      }),
     ).rejects.toThrow();
   });
 
   it("records why a proposal was rejected, and leaves current alone", async () => {
     // A declined proposal that leaves no trace is one the next run makes again.
     await ledger.putRuleSetVersion(TEN, proposal(2, "Shopping"));
-    await ledger.decideRuleSetVersion(TEN, "built-in", 2, { status: "rejected", because: "loses 139 merchants" });
+    await ledger.decideRuleSetVersion(TEN, "built-in", 2, {
+      status: "rejected",
+      because: "loses 139 merchants",
+    });
 
     const history = await ledger.listRuleSetHistory(TEN, "built-in");
     const rejected = history.find((h) => h["version"] === 2);
-    expect(rejected).toMatchObject({ status: "rejected", rejectedBecause: "loses 139 merchants" });
+    expect(rejected).toMatchObject({
+      status: "rejected",
+      rejectedBecause: "loses 139 merchants",
+    });
 
     const current = await ledger.listRuleSets(TEN);
     expect(current[0]).toMatchObject({ version: 1 });

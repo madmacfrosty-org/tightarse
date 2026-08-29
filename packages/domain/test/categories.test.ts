@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { effectiveCategories, orderOf } from "../src/reporting/categories.js";
-import type { LedgerRow } from "../src/reporting/summary.js";
+import { recorded, type Overrides } from "./recorded.js";
+import type { RecordedTransaction } from "../src/ledger/transaction.js";
 import type { Row } from "../src/ports/outbound/index.js";
 
 /**
@@ -11,17 +12,26 @@ import type { Row } from "../src/ports/outbound/index.js";
  * pinning rather than assuming.
  */
 
-const tx = (dedupKey: string, over: Partial<LedgerRow> = {}): LedgerRow =>
-  ({
+const tx = (
+  dedupKey: string,
+  over: Overrides<RecordedTransaction> = {},
+): RecordedTransaction =>
+  recorded({
     dedupKey,
     timestamp: "2026-02-01T00:00:00.000Z",
     amount: -10_00,
     accountId: "acc-1",
     description: "A MERCHANT",
+    // Blank, so the only opinions in play are the stored ones these cases set up.
+    providerCategory: undefined,
     ...over,
-  }) as LedgerRow;
+  });
 
-const cat = (dedupKey: string, category: string, over: Record<string, unknown> = {}): Row => ({
+const cat = (
+  dedupKey: string,
+  category: string,
+  over: Record<string, unknown> = {},
+): Row => ({
   dedupKey,
   timestamp: "2026-02-01T00:00:00.000Z",
   category,
@@ -41,7 +51,10 @@ const order = [
 describe("what a report shows", () => {
   it("takes what a rule set assigned, naming the set", () => {
     const out = effectiveCategories([tx("d1")], [cat("d1", "fuel")], order);
-    expect(out).toEqual([{ dedupKey: "d1", category: "fuel", setId: "built-in" }]);
+    expect(out).toHaveLength(1);
+    expect(out).toMatchObject([
+      { dedupKey: "d1", category: "fuel", setId: "built-in" },
+    ]);
   });
 
   it("says nothing for a transaction no rule set has categorised", () => {
@@ -61,13 +74,19 @@ describe("what a report shows", () => {
       [cat("d1", "shopping", { setId: "household" }), cat("d1", "fuel")],
       order,
     );
-    expect(out).toEqual([{ dedupKey: "d1", category: "shopping", setId: "household" }]);
+    expect(out).toHaveLength(1);
+    expect(out).toMatchObject([
+      { dedupKey: "d1", category: "shopping", setId: "household" },
+    ]);
   });
 
   it("takes the newest version within a set", () => {
     const out = effectiveCategories(
       [tx("d1")],
-      [cat("d1", "fuel", { version: 1 }), cat("d1", "transport", { version: 2 })],
+      [
+        cat("d1", "fuel", { version: 1 }),
+        cat("d1", "transport", { version: 2 }),
+      ],
       order,
     );
     expect(out[0]?.category).toBe("transport");
@@ -76,7 +95,10 @@ describe("what a report shows", () => {
   it("ignores a proposed version, which must not change what is displayed", () => {
     const out = effectiveCategories(
       [tx("d1")],
-      [cat("d1", "fuel", { version: 1 }), cat("d1", "transport", { version: 2, status: "proposed" })],
+      [
+        cat("d1", "fuel", { version: 1 }),
+        cat("d1", "transport", { version: 2, status: "proposed" }),
+      ],
       order,
     );
     expect(out[0]?.category).toBe("fuel");
@@ -94,7 +116,11 @@ describe("what a report shows", () => {
   it("shows nothing when the only version stored is proposed", () => {
     // A proposal must not change what is displayed, so a transaction whose only
     // categorisation is proposed reads as uncategorised rather than as decided.
-    const out = effectiveCategories([tx("d1")], [cat("d1", "fuel", { status: "proposed" })], order);
+    const out = effectiveCategories(
+      [tx("d1")],
+      [cat("d1", "fuel", { status: "proposed" })],
+      order,
+    );
     expect(out).toEqual([]);
   });
 
@@ -102,30 +128,45 @@ describe("what a report shows", () => {
     // A range query returns whatever shares the partition, and one bad row must
     // not stop a household seeing its spending.
     const junk = { pk: "T#frost#TX", sk: "nonsense" } as Row;
-    const out = effectiveCategories([tx("d1")], [junk, cat("d1", "fuel")], order);
-    expect(out).toEqual([{ dedupKey: "d1", category: "fuel", setId: "built-in" }]);
+    const out = effectiveCategories(
+      [tx("d1")],
+      [junk, cat("d1", "fuel")],
+      order,
+    );
+    expect(out).toHaveLength(1);
+    expect(out).toMatchObject([
+      { dedupKey: "d1", category: "fuel", setId: "built-in" },
+    ]);
   });
 
   it("leaves a set it has no ranking for behind one it does", () => {
     // Ranking last rather than dropping: a categorisation invisible because
     // someone forgot to rank its set is a silent failure.
-    const out = effectiveCategories([tx("d1")], [cat("d1", "fuel"), cat("d1", "other", { setId: "mystery" })], order);
+    const out = effectiveCategories(
+      [tx("d1")],
+      [cat("d1", "fuel"), cat("d1", "other", { setId: "mystery" })],
+      order,
+    );
     expect(out[0]?.category).toBe("fuel");
   });
 });
 
 describe("reading precedence from the sets", () => {
   it("takes setId and order, and nothing else", () => {
-    expect(orderOf([{ setId: "household", order: 0, name: "x", rules: [] }])).toEqual([
-      { setId: "household", order: 0 },
-    ]);
+    expect(
+      orderOf([{ setId: "household", order: 0, name: "x", rules: [] }]),
+    ).toEqual([{ setId: "household", order: 0 }]);
   });
 
   it("ignores a row that cannot supply both", () => {
     // A malformed set must not become order NaN, which sorts unpredictably and
     // would make the effective category depend on scan order.
-    expect(orderOf([{ setId: "a" }, { order: 1 }, { setId: "b", order: 3 }] as Row[])).toEqual([
-      { setId: "b", order: 3 },
-    ]);
+    expect(
+      orderOf([
+        { setId: "a" },
+        { order: 1 },
+        { setId: "b", order: 3 },
+      ] as Row[]),
+    ).toEqual([{ setId: "b", order: 3 }]);
   });
 });

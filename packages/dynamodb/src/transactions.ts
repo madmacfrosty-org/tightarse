@@ -8,17 +8,14 @@
  */
 
 import {
+  Categorisation,
+  RecordedTransaction,
   type Transaction,
 } from "@tightarse/domain";
 import { keys, RowKind } from "./keys.js";
-import type {
-  DateRange,
-  Transactions,
-} from "@tightarse/domain";
-import {
-  pendingItem,
-  transactionItem,
-} from "./items.js";
+import type { DateRange, Transactions } from "@tightarse/domain";
+import { pendingItem, transactionItem } from "./items.js";
+import { parseFacts } from "./parse.js";
 import { TableAdapter } from "./table.js";
 
 /**
@@ -54,8 +51,8 @@ export class DynamoTransactions extends TableAdapter implements Transactions {
     tenantId: string,
     range: DateRange,
   ): Promise<{
-    transactions: Record<string, unknown>[];
-    categorisations: Record<string, unknown>[];
+    transactions: RecordedTransaction[];
+    categorisations: Categorisation[];
   }> {
     const rows = await this.queryAll({
       TableName: this.table,
@@ -71,11 +68,19 @@ export class DynamoTransactions extends TableAdapter implements Transactions {
     });
 
     return {
-      transactions: rows.filter((r) => r["kind"] === RowKind.transaction),
+      transactions: parseFacts(
+        RecordedTransaction,
+        rows.filter((r) => r["kind"] === RowKind.transaction),
+        "transaction",
+      ),
       // Free: categorisations sort into the same partition between the same
       // bounds, so a batch of transactions arrives with its categorisations
       // already attached. This is what makes batch processing one read.
-      categorisations: rows.filter((r) => r["kind"] === RowKind.categorisation),
+      categorisations: parseFacts(
+        Categorisation,
+        rows.filter((r) => r["kind"] === RowKind.categorisation),
+        "categorisation",
+      ),
     };
   }
 
@@ -84,8 +89,8 @@ export class DynamoTransactions extends TableAdapter implements Transactions {
     tenantId: string,
     accountId: string,
     range: DateRange,
-  ): Promise<Record<string, unknown>[]> {
-    return this.queryAll({
+  ): Promise<RecordedTransaction[]> {
+    const rows = await this.queryAll({
       TableName: this.table,
       IndexName: "gsi1-account",
       KeyConditionExpression: "gsi1pk = :pk AND gsi1sk BETWEEN :from AND :to",
@@ -95,6 +100,7 @@ export class DynamoTransactions extends TableAdapter implements Transactions {
         ":to": `${range.to}￿`,
       },
     });
+    return parseFacts(RecordedTransaction, rows, "transaction");
   }
 
   /**
@@ -126,13 +132,19 @@ export class DynamoTransactions extends TableAdapter implements Transactions {
     opts: { sourceObject?: string } = {},
   ): Promise<{ written: number }> {
     const items = txns.map((t) =>
-      transactionItem(t, opts.sourceObject ? { sourceObject: opts.sourceObject } : {}),
+      transactionItem(
+        t,
+        opts.sourceObject ? { sourceObject: opts.sourceObject } : {},
+      ),
     );
     await this.upsertPreserving(items, FIRST_OBSERVATION);
     return { written: items.length };
   }
 
-  async listPending(tenantId: string, accountId: string): Promise<Record<string, unknown>[]> {
+  async listPending(
+    tenantId: string,
+    accountId: string,
+  ): Promise<Record<string, unknown>[]> {
     return this.queryAll({
       TableName: this.table,
       KeyConditionExpression: "pk = :pk",
@@ -160,7 +172,9 @@ export class DynamoTransactions extends TableAdapter implements Transactions {
     }));
     await this.batchWrite(deletes);
 
-    const items = pending.map((t) => pendingItem(t, { ttlSeconds: PENDING_TTL_SECONDS }));
+    const items = pending.map((t) =>
+      pendingItem(t, { ttlSeconds: PENDING_TTL_SECONDS }),
+    );
     await this.batchWrite(items.map((Item) => ({ PutRequest: { Item } })));
     return { deleted: deletes.length, written: items.length };
   }

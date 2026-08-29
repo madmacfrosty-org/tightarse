@@ -14,7 +14,11 @@
  */
 
 import { summariseCorpus } from "../categorisation/corpus.js";
-import type { Recurrence, DescriptionSummary, Sighting } from "../categorisation/corpus.js";
+import type {
+  Recurrence,
+  DescriptionSummary,
+  Sighting,
+} from "../categorisation/corpus.js";
 import { evaluate } from "../categorisation/evaluate.js";
 import { gatherEvidence } from "../categorisation/evidence.js";
 import type { Conflict, Gap } from "../categorisation/evidence.js";
@@ -45,7 +49,11 @@ function parseSets(rows: readonly Row[]): RuleSet[] {
   return sets;
 }
 
-export async function backlog(deps: InspectDeps, tenantId: string, range: DateRange): Promise<Backlog> {
+export async function backlog(
+  deps: InspectDeps,
+  tenantId: string,
+  range: DateRange,
+): Promise<Backlog> {
   const [{ transactions }, setRows] = await Promise.all([
     deps.transactions.listRange(tenantId, range),
     deps.ruleSets.listRuleSets(tenantId),
@@ -59,7 +67,7 @@ export async function backlog(deps: InspectDeps, tenantId: string, range: DateRa
     sightings.push({
       description: candidate.description,
       amount: candidate.amount,
-      timestamp: String(row["timestamp"] ?? ""),
+      timestamp: row.timestamp,
       ...(category === undefined ? {} : { category }),
     });
   }
