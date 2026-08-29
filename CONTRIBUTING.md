@@ -37,14 +37,40 @@ credit card's `DEBIT` is **positive** while a current account's is negative. We
 stored that verbatim for months: every card purchase counted as income, every
 card payment as spending, and no card bill ever netted out, because transfer
 detection pairs a debit with a credit and both legs were negative. Five real
-years of totals were wrong by about £40k in each direction.
+years of totals were wrong by a five-figure sum in each direction.
 
 Fixtures that looked sensible would have ratified that bug instead of catching
 it. So `cardTransactions` emits the inversion on purpose, and there are tests
 asserting it still does. If you find yourself "fixing" the generator to make the
 signs agree, you are removing the reason it exists.
 
-**3. Commercial and regulatory material.** TrueLayer's agent terms, quoted
+**3. Measurements of the ledger.** A count, a total or a balance is not a
+transaction, so the rule above reads as though it permits them. It does not. A
+row count says how much money moves through this household; a five-year total
+says what it earns; a balance to the penny is its money on a day. Summarising
+does not anonymise.
+
+This collides with a habit worth keeping. Comments here explain a design by
+citing the measurement that forced it, and that is why they are worth reading.
+The convention is **keep the finding, drop the figure** — say what the
+measurement showed, not what it counted:
+
+```
+bad   Measured against 1,234 real transactions, because two schemes both merged
+      distinct payments.
+good  Measured against the full account and card history, because two schemes
+      both merged distinct payments.
+```
+
+`tightarse/no-household-figures` fails the lint on money quoted to the penny and
+on grouped integers, and a `commit-msg` hook applies the same test to commit
+messages. Neither can tell an invented example from a real reading, so a
+genuine exception is silenced individually with a reason. Neither covers a pull
+request body, an issue or a chat window — those have caught us out three times
+and remain a matter of attention. See
+[docs/conventions/measurements.md](docs/conventions/measurements.md).
+
+**4. Commercial and regulatory material.** TrueLayer's agent terms, quoted
 pricing, ICO registration details. Not secret exactly, but no upside to
 publishing. Keep it local or private.
 

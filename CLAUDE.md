@@ -23,6 +23,15 @@ merchant, family name, account number or token goes in a file. Test data comes
 from `@tightarse/fixtures`. A household's own categorisation rules live in
 DynamoDB precisely so they never land here.
 
+**Nor does a measurement of the ledger** — a count, a total, a balance. That
+list names things a row contains, so an aggregate reads as though it is
+exempt, and that gap has been walked through three times: twice into public
+GitHub text and once into a source comment. Keep the finding, drop the figure:
+say what the measurement showed, not what it counted. The lint rule and the
+`commit-msg` hook catch files and commit messages; a pull request body, an
+issue and this chat are not covered by anything. See
+[measurements](docs/conventions/measurements.md).
+
 **One sign convention: negative left the household, positive arrived.** The
 provider does not supply this — it reports cards from the issuer's point of
 view, so a card `DEBIT` is positive. `mapTransaction` normalises from

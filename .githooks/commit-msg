@@ -1,0 +1,45 @@
+#!/bin/sh
+# Keep measurements of the household's ledger out of commit messages.
+#
+# This repo is public and a commit message is permanent — more permanent than a
+# comment, because rewriting it after a merge means rewriting main. The lint
+# rule `tightarse/no-household-figures` covers source comments; nothing covered
+# this, and two messages on the branch that added the rule had to be rewritten
+# before merge for exactly that reason.
+#
+# A count is a statistical profile of a household's finances. "1,234
+# transactions" says how much money moves through; a five-year total says what
+# the family earns. Say what the measurement showed, not what it counted:
+#
+#   bad   Verified against production: all 1,234 rows parse.
+#   good  Verified against production: every stored row parses.
+#
+# Genuinely not our data — a provider quota, an AWS limit? Say so in a trailer:
+#
+#   Allow-figures: DynamoDB partition write limit, not household data
+
+MSG_FILE="$1"
+
+# Git's own commented lines are not the message.
+BODY=$(grep -v '^#' "$MSG_FILE")
+
+case "$BODY" in
+  *Allow-figures:*) exit 0 ;;
+esac
+
+FOUND=$(printf '%s\n' "$BODY" | grep -nE '[£$€] ?[0-9]|\b[0-9]{1,3},[0-9]{3}\b')
+
+if [ -n "$FOUND" ]; then
+  echo "commit-msg: this message carries a figure that looks measured from the household's ledger."
+  echo ""
+  printf '%s\n' "$FOUND" | sed 's/^/    /'
+  echo ""
+  echo "This repository is public. Keep the finding and drop the number — say what the"
+  echo "measurement showed, not what it counted."
+  echo ""
+  echo "If the figure is not the household's data, add a trailer saying so:"
+  echo "    Allow-figures: <why this number is not our data>"
+  exit 1
+fi
+
+exit 0

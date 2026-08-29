@@ -4,6 +4,7 @@ import tseslint from "typescript-eslint";
 import importX from "eslint-plugin-import-x";
 import reactHooks from "eslint-plugin-react-hooks";
 import jsdoc from "eslint-plugin-jsdoc";
+import noHouseholdFigures from "./eslint-rules/no-household-figures.mjs";
 
 /**
  * The architecture, as a check rather than a convention.
@@ -301,5 +302,27 @@ export default [
   {
     files: ["**/test/**"],
     rules: { "no-restricted-imports": "off" },
+  },
+
+  /**
+   * Measurements of the household's ledger, kept out of a public repository.
+   *
+   * Everything else in this file is about layering. This one is about
+   * disclosure, and it is here rather than in a scanner because the figures are
+   * not secrets — no entropy, no prefix, nothing gitleaks can recognise. They
+   * are ordinary prose that happens to describe one family's money.
+   *
+   * Tests are included deliberately. The values in a fixture are invented and
+   * this rule does not read them; a comment ABOVE a fixture explaining what the
+   * real ledger did is the same disclosure as anywhere else.
+   */
+  {
+    files: ["**/*.{ts,tsx,mts,cts,js,mjs,cjs,jsx}"],
+    // The rule's own source is exempt: documenting a pattern requires writing
+    // something that matches it, and the figures in there are invented for
+    // exactly that purpose.
+    ignores: ["eslint-rules/**"],
+    plugins: { tightarse: { rules: { "no-household-figures": noHouseholdFigures } } },
+    rules: { "tightarse/no-household-figures": "error" },
   },
 ];
