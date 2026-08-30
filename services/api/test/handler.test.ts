@@ -36,6 +36,7 @@ const deps: ApiDeps = {
       getAdoptions: vi.fn(async () => []),
       listCategories,
     },
+    shared: { getRuleSetVersion: async () => undefined },
   }),
 };
 

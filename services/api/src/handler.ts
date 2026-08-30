@@ -1,7 +1,13 @@
 import { DynamoStore } from "@tightarse/dynamodb";
 import type { Reporting, TransactionFilter } from "@tightarse/domain";
 import { reporting } from "@tightarse/domain";
-import { asAccounts, asBalances, asCategories, asSummary, asTransactions } from "./wire.js";
+import {
+  asAccounts,
+  asBalances,
+  asCategories,
+  asSummary,
+  asTransactions,
+} from "./wire.js";
 
 /**
  * HTTP API handler.
@@ -49,7 +55,10 @@ export interface ApiDeps {
  * so branch coverage differed between the two and a threshold pinned locally
  * failed the build in CI.
  */
-export function ledgerConfig(env: NodeJS.ProcessEnv): { tableName: string; region: string } {
+export function ledgerConfig(env: NodeJS.ProcessEnv): {
+  tableName: string;
+  region: string;
+} {
   return {
     tableName: env["TABLE_NAME"] ?? "",
     region: env["AWS_REGION"] ?? "eu-west-1",
@@ -61,7 +70,13 @@ export function realDeps(): ApiDeps {
   return {
     // The composition root: the concrete store is constructed here and nowhere
     // else, then bound to the inbound port the routing depends on.
-    reporting: reporting({ ledger: new DynamoStore(ledgerConfig(process.env)) }),
+    reporting: ((store) => reporting({ ledger: store, shared: store }))(
+      // The composition root: the concrete store is constructed here and
+      // nowhere else. `shared` is the same store under a second name, because
+      // reading another tenant's set is a distinct capability from reading
+      // your own and the ports say so.
+      new DynamoStore(ledgerConfig(process.env)),
+    ),
   };
 }
 
@@ -73,14 +88,20 @@ export function realDeps(): ApiDeps {
  * subtly different. Anything serving a household read or write goes through
  * this and nothing else.
  */
-export function tenantFrom(event: { requestContext?: { authorizer?: { jwt?: { claims?: Record<string, unknown> } } } }): string {
+export function tenantFrom(event: {
+  requestContext?: {
+    authorizer?: { jwt?: { claims?: Record<string, unknown> } };
+  };
+}): string {
   const claims = event.requestContext?.authorizer?.jwt?.claims ?? {};
   // Custom attribute set at user creation. A user with no household must not
   // fall back to a default — that would silently grant access to someone
   // else's data.
   const tenant = claims["custom:tenant"];
   if (typeof tenant !== "string" || tenant.length === 0) {
-    throw Object.assign(new Error("No household on this identity"), { statusCode: 403 });
+    throw Object.assign(new Error("No household on this identity"), {
+      statusCode: 403,
+    });
   }
   return tenant;
 }
@@ -90,7 +111,8 @@ function rangeFrom(event: HttpEvent): { from: string; to: string } {
   const to = q["to"] ?? new Date().toISOString().slice(0, 10);
   // Default to a rolling year: long enough to be useful, bounded so an
   // unqualified request cannot pull five years across the wire.
-  const from = q["from"] ?? new Date(Date.now() - 365 * 864e5).toISOString().slice(0, 10);
+  const from =
+    q["from"] ?? new Date(Date.now() - 365 * 864e5).toISOString().slice(0, 10);
   if (from > to) {
     throw Object.assign(new Error("`from` is after `to`"), { statusCode: 400 });
   }
@@ -114,9 +136,12 @@ export function filterFrom(event: HttpEvent): TransactionFilter | undefined {
     if (raw === undefined || raw.length === 0) return undefined;
     const value = Number(raw);
     if (!Number.isInteger(value) || value < 0) {
-      throw Object.assign(new Error(`${name} must be a whole number of pence, not "${raw}"`), {
-        statusCode: 400,
-      });
+      throw Object.assign(
+        new Error(`${name} must be a whole number of pence, not "${raw}"`),
+        {
+          statusCode: 400,
+        },
+      );
     }
     return value;
   };
@@ -128,7 +153,11 @@ export function filterFrom(event: HttpEvent): TransactionFilter | undefined {
     ...(bound("max") === undefined ? {} : { max: bound("max") }),
   };
 
-  if (filter.min !== undefined && filter.max !== undefined && filter.min > filter.max) {
+  if (
+    filter.min !== undefined &&
+    filter.max !== undefined &&
+    filter.min > filter.max
+  ) {
     throw Object.assign(new Error("`min` is above `max`"), { statusCode: 400 });
   }
 
@@ -143,10 +172,6 @@ function json(statusCode: number, body: unknown) {
   };
 }
 
-
-
-
-
 export async function route(deps: ApiDeps, event: HttpEvent) {
   try {
     const tenantId = tenantFrom(event);
@@ -155,13 +180,27 @@ export async function route(deps: ApiDeps, event: HttpEvent) {
 
     // Each result goes through `wire.ts`, which is where the domain answer meets
     // the promise made to installed clients.
-    if (path.endsWith("/summary")) return json(200, asSummary(await deps.reporting.summary(tenantId, range)));
+    if (path.endsWith("/summary"))
+      return json(
+        200,
+        asSummary(await deps.reporting.summary(tenantId, range)),
+      );
     if (path.endsWith("/transactions"))
-      return json(200, asTransactions(await deps.reporting.transactions(tenantId, range, filterFrom(event))));
-    if (path.endsWith("/categories")) return json(200, asCategories(await deps.reporting.categories(tenantId)));
-    if (path.endsWith("/accounts")) return json(200, asAccounts(await deps.reporting.accounts(tenantId)));
+      return json(
+        200,
+        asTransactions(
+          await deps.reporting.transactions(tenantId, range, filterFrom(event)),
+        ),
+      );
+    if (path.endsWith("/categories"))
+      return json(200, asCategories(await deps.reporting.categories(tenantId)));
+    if (path.endsWith("/accounts"))
+      return json(200, asAccounts(await deps.reporting.accounts(tenantId)));
     if (path.endsWith("/balances"))
-      return json(200, asBalances(await deps.reporting.balances(tenantId, range)));
+      return json(
+        200,
+        asBalances(await deps.reporting.balances(tenantId, range)),
+      );
 
     return json(404, { error: `No route for ${path}` });
   } catch (err) {
@@ -169,7 +208,9 @@ export async function route(deps: ApiDeps, event: HttpEvent) {
     const message = err instanceof Error ? err.message : "Unknown error";
     // Never echo the underlying error for a 500 — it can carry key material
     // and table structure.
-    return json(statusCode, { error: statusCode === 500 ? "Internal error" : message });
+    return json(statusCode, {
+      error: statusCode === 500 ? "Internal error" : message,
+    });
   }
 }
 

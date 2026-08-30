@@ -156,3 +156,25 @@ export const RuleSet = z.object({
   rejectedBecause: z.string().optional(),
 });
 export type RuleSet = z.infer<typeof RuleSet>;
+
+/**
+ * Stored rows as rule sets, skipping any that cannot be read.
+ *
+ * The tolerant half of the read-boundary policy. A scan returns whatever is
+ * stored, and one malformed rule set is not a reason to refuse to describe a
+ * ledger: it matches nothing, which is exactly what it would do during
+ * application. Facts get the opposite treatment — a transaction that cannot be
+ * parsed refuses the read, because dropping one changes a total rather than
+ * degrading it.
+ *
+ * Was defined privately in three places, which is two more than the number of
+ * policies it encodes.
+ */
+export function parseRuleSets(rows: readonly unknown[]): RuleSet[] {
+  const sets: RuleSet[] = [];
+  for (const row of rows) {
+    const parsed = RuleSet.safeParse(row);
+    if (parsed.success) sets.push(parsed.data);
+  }
+  return sets;
+}

@@ -1,6 +1,12 @@
 import { NewCategoryRequest, ProposalRequest } from "@tightarse/api-contract";
 import { DynamoStore } from "@tightarse/dynamodb";
-import type { Commit, Inspection, ProposalDeps, ProposalOutcome, RuleSet } from "@tightarse/domain";
+import type {
+  Commit,
+  Inspection,
+  ProposalDeps,
+  ProposalOutcome,
+  RuleSet,
+} from "@tightarse/domain";
 import { createCategory, inspection, proposeRules } from "@tightarse/domain";
 import { ledgerConfig, tenantFrom } from "./handler.js";
 import { asBacklog, asProposalResponse } from "./wire.js";
@@ -53,12 +59,12 @@ export interface CategorisationDeps {
     request: {
       sets?: readonly RuleSet[];
       merchant?: {
-    term?: string | undefined;
-    type?: string | undefined;
-    min?: number | undefined;
-    max?: number | undefined;
-    category: string;
-  };
+        term?: string | undefined;
+        type?: string | undefined;
+        min?: number | undefined;
+        max?: number | undefined;
+        category: string;
+      };
       transactions?: { dedupKeys: readonly string[]; category: string };
       commit: Commit;
       by: string;
@@ -81,10 +87,14 @@ export interface CategorisationDeps {
 export function commitFrom(event: HttpEvent): Commit {
   const asked = (event.queryStringParameters ?? {})["commit"];
   if (asked === undefined) return "propose";
-  if (asked === "preview" || asked === "propose" || asked === "apply") return asked;
-  throw Object.assign(new Error(`commit must be preview, propose or apply — not "${asked}"`), {
-    statusCode: 400,
-  });
+  if (asked === "preview" || asked === "propose" || asked === "apply")
+    return asked;
+  throw Object.assign(
+    new Error(`commit must be preview, propose or apply — not "${asked}"`),
+    {
+      statusCode: 400,
+    },
+  );
 }
 
 /**
@@ -99,7 +109,9 @@ function jsonBody(event: HttpEvent): unknown {
   if (!event.body) {
     throw Object.assign(new Error("A body is required"), { statusCode: 400 });
   }
-  const raw = event.isBase64Encoded ? Buffer.from(event.body, "base64").toString("utf8") : event.body;
+  const raw = event.isBase64Encoded
+    ? Buffer.from(event.body, "base64").toString("utf8")
+    : event.body;
   try {
     return JSON.parse(raw);
   } catch {
@@ -112,8 +124,12 @@ function jsonBody(event: HttpEvent): unknown {
  *
  * A proposal with three bad rules should not take three round trips to correct.
  */
-function badRequest(issues: ReadonlyArray<{ path: PropertyKey[]; message: string }>): Error {
-  const detail = issues.map((i) => `${i.path.join(".") || "body"}: ${i.message}`).join("; ");
+function badRequest(
+  issues: ReadonlyArray<{ path: PropertyKey[]; message: string }>,
+): Error {
+  const detail = issues
+    .map((i) => `${i.path.join(".") || "body"}: ${i.message}`)
+    .join("; ");
   return Object.assign(new Error(detail), { statusCode: 400 });
 }
 
@@ -134,23 +150,37 @@ export function proposalFrom(event: HttpEvent): {
   // Exactly one. Two is a caller that has not decided what it wants, none is a
   // proposal that proposes nothing, and building a rule from whichever happened
   // to be checked first is worse than refusing either.
-  const given = [result.data.sets, result.data.merchant, result.data.transactions].filter(
-    (x) => x !== undefined,
-  );
+  const given = [
+    result.data.sets,
+    result.data.merchant,
+    result.data.transactions,
+  ].filter((x) => x !== undefined);
   if (given.length !== 1) {
-    throw Object.assign(new Error("give exactly one of sets, merchant or transactions"), {
-      statusCode: 400,
-    });
+    throw Object.assign(
+      new Error("give exactly one of sets, merchant or transactions"),
+      {
+        statusCode: 400,
+      },
+    );
   }
 
   // Every condition on a merchant rule is optional, so none of them is a
   // request the schema accepts and the domain refuses. Refused here, where the
   // answer can say which parameter was missing rather than being a 500.
   const m = result.data.merchant;
-  if (m && m.term === undefined && m.type === undefined && m.min === undefined && m.max === undefined) {
-    throw Object.assign(new Error("a merchant rule needs a term, a type or an amount bound"), {
-      statusCode: 400,
-    });
+  if (
+    m &&
+    m.term === undefined &&
+    m.type === undefined &&
+    m.min === undefined &&
+    m.max === undefined
+  ) {
+    throw Object.assign(
+      new Error("a merchant rule needs a term, a type or an amount bound"),
+      {
+        statusCode: 400,
+      },
+    );
   }
 
   // The wire shape and the domain's rule set are near-identities; the status and
@@ -165,8 +195,12 @@ export function proposalFrom(event: HttpEvent): {
             createdAt: new Date(0).toISOString(),
           })) as unknown as readonly RuleSet[],
         }),
-    ...(result.data.merchant === undefined ? {} : { merchant: result.data.merchant }),
-    ...(result.data.transactions === undefined ? {} : { transactions: result.data.transactions }),
+    ...(result.data.merchant === undefined
+      ? {}
+      : { merchant: result.data.merchant }),
+    ...(result.data.transactions === undefined
+      ? {}
+      : { transactions: result.data.transactions }),
   };
 }
 
@@ -183,7 +217,9 @@ export function rangeFrom(event: HttpEvent): { from: string; to: string } {
   const from = q["from"];
   const to = q["to"];
   if (!from || !to) {
-    throw Object.assign(new Error("`from` and `to` are both required"), { statusCode: 400 });
+    throw Object.assign(new Error("`from` and `to` are both required"), {
+      statusCode: 400,
+    });
   }
   if (from > to) {
     throw Object.assign(new Error("`from` is after `to`"), { statusCode: 400 });
@@ -192,7 +228,11 @@ export function rangeFrom(event: HttpEvent): { from: string; to: string } {
 }
 
 function json(statusCode: number, body: unknown) {
-  return { statusCode, headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
+  return {
+    statusCode,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  };
 }
 
 export async function route(deps: CategorisationDeps, event: HttpEvent) {
@@ -202,22 +242,27 @@ export async function route(deps: CategorisationDeps, event: HttpEvent) {
 
     if (path.endsWith("/categorisation/gaps")) {
       const range = rangeFrom(event);
-      return json(200, asBacklog(range, await deps.inspection.backlog(tenantId, range)));
+      return json(
+        200,
+        asBacklog(range, await deps.inspection.backlog(tenantId, range)),
+      );
     }
 
     if (path.endsWith("/categories")) {
       const body = jsonBody(event);
       const parsed = NewCategoryRequest.safeParse(body);
       if (!parsed.success) throw badRequest(parsed.error.issues);
-      const added = await deps.addCategory(tenantId, parsed.data).catch((e: unknown) => {
-        // A taken name is an answer, not a fault. Reported as a conflict with
-        // the reason intact, because "internal error" hides the one sentence
-        // that says to pick the existing category instead.
-        if (e instanceof Error && e.name === "CategoryExists") {
-          throw Object.assign(e, { statusCode: 409 });
-        }
-        throw e;
-      });
+      const added = await deps
+        .addCategory(tenantId, parsed.data)
+        .catch((e: unknown) => {
+          // A taken name is an answer, not a fault. Reported as a conflict with
+          // the reason intact, because "internal error" hides the one sentence
+          // that says to pick the existing category instead.
+          if (e instanceof Error && e.name === "CategoryExists") {
+            throw Object.assign(e, { statusCode: 409 });
+          }
+          throw e;
+        });
       // 201: it made something, and the body is where to find it.
       return json(201, { id: added.id, label: added.label, kind: added.kind });
     }
@@ -232,7 +277,14 @@ export async function route(deps: CategorisationDeps, event: HttpEvent) {
         now: new Date(),
         range,
       });
-      return json(200, asProposalResponse(outcome.prediction, outcome.proposed, outcome.applied));
+      return json(
+        200,
+        asProposalResponse(
+          outcome.prediction,
+          outcome.proposed,
+          outcome.applied,
+        ),
+      );
     }
 
     return json(404, { error: `No route for ${path}` });
@@ -241,7 +293,9 @@ export async function route(deps: CategorisationDeps, event: HttpEvent) {
     const message = err instanceof Error ? err.message : "Unknown error";
     // Never echo the underlying error for a 500 — it can carry key material and
     // table structure.
-    return json(statusCode, { error: statusCode === 500 ? "Internal error" : message });
+    return json(statusCode, {
+      error: statusCode === 500 ? "Internal error" : message,
+    });
   }
 }
 

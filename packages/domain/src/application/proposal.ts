@@ -21,7 +21,7 @@ import { filterMatcher } from "../categorisation/evaluate.js";
 import { OVERRIDES, OVERRIDES_ORDER } from "../categorisation/overrides.js";
 import { preview } from "../categorisation/preview.js";
 import type { Preview } from "../categorisation/preview.js";
-import { RuleSet } from "../categorisation/rules.js";
+import { RuleSet, parseRuleSets } from "../categorisation/rules.js";
 import { categorise } from "./categorise.js";
 import type { CategoriseReport } from "./categorise.js";
 import type { Candidate } from "../categorisation/taxonomy.js";
@@ -29,7 +29,6 @@ import type { DateRange } from "../ports/index.js";
 import type {
   Categorisations,
   Categories,
-  Row,
   RuleSets,
   Transactions,
 } from "../ports/outbound/index.js";
@@ -126,15 +125,6 @@ export interface ProposalOutcome {
   readonly applied?: CategoriseReport;
 }
 
-function parseSets(rows: readonly Row[]): RuleSet[] {
-  const sets: RuleSet[] = [];
-  for (const row of rows) {
-    const parsed = RuleSet.safeParse(row);
-    if (parsed.success) sets.push(parsed.data);
-  }
-  return sets;
-}
-
 /**
  * The arrangement the proposal would produce.
  *
@@ -192,7 +182,7 @@ export async function proposeRules(
     deps.ruleSets.listRuleSets(tenantId),
   ]);
 
-  const before = parseSets(currentRows);
+  const before = parseRuleSets(currentRows);
   // Where each kind of rule belongs is decided by what it means, not by the
   // caller. A merchant pattern is a household rule; naming one transaction
   // outright is an override. A client that could choose would eventually choose

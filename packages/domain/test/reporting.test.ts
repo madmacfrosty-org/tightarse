@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Adoptions } from "../src/categorisation/adoption.js";
-import type { LedgerReads } from "@tightarse/domain";
+import type { SharedRuleSets, LedgerReads } from "@tightarse/domain";
 import {
   accounts,
   balances,
@@ -31,6 +31,9 @@ const listCategories = vi.fn(
 // Empty: every tenant today, so precedence still falls back to the sets' own
 // order. See `precedenceFor`.
 const getAdoptions = vi.fn(async (): Promise<Adoptions> => []);
+const getRuleSetVersion = vi.fn(async () => undefined);
+const NOW = "2026-08-30T00:00:00.000Z";
+
 const deps = {
   ledger: {
     listRange,
@@ -39,6 +42,8 @@ const deps = {
     getAdoptions,
     listCategories,
   } satisfies LedgerReads,
+  // Separate: reading another tenant's set is its own capability.
+  shared: { getRuleSetVersion } satisfies SharedRuleSets,
 };
 
 const txn = (over: Record<string, unknown> = {}) => ({
@@ -62,6 +67,54 @@ beforeEach(() => {
     categorisations: [],
   });
   listAccounts.mockResolvedValue([]);
+});
+
+describe("which sets a report uses", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getAdoptions.mockResolvedValue([]);
+    getRuleSetVersion.mockResolvedValue(undefined);
+    listRuleSets.mockResolvedValue([]);
+  });
+
+  it("reads the tenant's own sets when it has adopted nothing", async () => {
+    // Every tenant today. The fallback exists so both forms coexist without a
+    // data migration, and goes when every tenant has a list.
+    await summary(deps, "frost", { from: "2026-01-01", to: "2026-12-31" });
+
+    expect(listRuleSets).toHaveBeenCalledWith("frost");
+    expect(getRuleSetVersion).not.toHaveBeenCalled();
+  });
+
+  it("fetches each adopted set from its owner, at the pinned version", async () => {
+    // The pin made real. A shared set improving must not reach a household
+    // until it adopts the newer version, so the read names a version rather
+    // than taking whatever the owner has now.
+    getAdoptions.mockResolvedValue([
+      { owner: "tightarse", setId: "merchants", version: 7, adoptedAt: NOW },
+      { owner: "frost", setId: "household", version: 2, adoptedAt: NOW },
+    ]);
+
+    await summary(deps, "frost", { from: "2026-01-01", to: "2026-12-31" });
+
+    expect(getRuleSetVersion).toHaveBeenCalledWith("tightarse", "merchants", 7);
+    expect(getRuleSetVersion).toHaveBeenCalledWith("frost", "household", 2);
+    // The tenant's own current sets are not consulted at all once it has adopted.
+    expect(listRuleSets).not.toHaveBeenCalled();
+  });
+
+  it("keeps reporting when an adopted set cannot be read", async () => {
+    // A catalogue could retire a version. Losing one adopted set should lose
+    // that set's rules, not the household's whole report.
+    getAdoptions.mockResolvedValue([
+      { owner: "tightarse", setId: "gone", version: 1, adoptedAt: NOW },
+    ]);
+    getRuleSetVersion.mockResolvedValue(undefined);
+
+    await expect(
+      summary(deps, "frost", { from: "2026-01-01", to: "2026-12-31" }),
+    ).resolves.toBeDefined();
+  });
 });
 
 describe("summary and transactions read only the range asked for", () => {
@@ -382,6 +435,7 @@ describe("the category catalogue", () => {
       listAccounts: async () => [],
       listRuleSets: async () => [],
       getAdoptions: async () => [],
+      getRuleSetVersion: async () => undefined,
       listCategories: async () => rows,
     },
   });
