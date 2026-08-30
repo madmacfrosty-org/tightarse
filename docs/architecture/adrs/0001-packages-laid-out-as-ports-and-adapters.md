@@ -1,6 +1,6 @@
 # 1. Lay the packages out as ports and adapters
 
-Status: proposed
+Status: accepted
 Date: 2026-08-30
 Issue: #128
 
@@ -56,5 +56,21 @@ A boundary that is not enforced degrades quietly, which has happened here before
 A lint rule failing an import that points outward or sideways is what makes this
 hold — #40.
 
-Not settled: whether `ingest/connections.ts` becomes its own outbound adapter or
-folds into `aws`, and whether six inbound adapters is the right granularity.
+Not settled: whether `connections.ts` in the steps adapter becomes its own
+outbound adapter or folds into `aws`, and whether six inbound adapters is the
+right granularity.
+
+Settled in the carrying out, and worth recording because neither was foreseen:
+
+`cli` may import the other inbound adapters, and nothing else may. A command
+line is a composition root — it builds dependencies and calls something, exactly
+as a Lambda entry does — and the things a person runs by hand are spread across
+what the other adapters own. The alternative was to push each command back
+beside the adapter it drives, which is the layout this decision exists to leave
+behind.
+
+The domain is CommonJS and `metrics` is ESM, so the domain cannot import it.
+That decided where `reconcile-job` lives: it is a use case, but it emits
+telemetry, so it sits with the schedule handler that drives it rather than in
+the domain. A packaging fact, not a design one, and it will keep deciding this
+until the module systems agree.

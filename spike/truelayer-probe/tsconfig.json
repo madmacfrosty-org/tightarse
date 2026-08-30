@@ -4,7 +4,17 @@
     "rootDir": "src",
     "outDir": "dist",
     "noEmit": false,
-    "lib": ["ES2023", "DOM"]
+    "lib": [
+      "ES2023",
+      "DOM"
+    ]
   },
-  "include": ["src/**/*.ts"]
+  "include": [
+    "src/**/*.ts"
+  ],
+  "references": [
+    {
+      "path": "../../packages/domain"
+    }
+  ]
 }

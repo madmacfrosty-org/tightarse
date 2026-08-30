@@ -23,19 +23,16 @@
         "./packages/domain/src/index.ts"
       ],
       "@tightarse/dynamodb": [
-        "./packages/dynamodb/src/index.ts"
+        "./packages/adapters/dynamodb/src/index.ts"
       ],
-      "@tightarse/fixtures": [
-        "./packages/fixtures/src/index.ts"
+      "@tightarse/truelayer": [
+        "./packages/adapters/truelayer/src/index.ts"
       ],
       "@tightarse/metrics": [
         "./packages/metrics/src/index.ts"
       ],
-      "@tightarse/transform": [
-        "./services/transform/src/index.ts"
-      ],
-      "@tightarse/truelayer": [
-        "./packages/truelayer/src/index.ts"
+      "@tightarse/events": [
+        "./packages/adapters/events/src/index.ts"
       ]
     },
     "baseUrl": ".",
@@ -44,7 +41,10 @@
   },
   "include": [
     "packages/*/test/**/*.test.ts",
-    "services/*/test/**/*.test.ts",
-    "agents/*/test/**/*.test.ts"
+    "packages/adapters/*/test/**/*.test.ts"
+  ],
+  "exclude": [
+    "packages/infra/**",
+    "packages/web/**"
   ]
 }

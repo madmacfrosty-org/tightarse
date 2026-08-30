@@ -1,0 +1,22 @@
+{
+  "name": "@tightarse/cognito",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:mutation": "stryker run"
+  },
+  "dependencies": {
+    "@tightarse/domain": "*",
+    "@tightarse/dynamodb": "*"
+  },
+  "devDependencies": {
+    "@tightarse/vitest-config": "*",
+    "vitest": "^2.1.0"
+  }
+}

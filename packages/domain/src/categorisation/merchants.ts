@@ -8,7 +8,7 @@ import type { CategoryLabel } from "./taxonomy.js";
  *  - the **rules** a household starts with. `merchant-rules.ts` groups these by
  *    category and emits one pattern per category, so adding a supermarket here
  *    adds it to the seeded rule set.
- *  - the **descriptions** generated test data uses. `@tightarse/fixtures` reads
+ *  - the **descriptions** generated test data uses. `@tightarse/truelayer` reads
  *    the same entries, so a generated transaction is matched by a generated
  *    rule BY CONSTRUCTION rather than by somebody keeping two lists in step.
  *

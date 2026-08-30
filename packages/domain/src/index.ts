@@ -66,3 +66,30 @@ export * from "./application/inspect.js";
 export * from "./application/categories.js";
 export * from "./application/proposal.js";
 export * from "./ports/index.js";
+// `resolve` here is not `resolve.ts`'s: one settles a conflict between rules,
+// the other settles which categorisation is in force. Exported by name so the
+// collision is visible rather than shadowed.
+export {
+  conflictResolver,
+  resolve as resolveConflicts,
+  PROPOSED_BY as CONFLICT_RESOLVER_PROPOSED_BY,
+} from "./categorisation/conflict-resolver.js";
+export * from "./categorisation/authored-proposer.js";
+export * from "./generate/gen.js";
+// merchants come through ./categorisation/merchants.js already
+export {
+  ATM_LOCATIONS,
+  DIRECT_DEBIT_ORIGINATORS,
+  EMPLOYERS,
+  PEOPLE,
+  payeeName,
+} from "./generate/vocabulary.js";
+// `Row` here is a raw table row for the replay comparison, not the ports'
+// untyped read shape. Exported by name so the two cannot be confused.
+export {
+  compareRows,
+  formatReport,
+  isMatch,
+  rowKind,
+  scanAll,
+} from "./application/compare.js";
