@@ -16,7 +16,7 @@
  * Pure. The corpus arrives as an argument, and nothing here writes.
  */
 
-import { evaluate } from "./evaluate.js";
+import { evaluate, inPrecedenceOrder } from "./evaluate.js";
 import type { RuleSet } from "./rules.js";
 import type { CategoryId } from "./category.js";
 import type { Candidate } from "./taxonomy.js";
@@ -97,7 +97,12 @@ interface Tally {
   entries: Change[];
 }
 
-const emptyTally = (): Tally => ({ transactions: 0, outgoing: 0, merchants: new Set(), entries: [] });
+const emptyTally = (): Tally => ({
+  transactions: 0,
+  outgoing: 0,
+  merchants: new Set(),
+  entries: [],
+});
 
 function record(tally: Tally, candidate: Candidate, change: Change): void {
   tally.transactions += 1;
@@ -121,9 +126,16 @@ const settle = (tally: Tally): Effect => ({
  * that edits rules without advancing the version is lying about what it did, and
  * the preview will believe it.
  */
-function proposedSetIds(before: readonly RuleSet[], after: readonly RuleSet[]): Set<string> {
+function proposedSetIds(
+  before: readonly RuleSet[],
+  after: readonly RuleSet[],
+): Set<string> {
   const versions = new Map(before.map((s) => [s.setId, s.version]));
-  return new Set(after.filter((s) => versions.get(s.setId) !== s.version).map((s) => s.setId));
+  return new Set(
+    after
+      .filter((s) => versions.get(s.setId) !== s.version)
+      .map((s) => s.setId),
+  );
 }
 
 /**
@@ -145,14 +157,27 @@ export function preview(
   const recategorised = emptyTally();
   const unchanged = emptyTally();
   const outranked = emptyTally();
-  const conflicts = new Map<string, { setId: string; categories: CategoryId[]; transactions: number; example: string }>();
+  const conflicts = new Map<
+    string,
+    {
+      setId: string;
+      categories: CategoryId[];
+      transactions: number;
+      example: string;
+    }
+  >();
 
   for (const candidate of corpus) {
-    const was = evaluate(before, candidate);
-    const now = evaluate(after, candidate);
+    const was = evaluate(inPrecedenceOrder(before), candidate);
+    const now = evaluate(inPrecedenceOrder(after), candidate);
     const from = was.effective?.category;
     const to = now.effective?.category;
-    const change: Change = { dedupKey: candidate.dedupKey, description: candidate.description, from, to };
+    const change: Change = {
+      dedupKey: candidate.dedupKey,
+      description: candidate.description,
+      from,
+      to,
+    };
 
     // Keyed on the set and the categories it cannot choose between, so a hundred
     // transactions hitting one bad pair read as one defect.
@@ -162,7 +187,9 @@ export function preview(
         if (!proposed.has(outcome.setId)) continue;
         for (const problem of outcome.problems)
           if (problem.kind === "conflict")
-            keys.add(`${outcome.setId}#${[...problem.categories].sort().join(",")}`);
+            keys.add(
+              `${outcome.setId}#${[...problem.categories].sort().join(",")}`,
+            );
       }
       return keys;
     };
@@ -204,10 +231,13 @@ export function preview(
 
     // The answer did not move. That is only worth reporting when the proposal
     // had something to say about this transaction at all.
-    const spoke = now.sets.some((o) => proposed.has(o.setId) && o.category !== undefined);
+    const spoke = now.sets.some(
+      (o) => proposed.has(o.setId) && o.category !== undefined,
+    );
     if (!spoke) continue;
 
-    const won = now.effective !== undefined && proposed.has(now.effective.setId);
+    const won =
+      now.effective !== undefined && proposed.has(now.effective.setId);
     record(won ? unchanged : outranked, candidate, change);
   }
 
@@ -218,7 +248,8 @@ export function preview(
     unchanged: settle(unchanged),
     outranked: settle(outranked),
     introducedConflicts: [...conflicts.values()].sort(
-      (a, b) => b.transactions - a.transactions || a.setId.localeCompare(b.setId),
+      (a, b) =>
+        b.transactions - a.transactions || a.setId.localeCompare(b.setId),
     ),
     scanned: corpus.length,
   };

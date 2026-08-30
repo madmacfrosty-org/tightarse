@@ -29,6 +29,7 @@ import {
   propose,
   RuleSet,
   type Rule,
+  inPrecedenceOrder,
 } from "@tightarse/domain";
 
 const usage = `usage:
@@ -61,7 +62,9 @@ function householdSet(sets: readonly RuleSet[]): RuleSet {
 }
 
 function patternOf(rule: Rule): string {
-  return rule.matcher.kind === "merchant" ? rule.matcher.pattern : `(${rule.matcher.kind})`;
+  return rule.matcher.kind === "merchant"
+    ? rule.matcher.pattern
+    : `(${rule.matcher.kind})`;
 }
 
 async function main(): Promise<void> {
@@ -70,12 +73,17 @@ async function main(): Promise<void> {
   const tenantId = process.env["TENANT"] ?? "frost";
   const by = process.env["USER"] ?? "operator";
   const holding = process.argv.includes("--propose");
-  const ledger = new DynamoStore({ tableName, region: process.env["AWS_REGION"] ?? "eu-west-1" });
+  const ledger = new DynamoStore({
+    tableName,
+    region: process.env["AWS_REGION"] ?? "eu-west-1",
+  });
 
   const args = process.argv.slice(2).filter((v) => !v.startsWith("--"));
   const [command, a, b, c] = args;
 
-  const sets = (await ledger.listRuleSets(tenantId)).map((r) => RuleSet.parse(r));
+  const sets = (await ledger.listRuleSets(tenantId)).map((r) =>
+    RuleSet.parse(r),
+  );
   const household = householdSet(sets);
 
   /** Record the change, and publish it unless asked to hold. */
@@ -89,17 +97,25 @@ async function main(): Promise<void> {
     if (!recorded) return;
 
     if (holding) {
-      console.log(`${what}\nproposed as ${HOUSEHOLD} v${recorded.version} — not yet in force`);
+      console.log(
+        `${what}\nproposed as ${HOUSEHOLD} v${recorded.version} — not yet in force`,
+      );
       return;
     }
-    await decide({ ruleSets: ledger }, tenantId, [recorded], { status: "effective" });
-    console.log(`${what}\npublished as ${HOUSEHOLD} v${recorded.version}  (${rules.length} rules)`);
+    await decide({ ruleSets: ledger }, tenantId, [recorded], {
+      status: "effective",
+    });
+    console.log(
+      `${what}\npublished as ${HOUSEHOLD} v${recorded.version}  (${rules.length} rules)`,
+    );
   };
 
   switch (command) {
     case "list": {
       if (household.rules.length === 0) {
-        console.log("no rules of your own — every category comes from the shipped patterns");
+        console.log(
+          "no rules of your own — every category comes from the shipped patterns",
+        );
         return;
       }
       for (const r of household.rules) {
@@ -108,7 +124,9 @@ async function main(): Promise<void> {
           `${r.contributes.category.padEnd(22)} ${patternOf(r)}${kind}${r.note ? `   # ${r.note}` : ""}`,
         );
       }
-      console.log(`\n${household.rules.length} rules, ${HOUSEHOLD} v${household.version}`);
+      console.log(
+        `\n${household.rules.length} rules, ${HOUSEHOLD} v${household.version}`,
+      );
       return;
     }
 
@@ -127,7 +145,10 @@ async function main(): Promise<void> {
         appliesTo: "debits",
         ...(c ? { note: c } : {}),
       };
-      await change([...household.rules.filter((r) => patternOf(r) !== a), rule], `added: ${a} -> ${b}`);
+      await change(
+        [...household.rules.filter((r) => patternOf(r) !== a), rule],
+        `added: ${a} -> ${b}`,
+      );
       return;
     }
 
@@ -151,7 +172,10 @@ async function main(): Promise<void> {
       const overrides = overridesSet(sets, new Date());
       const rule = overrideRule(a, b, c);
       const next = [
-        ...overrides.rules.filter((r) => !(r.matcher.kind === "transaction" && r.matcher.dedupKey === a)),
+        ...overrides.rules.filter(
+          (r) =>
+            !(r.matcher.kind === "transaction" && r.matcher.dedupKey === a),
+        ),
         rule,
       ];
       const [recorded] = await propose(
@@ -162,11 +186,17 @@ async function main(): Promise<void> {
       );
       if (!recorded) return;
       if (holding) {
-        console.log(`corrected ${a} -> ${b}\nproposed as overrides v${recorded.version} — not yet in force`);
+        console.log(
+          `corrected ${a} -> ${b}\nproposed as overrides v${recorded.version} — not yet in force`,
+        );
         return;
       }
-      await decide({ ruleSets: ledger }, tenantId, [recorded], { status: "effective" });
-      console.log(`corrected ${a} -> ${b}\npublished as overrides v${recorded.version}  (${next.length} corrections)`);
+      await decide({ ruleSets: ledger }, tenantId, [recorded], {
+        status: "effective",
+      });
+      console.log(
+        `corrected ${a} -> ${b}\npublished as overrides v${recorded.version}  (${next.length} corrections)`,
+      );
       return;
     }
 
@@ -174,17 +204,26 @@ async function main(): Promise<void> {
       if (!a) throw new Error(usage);
       // Through the real fold, over the real sets. A private copy of matching
       // is how a command tells you one thing and the ledger does another.
-      const result = evaluate(sets, { dedupKey: "test", description: a, amount: -10_00, currency: "GBP" });
+      const result = evaluate(inPrecedenceOrder(sets), {
+        dedupKey: "test",
+        description: a,
+        amount: -10_00,
+        currency: "GBP",
+      });
       console.log(`"${a}"`);
       if (result.effective) {
-        console.log(`  -> ${result.effective.category}   (${result.effective.setId} v${result.effective.version})`);
+        console.log(
+          `  -> ${result.effective.category}   (${result.effective.setId} v${result.effective.version})`,
+        );
       } else {
         console.log(`  -> no rule matches; it stays uncategorised`);
       }
       for (const s of result.sets) {
         const said = s.category ?? "—";
         const problems = s.problems.map((p) => p.kind).join(", ");
-        console.log(`     ${s.setId.padEnd(12)} ${said.padEnd(22)}${problems ? `  [${problems}]` : ""}`);
+        console.log(
+          `     ${s.setId.padEnd(12)} ${said.padEnd(22)}${problems ? `  [${problems}]` : ""}`,
+        );
       }
       return;
     }

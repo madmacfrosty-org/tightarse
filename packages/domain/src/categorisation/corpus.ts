@@ -60,7 +60,8 @@ export interface DescriptionSummary {
   readonly categories: readonly CategoryCount[];
 }
 
-export type Cadence = "weekly" | "fortnightly" | "four-weekly" | "monthly" | "quarterly" | "annual";
+export type Cadence =
+  "weekly" | "fortnightly" | "four-weekly" | "monthly" | "quarterly" | "annual";
 
 /** A repeated amount arriving on a regular beat. */
 export interface Recurrence {
@@ -119,7 +120,8 @@ const DAY_MS = 86_400_000;
 const daysBetween = (from: string, to: string): number =>
   Math.round((Date.parse(to) - Date.parse(from)) / DAY_MS);
 
-const median = (xs: readonly number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
+const median = (xs: readonly number[]): number =>
+  [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
 
 /**
  * Name the beat a series of dates keeps, if it keeps one.
@@ -127,7 +129,9 @@ const median = (xs: readonly number[]): number => [...xs].sort((a, b) => a - b)[
  * Median rather than mean: one missed month would drag a mean far enough to lose
  * an otherwise regular payment, and the whole point is to find the regular ones.
  */
-export function detectCadence(timestamps: readonly string[]): Cadence | undefined {
+export function detectCadence(
+  timestamps: readonly string[],
+): Cadence | undefined {
   const sorted = [...timestamps].sort();
   const gaps = sorted
     .slice(1)
@@ -149,7 +153,8 @@ export function detectCadence(timestamps: readonly string[]): Cadence | undefine
   for (const [period, cadence] of CADENCES) {
     const distance = Math.abs(m - period);
     if (distance > tolerance(period)) continue;
-    if (best === undefined || distance < best.distance) best = { cadence, distance };
+    if (best === undefined || distance < best.distance)
+      best = { cadence, distance };
   }
   return best?.cadence;
 }
@@ -175,16 +180,25 @@ const emptyBucket = (timestamp: string): Bucket => ({
 function absorb(bucket: Bucket, sighting: Sighting): void {
   bucket.transactions += 1;
   if (sighting.amount < 0) bucket.outgoing += -sighting.amount;
-  if (sighting.timestamp < bucket.firstSeen) bucket.firstSeen = sighting.timestamp;
-  if (sighting.timestamp > bucket.lastSeen) bucket.lastSeen = sighting.timestamp;
+  if (sighting.timestamp < bucket.firstSeen)
+    bucket.firstSeen = sighting.timestamp;
+  if (sighting.timestamp > bucket.lastSeen)
+    bucket.lastSeen = sighting.timestamp;
   if (sighting.category === undefined) bucket.uncategorised += 1;
-  else bucket.categories.set(sighting.category, (bucket.categories.get(sighting.category) ?? 0) + 1);
+  else
+    bucket.categories.set(
+      sighting.category,
+      (bucket.categories.get(sighting.category) ?? 0) + 1,
+    );
 }
 
 const tally = (categories: Map<string, number>): CategoryCount[] =>
   [...categories.entries()]
     .map(([category, transactions]) => ({ category, transactions }))
-    .sort((a, b) => b.transactions - a.transactions || a.category.localeCompare(b.category));
+    .sort(
+      (a, b) =>
+        b.transactions - a.transactions || a.category.localeCompare(b.category),
+    );
 
 /**
  * Collapse a corpus along both axes at once.
@@ -195,10 +209,15 @@ const tally = (categories: Map<string, number>): CategoryCount[] =>
  */
 export function summariseCorpus(sightings: readonly Sighting[]): CorpusSummary {
   const byDescription = new Map<string, Bucket>();
-  const byAmount = new Map<number, { bucket: Bucket; timestamps: string[]; descriptions: Set<string> }>();
+  const byAmount = new Map<
+    number,
+    { bucket: Bucket; timestamps: string[]; descriptions: Set<string> }
+  >();
 
   for (const sighting of sightings) {
-    const description = byDescription.get(sighting.description) ?? emptyBucket(sighting.timestamp);
+    const description =
+      byDescription.get(sighting.description) ??
+      emptyBucket(sighting.timestamp);
     absorb(description, sighting);
     byDescription.set(sighting.description, description);
 
@@ -240,8 +259,13 @@ export function summariseCorpus(sightings: readonly Sighting[]): CorpusSummary {
         uncategorised: b.uncategorised,
         categories: tally(b.categories),
       }))
-      .sort((a, b) => b.outgoing - a.outgoing || a.description.localeCompare(b.description)),
-    recurrences: recurrences.sort((a, b) => b.outgoing - a.outgoing || a.amount - b.amount),
+      .sort(
+        (a, b) =>
+          b.outgoing - a.outgoing || a.description.localeCompare(b.description),
+      ),
+    recurrences: recurrences.sort(
+      (a, b) => b.outgoing - a.outgoing || a.amount - b.amount,
+    ),
     scanned: sightings.length,
   };
 }

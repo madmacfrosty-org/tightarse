@@ -25,7 +25,10 @@ import type {
   Reconciliation,
   ReconciliationReport,
 } from "../ports/inbound/index.js";
-import type { ReconciliationData, ReconciliationMarks } from "../ports/outbound/index.js";
+import type {
+  ReconciliationData,
+  ReconciliationMarks,
+} from "../ports/outbound/index.js";
 
 export interface ReconcileDeps {
   /** The accounts to check and the two series behind each one. */
@@ -34,7 +37,10 @@ export interface ReconcileDeps {
   readonly marks: ReconciliationMarks;
 }
 
-export async function reconcile(deps: ReconcileDeps, tenantId: string): Promise<ReconciliationReport> {
+export async function reconcile(
+  deps: ReconcileDeps,
+  tenantId: string,
+): Promise<ReconciliationReport> {
   const ids = await deps.data.accounts();
   const accounts: Record<AccountId, AccountReconciliation> = {};
   let checked = 0;
@@ -48,20 +54,37 @@ export async function reconcile(deps: ReconcileDeps, tenantId: string): Promise<
     const result = reconcileAccount(accountId, readings, movements);
 
     // Keyed on both halves, because that is what identifies the row.
-    const broken = new Map(result.breaks.map((b) => [`${b.asOf}#${b.fetchedAt}`, b.discrepancy]));
+    const broken = new Map(
+      result.breaks.map((b) => [`${b.asOf}#${b.fetchedAt}`, b.discrepancy]),
+    );
     for (const r of readings) {
       const discrepancy = broken.get(`${r.asOf}#${r.fetchedAt}`);
       if (discrepancy !== undefined) {
-        await deps.marks.markBalanceReadingDirty(tenantId, accountId, r.asOf, r.fetchedAt, discrepancy);
+        await deps.marks.markBalanceReadingDirty(
+          tenantId,
+          accountId,
+          r.asOf,
+          r.fetchedAt,
+          discrepancy,
+        );
       } else {
         // Cleared unconditionally rather than only where a mark exists: this
         // must be able to undo itself when a late transaction explains an
         // earlier break, and it does not track what it marked last time.
-        await deps.marks.clearBalanceReadingDirty(tenantId, accountId, r.asOf, r.fetchedAt);
+        await deps.marks.clearBalanceReadingDirty(
+          tenantId,
+          accountId,
+          r.asOf,
+          r.fetchedAt,
+        );
       }
     }
 
-    accounts[accountId] = { readings: readings.length, checked: result.checked, breaks: result.breaks.length };
+    accounts[accountId] = {
+      readings: readings.length,
+      checked: result.checked,
+      breaks: result.breaks.length,
+    };
     checked += result.checked;
     breaks += result.breaks.length;
   }

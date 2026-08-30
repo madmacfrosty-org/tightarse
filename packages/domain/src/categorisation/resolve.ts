@@ -40,7 +40,9 @@ export interface Resolved {
  * change what is displayed, or approving it would be decoration. They remain
  * visible in history.
  */
-function latestPerSet(all: readonly Categorisation[]): Map<string, Categorisation> {
+function latestPerSet(
+  all: readonly Categorisation[],
+): Map<string, Categorisation> {
   const out = new Map<string, Categorisation>();
   for (const c of all) {
     if (c.status === "proposed") continue;
@@ -71,7 +73,8 @@ export function resolve(
   const all = provider === undefined ? [...stored] : [...stored, provider];
 
   const rank = new Map(order.map((o) => [o.setId, o.order]));
-  const rankOf = (setId: string): number => rank.get(setId) ?? Number.MAX_SAFE_INTEGER;
+  const rankOf = (setId: string): number =>
+    rank.get(setId) ?? Number.MAX_SAFE_INTEGER;
 
   const bySet = [...latestPerSet(all).values()].sort((a, b) => {
     const byRank = rankOf(a.setId) - rankOf(b.setId);
@@ -83,10 +86,15 @@ export function resolve(
   return {
     ...(effective !== undefined ? { effective } : {}),
     bySet,
-    disagreeing: effective === undefined ? [] : bySet.filter((c) => c.category !== effective.category),
+    disagreeing:
+      effective === undefined
+        ? []
+        : bySet.filter((c) => c.category !== effective.category),
     history:
       effective === undefined
         ? []
-        : all.filter((c) => c.setId === effective.setId).sort((a, b) => a.version - b.version),
+        : all
+            .filter((c) => c.setId === effective.setId)
+            .sort((a, b) => a.version - b.version),
   };
 }

@@ -47,8 +47,11 @@ export interface ProviderInput {
  * sets decides whether it is the effective one overall, and the provider set
  * ranks last.
  */
-export function providerCategorisation(tx: ProviderInput): Categorisation | undefined {
-  if (tx.providerCategory === undefined || tx.providerCategory === "") return undefined;
+export function providerCategorisation(
+  tx: ProviderInput,
+): Categorisation | undefined {
+  if (tx.providerCategory === undefined || tx.providerCategory === "")
+    return undefined;
 
   return {
     dedupKey: tx.dedupKey,

@@ -110,11 +110,13 @@ export function builtInRules(): Rule[] {
  * description is usually a location rather than a merchant.
  */
 export function providerRules(): Rule[] {
-  const rules: Rule[] = Object.entries(PROVIDER_RULES).map(([value, label]) => ({
-    matcher: { kind: "providerCategory" as const, value },
-    contributes: { kind: "assert" as const, category: slugFor(label) },
-    appliesTo: "debits" as const,
-  }));
+  const rules: Rule[] = Object.entries(PROVIDER_RULES).map(
+    ([value, label]) => ({
+      matcher: { kind: "providerCategory" as const, value },
+      contributes: { kind: "assert" as const, category: slugFor(label) },
+      appliesTo: "debits" as const,
+    }),
+  );
 
   // Interest is Income when received and Fees & Charges when paid. Direction
   // decides, not the label — which is two rules over one matcher, and the
