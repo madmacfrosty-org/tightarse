@@ -23,15 +23,21 @@ decision on creation and returns no information on reading.
 ## Decision
 
 `packages/` is the single root for code. `services/` and `agents/` disappear, and
-`web` moves under it.
+`web` and `infra` move under it.
 
-Two directories stay at the top level:
+One directory of code stays at the top level:
 
-- **`infra/`** — deploys the others rather than being one of them.
 - **`spike/`** — throwaway. Keeping it visibly outside stops it being mistaken
   for something maintained.
 
-`docs/` and `scripts/` are not code and are unaffected.
+`infra` was argued for staying out, on the grounds that it deploys the others
+rather than being one of them. That was thin: it is an npm workspace like the
+rest, and "deploys the others" is a fact about what it contains rather than a
+reason to file it elsewhere.
+
+`docs/` and `scripts/` are not code and are unaffected. `scripts/` holds
+developer tooling — minting a GitHub App token — which is imported by nothing and
+is not a workspace.
 
 ## Consequences
 
