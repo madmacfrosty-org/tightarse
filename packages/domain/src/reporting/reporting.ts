@@ -19,12 +19,16 @@ import type {
   BalancesResult,
   DateRange,
   LedgerReads,
+  SharedRuleSets,
   Reporting,
   SummaryOptions,
   Summary,
   TransactionsResult,
 } from "../index.js";
 import { Category } from "../categorisation/category.js";
+import { parseRuleSets, type RuleSet } from "../categorisation/rules.js";
+import type { Adoptions } from "../categorisation/adoption.js";
+import type { SetOrder } from "../categorisation/resolve.js";
 import { filterMatcher, matchesMatcher } from "../categorisation/evaluate.js";
 import { candidateOf } from "../application/candidate.js";
 import { effectiveCategories, precedenceFor } from "./categories.js";
@@ -52,9 +56,63 @@ import {
  */
 export type Range = DateRange;
 
+/**
+ * The sets in force for a tenant, in the order they outrank each other.
+ *
+ * Two paths, and the second is the one going away.
+ *
+ * **Adopted:** each adoption names an owner, a set and a VERSION, so each is
+ * fetched by exact key from whoever owns it. That is what makes the pin real —
+ * a shared set improving does not reach a household until it adopts the newer
+ * version. The sets come back in adoption order, so precedence is the order of
+ * the list and nothing has to be ranked afterwards.
+ *
+ * **Fallback:** a tenant that has adopted nothing gets its own current sets,
+ * ranked by the `order` they carry. That is every tenant today. It exists so
+ * both forms can coexist without a data migration (#121) and goes when every
+ * tenant has a list.
+ *
+ * An adoption naming a set that cannot be read is skipped rather than fatal. A
+ * catalogue could retire a version, and a household losing one adopted set
+ * should lose that set's rules, not its whole report.
+ */
+async function setsInForce(
+  deps: Deps,
+  tenantId: string,
+  adoptions: Adoptions,
+): Promise<{ sets: RuleSet[]; precedence: SetOrder[] }> {
+  if (adoptions.length === 0) {
+    const rows = await deps.ledger.listRuleSets(tenantId);
+    return {
+      sets: parseRuleSets(rows),
+      precedence: precedenceFor([], rows),
+    };
+  }
+
+  const fetched = await Promise.all(
+    adoptions.map((a) =>
+      deps.shared.getRuleSetVersion(a.owner, a.setId, a.version),
+    ),
+  );
+  const sets = fetched.filter((s): s is RuleSet => s !== undefined);
+  return {
+    sets,
+    precedence: sets.map((s, index) => ({ setId: s.setId, order: index })),
+  };
+}
+
 /** Everything the use cases reach outside themselves. */
 export interface Deps {
   readonly ledger: LedgerReads;
+  /**
+   * Reading a set that belongs to somebody else.
+   *
+   * Separate from `ledger` on purpose. It is the one capability here that
+   * crosses a tenant boundary, and folding it into the general read port would
+   * hand it to everything holding that port — which is exactly what giving it
+   * its own port was meant to prevent (#121).
+   */
+  readonly shared: SharedRuleSets;
 }
 
 /**
@@ -140,13 +198,11 @@ export async function summary(
   range: Range,
   opts: SummaryOptions = {},
 ): Promise<Summary> {
-  const [{ transactions, categorisations }, sets, adoptions] =
-    await Promise.all([
-      deps.ledger.listRange(tenantId, range),
-      deps.ledger.listRuleSets(tenantId),
-      deps.ledger.getAdoptions(tenantId),
-    ]);
-  const precedence = precedenceFor(adoptions, sets);
+  const [{ transactions, categorisations }, adoptions] = await Promise.all([
+    deps.ledger.listRange(tenantId, range),
+    deps.ledger.getAdoptions(tenantId),
+  ]);
+  const { precedence } = await setsInForce(deps, tenantId, adoptions);
   return summarise(
     transactions,
     effectiveCategories(transactions, categorisations, precedence),
@@ -176,13 +232,12 @@ export async function transactions(
   range: Range,
   filter?: TransactionFilter,
 ): Promise<TransactionsResult> {
-  const [{ transactions: txns, categorisations }, sets, adoptions] =
+  const [{ transactions: txns, categorisations }, adoptions] =
     await Promise.all([
       deps.ledger.listRange(tenantId, range),
-      deps.ledger.listRuleSets(tenantId),
       deps.ledger.getAdoptions(tenantId),
     ]);
-  const precedence = precedenceFor(adoptions, sets);
+  const { precedence } = await setsInForce(deps, tenantId, adoptions);
 
   const rows = txns;
   // Built once, not per row: escaping a term eleven thousand times to reach the

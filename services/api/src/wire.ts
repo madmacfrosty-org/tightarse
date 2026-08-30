@@ -53,10 +53,16 @@ export const asSummary = (s: Summary): SummaryResponse => ({
 });
 
 export const asCategories = (c: CategoriesResult): CategoriesResponse => ({
-  categories: c.categories.map((x) => ({ id: x.id, label: x.label, kind: x.kind })),
+  categories: c.categories.map((x) => ({
+    id: x.id,
+    label: x.label,
+    kind: x.kind,
+  })),
 });
 
-export const asTransactions = (t: TransactionsResult): TransactionsResponse => ({
+export const asTransactions = (
+  t: TransactionsResult,
+): TransactionsResponse => ({
   range: t.range,
   transactions: [...t.transactions],
 });
@@ -79,7 +85,10 @@ export const asBalances = (b: BalancesResult): BalancesResponse => ({
  * already calling. The range is echoed back so a caller can tell what was
  * actually served from what it asked for.
  */
-export function asBacklog(range: { from: string; to: string }, backlog: Backlog): BacklogResponse {
+export function asBacklog(
+  range: { from: string; to: string },
+  backlog: Backlog,
+): BacklogResponse {
   return {
     range,
     descriptions: backlog.descriptions.map((d) => ({
@@ -89,7 +98,10 @@ export function asBacklog(range: { from: string; to: string }, backlog: Backlog)
       firstSeen: d.firstSeen,
       lastSeen: d.lastSeen,
       uncategorised: d.uncategorised,
-      categories: d.categories.map((c) => ({ category: c.category, transactions: c.transactions })),
+      categories: d.categories.map((c) => ({
+        category: c.category,
+        transactions: c.transactions,
+      })),
     })),
     recurrences: backlog.recurrences.map((r) => ({
       amount: r.amount,
@@ -130,7 +142,10 @@ export function asBacklog(range: { from: string; to: string }, backlog: Backlog)
  * told so can ask for more; one shown 500 and told nothing draws a conclusion
  * from a fraction.
  */
-const ENTRY_LIMIT: Record<keyof Omit<PredictionView, "introducedConflicts" | "scanned">, number> = {
+const ENTRY_LIMIT: Record<
+  keyof Omit<PredictionView, "introducedConflicts" | "scanned">,
+  number
+> = {
   gained: 500,
   lost: 1000,
   recategorised: 1000,
@@ -167,7 +182,10 @@ export function asProposalResponse(
     prediction: {
       gained: asEffect(prediction.gained, ENTRY_LIMIT.gained),
       lost: asEffect(prediction.lost, ENTRY_LIMIT.lost),
-      recategorised: asEffect(prediction.recategorised, ENTRY_LIMIT.recategorised),
+      recategorised: asEffect(
+        prediction.recategorised,
+        ENTRY_LIMIT.recategorised,
+      ),
       unchanged: asEffect(prediction.unchanged, ENTRY_LIMIT.unchanged),
       outranked: asEffect(prediction.outranked, ENTRY_LIMIT.outranked),
       introducedConflicts: prediction.introducedConflicts.map((c) => ({
@@ -180,7 +198,12 @@ export function asProposalResponse(
     },
     ...(proposed === undefined
       ? {}
-      : { proposed: proposed.map((p) => ({ setId: p.setId, version: p.version })) }),
+      : {
+          proposed: proposed.map((p) => ({
+            setId: p.setId,
+            version: p.version,
+          })),
+        }),
     ...(applied === undefined
       ? {}
       : {

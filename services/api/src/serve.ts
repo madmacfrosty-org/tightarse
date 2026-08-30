@@ -32,7 +32,10 @@ if (!tableName) {
   process.exit(1);
 }
 
-const ledger = new DynamoStore({ tableName, region: process.env["AWS_REGION"] ?? "eu-west-1" });
+const ledger = new DynamoStore({
+  tableName,
+  region: process.env["AWS_REGION"] ?? "eu-west-1",
+});
 
 /**
  * Log what a failure actually was, before `route` hides it.
@@ -66,11 +69,24 @@ async function logged<T>(what: string, run: () => Promise<T>): Promise<T> {
 const deps: ApiDeps = {
   reporting: reporting({
     ledger: {
-      listRange: (tenant, range) => logged("listRange", () => ledger.listRange(tenant, range)),
-      listAccounts: (tenant) => logged("listAccounts", () => ledger.listAccounts(tenant)),
-      listRuleSets: (tenant) => logged("listRuleSets", () => ledger.listRuleSets(tenant)),
-      getAdoptions: (tenant) => logged("getAdoptions", () => ledger.getAdoptions(tenant)),
-      listCategories: (tenant) => logged("listCategories", () => ledger.listCategories(tenant)),
+      listRange: (tenant, range) =>
+        logged("listRange", () => ledger.listRange(tenant, range)),
+      listAccounts: (tenant) =>
+        logged("listAccounts", () => ledger.listAccounts(tenant)),
+      listRuleSets: (tenant) =>
+        logged("listRuleSets", () => ledger.listRuleSets(tenant)),
+      getAdoptions: (tenant) =>
+        logged("getAdoptions", () => ledger.getAdoptions(tenant)),
+      listCategories: (tenant) =>
+        logged("listCategories", () => ledger.listCategories(tenant)),
+    },
+    // Its own dependency, not part of the read port: it is the one capability
+    // that crosses a tenant boundary.
+    shared: {
+      getRuleSetVersion: (owner: string, setId: string, version: number) =>
+        logged("getRuleSetVersion", () =>
+          ledger.getRuleSetVersion(owner, setId, version),
+        ),
     },
   }),
 };
@@ -86,14 +102,17 @@ const server = createServer((req, res) => {
       // environment variable. This is the whole reason the file says never
       // deploy it: the real handler's first act is to refuse a request that
       // does not carry one of these.
-      requestContext: { authorizer: { jwt: { claims: { "custom:tenant": tenantId } } } },
+      requestContext: {
+        authorizer: { jwt: { claims: { "custom:tenant": tenantId } } },
+      },
     });
 
     res.statusCode = result.statusCode;
     // The browser is on a different origin in development; API Gateway handles
     // this in the deployed stack, so it is transport rather than logic.
     res.setHeader("access-control-allow-origin", "*");
-    for (const [name, value] of Object.entries(result.headers)) res.setHeader(name, value);
+    for (const [name, value] of Object.entries(result.headers))
+      res.setHeader(name, value);
     res.end(result.body);
   })();
 });

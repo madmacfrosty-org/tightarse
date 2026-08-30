@@ -22,10 +22,10 @@ import type {
 import { evaluate, inPrecedenceOrder } from "../categorisation/evaluate.js";
 import { gatherEvidence } from "../categorisation/evidence.js";
 import type { Conflict, Gap } from "../categorisation/evidence.js";
-import { RuleSet } from "../categorisation/rules.js";
+import { parseRuleSets } from "../categorisation/rules.js";
 import type { Backlog, Inspection } from "../ports/inbound/index.js";
 import type { DateRange } from "../ports/index.js";
-import type { Row, RuleSets, Transactions } from "../ports/outbound/index.js";
+import type { RuleSets, Transactions } from "../ports/outbound/index.js";
 import { candidateOf } from "./candidate.js";
 
 export interface InspectDeps {
@@ -40,14 +40,6 @@ export interface InspectDeps {
  * to refuse to describe a ledger. It matches nothing, which is the same thing it
  * would do during application.
  */
-function parseSets(rows: readonly Row[]): RuleSet[] {
-  const sets: RuleSet[] = [];
-  for (const row of rows) {
-    const parsed = RuleSet.safeParse(row);
-    if (parsed.success) sets.push(parsed.data);
-  }
-  return sets;
-}
 
 export async function backlog(
   deps: InspectDeps,
@@ -58,7 +50,7 @@ export async function backlog(
     deps.transactions.listRange(tenantId, range),
     deps.ruleSets.listRuleSets(tenantId),
   ]);
-  const sets = parseSets(setRows);
+  const sets = parseRuleSets(setRows);
 
   const sightings: Sighting[] = [];
   for (const row of transactions) {

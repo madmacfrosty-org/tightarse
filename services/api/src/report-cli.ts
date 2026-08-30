@@ -31,19 +31,29 @@ async function main() {
   // Through the inbound port, like every other driver. This CLI used to reach
   // past the use cases straight into `summarise` with its own casts, which is how
   // a third driver ends up with a third opinion about what a summary is.
-  const app = reporting({
-    ledger: new DynamoStore({ tableName, region: process.env["AWS_REGION"] ?? "eu-west-1" }),
+  const store = new DynamoStore({
+    tableName,
+    region: process.env["AWS_REGION"] ?? "eu-west-1",
   });
+  const app = reporting({ ledger: store, shared: store });
   const [s, raw] = await Promise.all([
     app.summary(tenantId, { from, to }),
     app.summary(tenantId, { from, to }, { nettingTransfers: false }),
   ]);
 
-  console.log(`\n${from} to ${to}   ${s.transactionCount} transactions   ${s.currency}\n`);
+  console.log(
+    `\n${from} to ${to}   ${s.transactionCount} transactions   ${s.currency}\n`,
+  );
   console.log(`                  transfers netted        raw`);
-  console.log(`  income   ${money(s.income, s.currency).padStart(14)}  ${money(raw.income, raw.currency).padStart(14)}`);
-  console.log(`  spend    ${money(s.spend, s.currency).padStart(14)}  ${money(raw.spend, raw.currency).padStart(14)}`);
-  console.log(`  net      ${money(s.net, s.currency).padStart(14)}  ${money(raw.net, raw.currency).padStart(14)}`);
+  console.log(
+    `  income   ${money(s.income, s.currency).padStart(14)}  ${money(raw.income, raw.currency).padStart(14)}`,
+  );
+  console.log(
+    `  spend    ${money(s.spend, s.currency).padStart(14)}  ${money(raw.spend, raw.currency).padStart(14)}`,
+  );
+  console.log(
+    `  net      ${money(s.net, s.currency).padStart(14)}  ${money(raw.net, raw.currency).padStart(14)}`,
+  );
 
   console.log(`\nby provider category:`);
   for (const c of s.byCategory) {
@@ -62,8 +72,12 @@ async function main() {
     );
   }
 
-  console.log(`\ninternal transfers: ${s.transferCount} legs, ${money(s.transferTotal, s.currency)} moved`);
-  console.log(`categorised by our own agent: ${s.enrichedCount} of ${s.transactionCount}`);
+  console.log(
+    `\ninternal transfers: ${s.transferCount} legs, ${money(s.transferTotal, s.currency)} moved`,
+  );
+  console.log(
+    `categorised by our own agent: ${s.enrichedCount} of ${s.transactionCount}`,
+  );
 }
 
 main().catch((err: unknown) => {
