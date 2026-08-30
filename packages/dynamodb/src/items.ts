@@ -41,7 +41,12 @@ export function transactionItem(
 ): TransactionItem {
   const dedup = dedupKey(txn);
   const { pk, sk } = keys.transaction(txn.tenantId, txn.timestamp, dedup);
-  const { gsi1pk, gsi1sk } = keys.accountIndex(txn.tenantId, txn.accountId, txn.timestamp, dedup);
+  const { gsi1pk, gsi1sk } = keys.accountIndex(
+    txn.tenantId,
+    txn.accountId,
+    txn.timestamp,
+    dedup,
+  );
 
   return {
     pk,
@@ -69,7 +74,12 @@ export function pendingItem(
   opts: { ttlSeconds: number; now?: Date },
 ): Record<string, unknown> {
   const providerId = txn.providerTransactionId ?? txn.transactionId;
-  const { pk, sk } = keys.pending(txn.tenantId, txn.accountId, txn.timestamp, providerId);
+  const { pk, sk } = keys.pending(
+    txn.tenantId,
+    txn.accountId,
+    txn.timestamp,
+    providerId,
+  );
   const now = opts.now ?? new Date();
   return {
     pk,
@@ -96,8 +106,12 @@ export function accountItem(
     sk,
     kind: "ACCOUNT",
     ...a,
-    ...(balances.current !== undefined ? { currentBalance: balances.current } : {}),
-    ...(balances.available !== undefined ? { availableBalance: balances.available } : {}),
+    ...(balances.current !== undefined
+      ? { currentBalance: balances.current }
+      : {}),
+    ...(balances.available !== undefined
+      ? { availableBalance: balances.available }
+      : {}),
   };
 }
 
@@ -105,7 +119,6 @@ export function consentItem(c: Consent): Record<string, unknown> {
   const { pk, sk } = keys.consent(c.tenantId, c.consentId);
   return { pk, sk, kind: "CONSENT", ...c };
 }
-
 
 /**
  * The two rows a rule set version becomes: the immutable record, and the current
@@ -122,7 +135,10 @@ export function ruleSetItems(
   const body = { ...set, tenantId, kind: "RULESET" };
   return {
     current: { ...keys.ruleSet(tenantId, set.setId), ...body },
-    version: { ...keys.ruleSetVersion(tenantId, set.setId, set.version), ...body },
+    version: {
+      ...keys.ruleSetVersion(tenantId, set.setId, set.version),
+      ...body,
+    },
   };
 }
 
@@ -139,7 +155,13 @@ export function categorisationItems(
 ): { current: Record<string, unknown>; version: Record<string, unknown> } {
   const body = { ...c, tenantId, kind: RowKind.categorisation };
   return {
-    current: { ...keys.categorisation(tenantId, c.timestamp, c.dedupKey, c.setId), ...body },
-    version: { ...keys.categorisationVersion(tenantId, c.dedupKey, c.setId, c.version), ...body },
+    current: {
+      ...keys.categorisation(tenantId, c.timestamp, c.dedupKey, c.setId),
+      ...body,
+    },
+    version: {
+      ...keys.categorisationVersion(tenantId, c.dedupKey, c.setId, c.version),
+      ...body,
+    },
   };
 }

@@ -50,7 +50,9 @@ async function main(): Promise<void> {
         return;
       }
       for (const m of members) {
-        console.log(`${m.email}\t${m.tenantId}\tadded ${m.addedAt ?? "unknown"}`);
+        console.log(
+          `${m.email}\t${m.tenantId}\tadded ${m.addedAt ?? "unknown"}`,
+        );
       }
       return;
     }
@@ -71,8 +73,12 @@ async function main(): Promise<void> {
         tenantId,
         addedAt: new Date().toISOString(),
       });
-      console.log(`granted ${email.trim().toLowerCase()} access to household ${tenantId}`);
-      console.log("they will see every transaction in it, including everyone else's");
+      console.log(
+        `granted ${email.trim().toLowerCase()} access to household ${tenantId}`,
+      );
+      console.log(
+        "they will see every transaction in it, including everyone else's",
+      );
       return;
     }
 

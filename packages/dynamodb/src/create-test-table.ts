@@ -54,7 +54,9 @@ const client = new DynamoDBClient({
   // DynamoDB Local validates that credentials exist, not what they are. Against
   // real DynamoDB these must NOT be supplied, or the ambient profile is ignored
   // and every call fails as UnrecognizedClientException.
-  ...(endpoint ? { credentials: { accessKeyId: "local", secretAccessKey: "local" } } : {}),
+  ...(endpoint
+    ? { credentials: { accessKeyId: "local", secretAccessKey: "local" } }
+    : {}),
 });
 
 const where = endpoint ?? `real DynamoDB in ${region}`;
@@ -101,9 +103,14 @@ async function create(): Promise<void> {
   // and a query against it fails as ResourceNotFoundException. The emulator is
   // immediate, so this is the difference that made the suite pass locally and
   // fail on its first real-AWS run.
-  await waitUntilTableExists({ client, maxWaitTime: 120 }, { TableName: tableName });
+  await waitUntilTableExists(
+    { client, maxWaitTime: 120 },
+    { TableName: tableName },
+  );
 
-  const described = await client.send(new DescribeTableCommand({ TableName: tableName }));
+  const described = await client.send(
+    new DescribeTableCommand({ TableName: tableName }),
+  );
   console.log(`status: ${described.Table?.TableStatus}`);
 }
 
@@ -119,7 +126,10 @@ async function destroy(): Promise<void> {
     }
     throw err;
   }
-  await waitUntilTableNotExists({ client, maxWaitTime: 120 }, { TableName: tableName });
+  await waitUntilTableNotExists(
+    { client, maxWaitTime: 120 },
+    { TableName: tableName },
+  );
   console.log(`deleted ${tableName} at ${where}`);
 }
 

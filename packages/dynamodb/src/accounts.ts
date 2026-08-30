@@ -6,19 +6,11 @@
  * details fetched moments earlier.
  */
 
-import {
-  UpdateCommand,
-} from "@aws-sdk/lib-dynamodb";
-import {
-  type Account,
-} from "@tightarse/domain";
+import { UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { type Account } from "@tightarse/domain";
 import { keys } from "./keys.js";
-import type {
-  Accounts,
-} from "@tightarse/domain";
-import {
-  accountItem,
-} from "./items.js";
+import type { Accounts } from "@tightarse/domain";
+import { accountItem } from "./items.js";
 import { TableAdapter } from "./table.js";
 
 /** The DynamoDB adapter for the `Accounts` port. */
@@ -40,9 +32,15 @@ export class DynamoAccounts extends TableAdapter implements Accounts {
    *
    * Balances are therefore only written when supplied, and never cleared.
    */
-  async putAccount(a: Account, balances: { current?: number; available?: number } = {}): Promise<void> {
+  async putAccount(
+    a: Account,
+    balances: { current?: number; available?: number } = {},
+  ): Promise<void> {
     const item = accountItem(a, balances);
-    const { pk, sk, ...attributes } = item as Record<string, unknown> & { pk: string; sk: string };
+    const { pk, sk, ...attributes } = item as Record<string, unknown> & {
+      pk: string;
+      sk: string;
+    };
 
     const names: Record<string, string> = {};
     const values: Record<string, unknown> = {};
@@ -80,10 +78,19 @@ export class DynamoAccounts extends TableAdapter implements Accounts {
   async putBalances(
     tenantId: string,
     accountId: string,
-    balances: { current?: number; available?: number; currency?: string; isCard?: boolean },
+    balances: {
+      current?: number;
+      available?: number;
+      currency?: string;
+      isCard?: boolean;
+    },
   ): Promise<void> {
     const { pk, sk } = keys.account(tenantId, accountId);
-    const sets: string[] = ["#kind = :kind", "#tenantId = :tenantId", "#accountId = :accountId"];
+    const sets: string[] = [
+      "#kind = :kind",
+      "#tenantId = :tenantId",
+      "#accountId = :accountId",
+    ];
     const names: Record<string, string> = {
       "#kind": "kind",
       "#tenantId": "tenantId",
