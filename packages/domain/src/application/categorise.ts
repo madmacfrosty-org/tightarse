@@ -24,7 +24,11 @@
 import { candidateOf } from "./candidate.js";
 import { Categorisation } from "../categorisation/categorisation.js";
 import { RuleSet } from "../categorisation/rules.js";
-import { evaluate, type Evaluation } from "../categorisation/evaluate.js";
+import {
+  evaluate,
+  type Evaluation,
+  inPrecedenceOrder,
+} from "../categorisation/evaluate.js";
 import type { CategoryId } from "../categorisation/category.js";
 import type {
   Categorisations,
@@ -198,9 +202,13 @@ export async function categorise(
   let inertRefines = 0;
   const changes: ProposedChange[] = [];
 
+  // Ordered once, not per transaction: precedence is a property of the rule
+  // state, not of the row being categorised.
+  const ordered = inPrecedenceOrder(sets);
+
   for (const row of transactions) {
     const candidate = candidateOf(row);
-    const evaluation = evaluate(sets, candidate);
+    const evaluation = evaluate(ordered, candidate);
 
     for (const set of evaluation.sets) {
       for (const p of set.problems) {

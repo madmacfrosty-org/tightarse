@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { evaluate, filterMatcher, foldSet, literalMatcher, matches, matchesMatcher } from "../src/categorisation/evaluate.js";
+import {
+  evaluate,
+  filterMatcher,
+  foldSet,
+  literalMatcher,
+  matches,
+  matchesMatcher,
+  inPrecedenceOrder,
+} from "../src/categorisation/evaluate.js";
 import { Matcher } from "../src/categorisation/rules.js";
 import type { Rule, RuleSet } from "../src/categorisation/rules.js";
 import type { Candidate } from "../src/categorisation/taxonomy.js";
@@ -24,14 +32,20 @@ const candidate = (over: Partial<Candidate> = {}): Candidate => ({
   ...over,
 });
 
-const rule = (matcher: Rule["matcher"], contributes: Rule["contributes"], over: Partial<Rule> = {}): Rule => ({
+const rule = (
+  matcher: Rule["matcher"],
+  contributes: Rule["contributes"],
+  over: Partial<Rule> = {},
+): Rule => ({
   matcher,
   contributes,
   appliesTo: "debits",
   ...over,
 });
 
-const set = (over: Partial<RuleSet> & { setId: string; order: number; rules: Rule[] }): RuleSet => ({
+const set = (
+  over: Partial<RuleSet> & { setId: string; order: number; rules: Rule[] },
+): RuleSet => ({
   version: 1,
   name: over.setId,
   authored: false,
@@ -48,7 +62,9 @@ describe("whether a rule applies at all", () => {
   it("matches a merchant pattern case-insensitively", () => {
     // Descriptions arrive in whatever case the provider felt like, and the same
     // merchant is not two merchants.
-    expect(matches(rule(merchant("somemart"), asserts("groceries")), candidate())).toBe(true);
+    expect(
+      matches(rule(merchant("somemart"), asserts("groceries")), candidate()),
+    ).toBe(true);
   });
 
   it("excludes credits by default", () => {
@@ -62,29 +78,50 @@ describe("whether a rule applies at all", () => {
     // Direction deciding the category outright: interest is Income when
     // received and Fees & Charges when paid, which is two rules over one
     // matcher and cannot be said without this.
-    const r = rule(merchant("interest"), asserts("income"), { appliesTo: "credits" });
-    expect(matches(r, candidate({ description: "INTEREST PAID", amount: 4_00 }))).toBe(true);
-    expect(matches(r, candidate({ description: "INTEREST PAID", amount: -4_00 }))).toBe(false);
+    const r = rule(merchant("interest"), asserts("income"), {
+      appliesTo: "credits",
+    });
+    expect(
+      matches(r, candidate({ description: "INTEREST PAID", amount: 4_00 })),
+    ).toBe(true);
+    expect(
+      matches(r, candidate({ description: "INTEREST PAID", amount: -4_00 })),
+    ).toBe(false);
   });
 
   it("admits credits when the rule asks for them", () => {
-    const r = rule(merchant("somemart"), asserts("income"), { appliesTo: "all" });
+    const r = rule(merchant("somemart"), asserts("income"), {
+      appliesTo: "all",
+    });
     expect(matches(r, candidate({ amount: 2_500_00 }))).toBe(true);
   });
 
   it("treats a zero amount as a credit, since it is certainly not a debit", () => {
-    expect(matches(rule(merchant("somemart"), asserts("groceries")), candidate({ amount: 0 }))).toBe(false);
+    expect(
+      matches(
+        rule(merchant("somemart"), asserts("groceries")),
+        candidate({ amount: 0 }),
+      ),
+    ).toBe(false);
   });
 
   it("matches a provider category exactly, not loosely", () => {
-    const r = rule({ kind: "providerCategory", value: "ATM" }, asserts("cash-withdrawal"));
+    const r = rule(
+      { kind: "providerCategory", value: "ATM" },
+      asserts("cash-withdrawal"),
+    );
     expect(matches(r, candidate({ providerCategory: "ATM" }))).toBe(true);
-    expect(matches(r, candidate({ providerCategory: "ATM_WITHDRAWAL" }))).toBe(false);
+    expect(matches(r, candidate({ providerCategory: "ATM_WITHDRAWAL" }))).toBe(
+      false,
+    );
     expect(matches(r, candidate({}))).toBe(false);
   });
 
   it("matches one specific transaction, which is what an override is", () => {
-    const r = rule({ kind: "transaction", dedupKey: "d1" }, asserts("gifts-charity"));
+    const r = rule(
+      { kind: "transaction", dedupKey: "d1" },
+      asserts("gifts-charity"),
+    );
     expect(matches(r, candidate())).toBe(true);
     expect(matches(r, candidate({ dedupKey: "d2" }))).toBe(false);
   });
@@ -98,7 +135,10 @@ describe("folding one set", () => {
     const s = set({
       setId: "built-in",
       order: 2,
-      rules: [rule(merchant("somemart"), asserts("groceries")), rule(merchant("forecourt"), refines("fuel"))],
+      rules: [
+        rule(merchant("somemart"), asserts("groceries")),
+        rule(merchant("forecourt"), refines("fuel")),
+      ],
     });
     const out = foldSet(s, candidate());
     expect(out.category).toBe("fuel");
@@ -109,23 +149,42 @@ describe("folding one set", () => {
     const s = set({
       setId: "built-in",
       order: 2,
-      rules: [rule(merchant("somemart"), asserts("groceries")), rule(merchant("forecourt"), refines("fuel"))],
+      rules: [
+        rule(merchant("somemart"), asserts("groceries")),
+        rule(merchant("forecourt"), refines("fuel")),
+      ],
     });
-    expect(foldSet(s, candidate({ description: "SOMEMART SUPERSTORE 42" })).category).toBe("groceries");
+    expect(
+      foldSet(s, candidate({ description: "SOMEMART SUPERSTORE 42" })).category,
+    ).toBe("groceries");
   });
 
   it("applies rules in the set's own order, not the order they happen to match", () => {
     // Order within a set is data, which is what makes the fold deterministic.
-    const rules = [rule(merchant("."), asserts("groceries")), rule(merchant("."), refines("fuel"))];
-    expect(foldSet(set({ setId: "s", order: 1, rules }), candidate()).category).toBe("fuel");
-    expect(foldSet(set({ setId: "s", order: 1, rules: [...rules].reverse() }), candidate()).category).toBe("groceries");
+    const rules = [
+      rule(merchant("."), asserts("groceries")),
+      rule(merchant("."), refines("fuel")),
+    ];
+    expect(
+      foldSet(set({ setId: "s", order: 1, rules }), candidate()).category,
+    ).toBe("fuel");
+    expect(
+      foldSet(
+        set({ setId: "s", order: 1, rules: [...rules].reverse() }),
+        candidate(),
+      ).category,
+    ).toBe("groceries");
   });
 
   it("reports a refine that had nothing to refine, and applies nothing", () => {
     // A qualifier matching with no merchant established names a missing assert.
     // Letting it act as an assert would put Fuel on a transaction nobody
     // identified as a fuel purchase.
-    const s = set({ setId: "built-in", order: 2, rules: [rule(merchant("forecourt"), refines("fuel"))] });
+    const s = set({
+      setId: "built-in",
+      order: 2,
+      rules: [rule(merchant("forecourt"), refines("fuel"))],
+    });
     // toStrictEqual, so the absent key stays absent: a set that concluded
     // nothing must not report a category of undefined, which reads as an answer
     // to anything checking whether the key is there.
@@ -143,18 +202,26 @@ describe("folding one set", () => {
     const s = set({
       setId: "household",
       order: 0,
-      rules: [rule(merchant("somemart"), asserts("groceries")), rule(merchant("forecourt"), asserts("fuel"))],
+      rules: [
+        rule(merchant("somemart"), asserts("groceries")),
+        rule(merchant("forecourt"), asserts("fuel")),
+      ],
     });
     const out = foldSet(s, candidate());
     expect(out.category).toBeUndefined();
-    expect(out.problems).toEqual([{ kind: "conflict", categories: ["groceries", "fuel"] }]);
+    expect(out.problems).toEqual([
+      { kind: "conflict", categories: ["groceries", "fuel"] },
+    ]);
   });
 
   it("does not call one assert and one refine a conflict", () => {
     const s = set({
       setId: "built-in",
       order: 2,
-      rules: [rule(merchant("somemart"), asserts("groceries")), rule(merchant("forecourt"), refines("fuel"))],
+      rules: [
+        rule(merchant("somemart"), asserts("groceries")),
+        rule(merchant("forecourt"), refines("fuel")),
+      ],
     });
     expect(foldSet(s, candidate()).problems).toEqual([]);
   });
@@ -167,12 +234,26 @@ describe("across sets", () => {
     authored: true,
     rules: [rule(merchant("nowhere-at-all"), asserts("shopping"))],
   });
-  const builtIn = set({ setId: "built-in", order: 2, rules: [rule(merchant("somemart"), asserts("groceries"))] });
+  const builtIn = set({
+    setId: "built-in",
+    order: 2,
+    rules: [rule(merchant("somemart"), asserts("groceries"))],
+  });
 
   it("takes the answer from the lowest order that produced one", () => {
-    const withHousehold = set({ ...household, rules: [rule(merchant("somemart"), asserts("shopping"))] });
-    const out = evaluate([builtIn, withHousehold], candidate());
-    expect(out.effective).toEqual({ setId: "household", version: 1, category: "shopping" });
+    const withHousehold = set({
+      ...household,
+      rules: [rule(merchant("somemart"), asserts("shopping"))],
+    });
+    const out = evaluate(
+      inPrecedenceOrder([builtIn, withHousehold]),
+      candidate(),
+    );
+    expect(out.effective).toEqual({
+      setId: "household",
+      version: 1,
+      category: "shopping",
+    });
   });
 
   it("falls through to a lower-precedence set when the higher one says nothing", () => {
@@ -186,7 +267,10 @@ describe("across sets", () => {
     // still reported.
     const conflicted = set({
       ...household,
-      rules: [rule(merchant("somemart"), asserts("shopping")), rule(merchant("forecourt"), asserts("fuel"))],
+      rules: [
+        rule(merchant("somemart"), asserts("shopping")),
+        rule(merchant("forecourt"), asserts("fuel")),
+      ],
     });
     const out = evaluate([conflicted, builtIn], candidate());
     expect(out.effective?.setId).toBe("built-in");
@@ -203,8 +287,8 @@ describe("across sets", () => {
   it("evaluates in order regardless of the order it was handed", () => {
     // A caller must not be able to change the answer by passing sets in the
     // order a scan happened to return them.
-    const a = evaluate([builtIn, household], candidate());
-    const b = evaluate([household, builtIn], candidate());
+    const a = evaluate(inPrecedenceOrder([builtIn, household]), candidate());
+    const b = evaluate(inPrecedenceOrder([household, builtIn]), candidate());
     expect(a).toEqual(b);
   });
 
@@ -212,14 +296,47 @@ describe("across sets", () => {
     // Two sets sharing an order is a data mistake, but it must not make the
     // answer depend on how a scan happened to return them: the same ledger
     // would categorise differently on two runs and the history would churn.
-    const a = set({ setId: "aaa", order: 5, rules: [rule(merchant("somemart"), asserts("shopping"))] });
-    const b = set({ setId: "bbb", order: 5, rules: [rule(merchant("somemart"), asserts("groceries"))] });
-    expect(evaluate([a, b], candidate()).effective?.setId).toBe("aaa");
-    expect(evaluate([b, a], candidate()).effective?.setId).toBe("aaa");
+    const a = set({
+      setId: "aaa",
+      order: 5,
+      rules: [rule(merchant("somemart"), asserts("shopping"))],
+    });
+    const b = set({
+      setId: "bbb",
+      order: 5,
+      rules: [rule(merchant("somemart"), asserts("groceries"))],
+    });
+    expect(
+      evaluate(inPrecedenceOrder([a, b]), candidate()).effective?.setId,
+    ).toBe("aaa");
+    expect(
+      evaluate(inPrecedenceOrder([b, a]), candidate()).effective?.setId,
+    ).toBe("aaa");
+  });
+
+  it("applies the sets in the order it is given, and reads no order field", () => {
+    // The contract that lets precedence move off the set (#121). Handed the
+    // lower-precedence set first, evaluation takes its answer — because
+    // deciding precedence is the caller's job now, not something this function
+    // goes looking for on a row.
+    const withHousehold = set({
+      ...household,
+      rules: [rule(merchant("somemart"), asserts("shopping"))],
+    });
+
+    expect(
+      evaluate([builtIn, withHousehold], candidate()).effective?.setId,
+    ).toBe("built-in");
+    expect(
+      evaluate([withHousehold, builtIn], candidate()).effective?.setId,
+    ).toBe("household");
   });
 
   it("says nothing when no set matches, which is the backlog rather than a failure", () => {
-    const out = evaluate([household], candidate({ description: "UTTERLY UNKNOWN" }));
+    const out = evaluate(
+      [household],
+      candidate({ description: "UTTERLY UNKNOWN" }),
+    );
     expect(out.effective).toBeUndefined();
     expect(out.sets).toHaveLength(1);
   });
@@ -228,7 +345,9 @@ describe("across sets", () => {
     // Applying the same set version to the same transaction must give the same
     // answer, or every run appends a version and the history fills with churn.
     const c = candidate();
-    expect(evaluate([household, builtIn], c)).toEqual(evaluate([household, builtIn], c));
+    expect(evaluate([household, builtIn], c)).toEqual(
+      evaluate([household, builtIn], c),
+    );
   });
 });
 
@@ -245,7 +364,9 @@ describe("building a matcher from a word somebody typed", () => {
     ["shell", "SHELL GARAGE", true],
     ["SHELL", "TOTALLY UNRELATED", false],
   ])("matches %s against %s", (term, description, expected) => {
-    expect(matchesMatcher(literalMatcher(term), seen(description))).toBe(expected);
+    expect(matchesMatcher(literalMatcher(term), seen(description))).toBe(
+      expected,
+    );
   });
 
   it.each([
@@ -253,21 +374,30 @@ describe("building a matcher from a word somebody typed", () => {
     ["PIZZA (EXPRESS)", "PIZZA EXPRESS 42", false],
     ["a+b", "A+B LTD", true],
     ["a+b", "AAAB LTD", false],
-  ])("takes %s literally, so punctuation is not a pattern", (term, description, expected) => {
-    // Unescaped these are groups, quantifiers and character classes. A shop
-    // with a bracket in its name is not a regular expression, and the person
-    // typing it has no reason to think it might be.
-    expect(matchesMatcher(literalMatcher(term), seen(description))).toBe(expected);
-  });
+  ])(
+    "takes %s literally, so punctuation is not a pattern",
+    (term, description, expected) => {
+      // Unescaped these are groups, quantifiers and character classes. A shop
+      // with a bracket in its name is not a regular expression, and the person
+      // typing it has no reason to think it might be.
+      expect(matchesMatcher(literalMatcher(term), seen(description))).toBe(
+        expected,
+      );
+    },
+  );
 
   it("survives a term that would be a syntax error unescaped", () => {
-    expect(() => matchesMatcher(literalMatcher("a+["), seen("ANYTHING"))).not.toThrow();
+    expect(() =>
+      matchesMatcher(literalMatcher("a+["), seen("ANYTHING")),
+    ).not.toThrow();
   });
 
   it("says nothing about direction, which is the rule's business", () => {
     // `matches` gates on direction; this is the half underneath it, so a search
     // finds a refund and a debits-only rule still declines to categorise it.
-    expect(matchesMatcher(literalMatcher("REFUND"), seen("REFUND SOMEMART", 25_00))).toBe(true);
+    expect(
+      matchesMatcher(literalMatcher("REFUND"), seen("REFUND SOMEMART", 25_00)),
+    ).toBe(true);
   });
 
   it("is the same matcher a rule uses, which is the point of sharing it", () => {
@@ -277,7 +407,9 @@ describe("building a matcher from a word somebody typed", () => {
       appliesTo: "all" as const,
     };
 
-    expect(matches(rule, seen("SOMEMART 118"))).toBe(matchesMatcher(literalMatcher("SOMEMART"), seen("SOMEMART 118")));
+    expect(matches(rule, seen("SOMEMART 118"))).toBe(
+      matchesMatcher(literalMatcher("SOMEMART"), seen("SOMEMART 118")),
+    );
   });
 });
 
@@ -296,7 +428,9 @@ describe("matching on an amount", () => {
     [-89_99, false],
     [-100_01, false],
   ])("takes %i against a range of £90 to £100: %s", (amount, expected) => {
-    expect(matchesMatcher({ kind: "amount", min: 90_00, max: 100_00 }, seen(amount))).toBe(expected);
+    expect(
+      matchesMatcher({ kind: "amount", min: 90_00, max: 100_00 }, seen(amount)),
+    ).toBe(expected);
   });
 
   it("reads the size, not the sign, because direction lives in appliesTo", () => {
@@ -309,8 +443,12 @@ describe("matching on an amount", () => {
   });
 
   it("is open at the end that was left out", () => {
-    expect(matchesMatcher({ kind: "amount", min: 90_00 }, seen(-1_000_00))).toBe(true);
-    expect(matchesMatcher({ kind: "amount", max: 100_00 }, seen(-1_00))).toBe(true);
+    expect(
+      matchesMatcher({ kind: "amount", min: 90_00 }, seen(-1_000_00)),
+    ).toBe(true);
+    expect(matchesMatcher({ kind: "amount", max: 100_00 }, seen(-1_00))).toBe(
+      true,
+    );
   });
 
   it("refuses a range open at both ends, which is not a condition", () => {
@@ -353,7 +491,10 @@ describe("matching on several conditions at once", () => {
 
   it("refuses a conjunction of one, because that condition is the matcher", () => {
     expect(() =>
-      Matcher.parse({ kind: "all", of: [{ kind: "merchant", pattern: "somemart" }] }),
+      Matcher.parse({
+        kind: "all",
+        of: [{ kind: "merchant", pattern: "somemart" }],
+      }),
     ).toThrow();
   });
 
@@ -367,14 +508,24 @@ describe("matching on several conditions at once", () => {
         kind: "all",
         of: [
           { kind: "merchant", pattern: "a" },
-          { kind: "all", of: [{ kind: "merchant", pattern: "b" }, { kind: "merchant", pattern: "c" }] },
+          {
+            kind: "all",
+            of: [
+              { kind: "merchant", pattern: "b" },
+              { kind: "merchant", pattern: "c" },
+            ],
+          },
         ],
       }),
     ).toThrow();
   });
 
   it("is still gated by direction, like any other rule", () => {
-    const rule = { matcher: all, contributes: { kind: "assert" as const, category: "bills" }, appliesTo: "debits" as const };
+    const rule = {
+      matcher: all,
+      contributes: { kind: "assert" as const, category: "bills" },
+      appliesTo: "debits" as const,
+    };
 
     expect(matches(rule, seen())).toBe(true);
     expect(matches(rule, seen({ amount: 95_00 }))).toBe(false);
@@ -403,14 +554,22 @@ describe("turning a filter into a matcher", () => {
     ["a type", { type: "DIRECT_DEBIT" }, "providerCategory"],
     ["a floor", { min: 90_00 }, "amount"],
     ["a ceiling", { max: 100_00 }, "amount"],
-  ])("leaves %s as one condition rather than wrapping it", (_case, filter, kind) => {
-    // Two ways to spell one rule is two things to compare when a stored rule
-    // and a fresh one disagree.
-    expect(filterMatcher(filter)?.kind).toBe(kind);
-  });
+  ])(
+    "leaves %s as one condition rather than wrapping it",
+    (_case, filter, kind) => {
+      // Two ways to spell one rule is two things to compare when a stored rule
+      // and a fresh one disagree.
+      expect(filterMatcher(filter)?.kind).toBe(kind);
+    },
+  );
 
   it("joins several into a conjunction", () => {
-    const m = filterMatcher({ term: "somemart", type: "DIRECT_DEBIT", min: 90_00, max: 100_00 });
+    const m = filterMatcher({
+      term: "somemart",
+      type: "DIRECT_DEBIT",
+      min: 90_00,
+      max: 100_00,
+    });
 
     expect(m?.kind).toBe("all");
     expect((m as { of: unknown[] }).of).toHaveLength(3);
@@ -419,25 +578,43 @@ describe("turning a filter into a matcher", () => {
   it("escapes the term, as a rule built from the same filter would", () => {
     const m = filterMatcher({ term: "PIZZA (EXPRESS)" });
 
-    expect(m).toEqual({ kind: "merchant", pattern: String.raw`PIZZA \(EXPRESS\)` });
+    expect(m).toEqual({
+      kind: "merchant",
+      pattern: String.raw`PIZZA \(EXPRESS\)`,
+    });
   });
 
   it("matches what the filter describes and nothing else", () => {
-    const m = filterMatcher({ term: "somemart", type: "DIRECT_DEBIT", min: 90_00, max: 100_00 })!;
+    const m = filterMatcher({
+      term: "somemart",
+      type: "DIRECT_DEBIT",
+      min: 90_00,
+      max: 100_00,
+    })!;
 
     expect(matchesMatcher(m, seen())).toBe(true);
-    expect(matchesMatcher(m, seen({ providerCategory: "PURCHASE" }))).toBe(false);
+    expect(matchesMatcher(m, seen({ providerCategory: "PURCHASE" }))).toBe(
+      false,
+    );
     expect(matchesMatcher(m, seen({ amount: -5_00 }))).toBe(false);
     expect(matchesMatcher(m, seen({ description: "OTHERSHOP" }))).toBe(false);
   });
 
   it("carries only the bound it was given", () => {
-    expect(filterMatcher({ min: 90_00 })).toEqual({ kind: "amount", min: 90_00 });
-    expect(filterMatcher({ max: 100_00 })).toEqual({ kind: "amount", max: 100_00 });
+    expect(filterMatcher({ min: 90_00 })).toEqual({
+      kind: "amount",
+      min: 90_00,
+    });
+    expect(filterMatcher({ max: 100_00 })).toEqual({
+      kind: "amount",
+      max: 100_00,
+    });
   });
 
   it("produces a matcher the schema accepts, since it becomes a stored rule", () => {
-    expect(() => Matcher.parse(filterMatcher({ term: "a", type: "b" }))).not.toThrow();
+    expect(() =>
+      Matcher.parse(filterMatcher({ term: "a", type: "b" })),
+    ).not.toThrow();
     expect(() => Matcher.parse(filterMatcher({ min: 1 }))).not.toThrow();
   });
 });

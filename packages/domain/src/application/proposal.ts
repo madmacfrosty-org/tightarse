@@ -26,7 +26,13 @@ import { categorise } from "./categorise.js";
 import type { CategoriseReport } from "./categorise.js";
 import type { Candidate } from "../categorisation/taxonomy.js";
 import type { DateRange } from "../ports/index.js";
-import type { Categorisations, Categories, Row, RuleSets, Transactions } from "../ports/outbound/index.js";
+import type {
+  Categorisations,
+  Categories,
+  Row,
+  RuleSets,
+  Transactions,
+} from "../ports/outbound/index.js";
 import { candidateOf } from "./candidate.js";
 import { decide, propose, unknownCategories } from "./optimise.js";
 import type { Proposed } from "./optimise.js";
@@ -137,7 +143,10 @@ function parseSets(rows: readonly Row[]): RuleSet[] {
  * it already has would be previewed as touching nothing at all — an empty
  * result that looks like a harmless change rather than a broken one.
  */
-function arrangementAfter(before: readonly RuleSet[], proposedSets: readonly RuleSet[]): RuleSet[] {
+function arrangementAfter(
+  before: readonly RuleSet[],
+  proposedSets: readonly RuleSet[],
+): RuleSet[] {
   const next = new Map(before.map((s) => [s.setId, s]));
   for (const set of proposedSets) {
     const version = (next.get(set.setId)?.version ?? 0) + 1;
@@ -190,7 +199,9 @@ export async function proposeRules(
   // wrong, and precedence is the thing that decides whose answer wins.
   // The rule is the filter. Built by the same function the search was, so a
   // screen showing rows and then writing a rule is writing the rule it showed.
-  const matcher = request.merchant ? filterMatcher(request.merchant) : undefined;
+  const matcher = request.merchant
+    ? filterMatcher(request.merchant)
+    : undefined;
   if (request.merchant && matcher === undefined) {
     throw new Error("A merchant rule needs at least one condition");
   }
@@ -200,7 +211,10 @@ export async function proposeRules(
         setWith(before, HOUSEHOLD, [
           {
             matcher: matcher!,
-            contributes: { kind: "assert", category: request.merchant.category },
+            contributes: {
+              kind: "assert",
+              category: request.merchant.category,
+            },
             appliesTo: "debits",
           },
         ]),
@@ -212,7 +226,10 @@ export async function proposeRules(
             OVERRIDES_TARGET,
             request.transactions.dedupKeys.map((dedupKey) => ({
               matcher: { kind: "transaction" as const, dedupKey },
-              contributes: { kind: "assert" as const, category: request.transactions!.category },
+              contributes: {
+                kind: "assert" as const,
+                category: request.transactions!.category,
+              },
               // Not `debits`: a transaction named outright is that transaction,
               // and a direction gate on top could decline the very row asked for.
               appliesTo: "all" as const,
@@ -221,15 +238,23 @@ export async function proposeRules(
         ]
       : (request.sets ?? []);
   if (sets.length === 0) {
-    throw new Error("A proposal needs sets, a merchant, or transactions to categorise");
+    throw new Error(
+      "A proposal needs sets, a merchant, or transactions to categorise",
+    );
   }
 
   // Before anything is computed, and before the preview branch. A caller asking
   // what a change would do deserves to be told the change is unwritable, rather
   // than finding out when they mean it.
-  const unknown = await unknownCategories({ categories: deps.categories }, tenantId, sets);
+  const unknown = await unknownCategories(
+    { categories: deps.categories },
+    tenantId,
+    sets,
+  );
   if (unknown.length > 0) {
-    throw new Error(`Refusing rules naming categories that do not exist or are retired: ${unknown.join(", ")}`);
+    throw new Error(
+      `Refusing rules naming categories that do not exist or are retired: ${unknown.join(", ")}`,
+    );
   }
 
   const after = arrangementAfter(before, sets);
@@ -250,9 +275,15 @@ export async function proposeRules(
   // Accepting points `current` at the version; applying is what reaches the
   // transactions. Separate calls because they are separate decisions, and the
   // second is re-runnable on its own.
-  await decide({ ruleSets: deps.ruleSets }, tenantId, proposed, { status: "effective" });
+  await decide({ ruleSets: deps.ruleSets }, tenantId, proposed, {
+    status: "effective",
+  });
   const applied = await categorise(
-    { transactions: deps.transactions, ruleSets: deps.ruleSets, categorisations: deps.categorisations },
+    {
+      transactions: deps.transactions,
+      ruleSets: deps.ruleSets,
+      categorisations: deps.categorisations,
+    },
     tenantId,
     { range: request.range, now: request.now },
   );

@@ -24,7 +24,9 @@ import type { Categories, Row } from "../ports/outbound/index.js";
  * one sentence that says what to do instead.
  */
 export class CategoryExists extends Error {
-  constructor(readonly existing: { readonly id: string; readonly label: string }) {
+  constructor(
+    readonly existing: { readonly id: string; readonly label: string },
+  ) {
     super(`“${existing.label}” already uses the name ${existing.id}`);
     this.name = "CategoryExists";
   }

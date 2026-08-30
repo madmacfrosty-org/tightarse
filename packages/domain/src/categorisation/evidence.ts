@@ -88,15 +88,40 @@ export interface InertRefine {
  * nothing, and doing it honestly beats sampling: a rule that has escaped is
  * most visible in the transactions nobody thought to sample.
  */
-export function gatherEvidence(sets: readonly RuleSet[], corpus: readonly Candidate[]): Evidence {
-  const reach = new Map<string, { setId: string; index: number; transactions: number; merchants: Set<string> }>();
-  const conflicts = new Map<string, { setId: string; categories: string[]; rules: number[]; transactions: number; example: string }>();
+export function gatherEvidence(
+  sets: readonly RuleSet[],
+  corpus: readonly Candidate[],
+): Evidence {
+  const reach = new Map<
+    string,
+    {
+      setId: string;
+      index: number;
+      transactions: number;
+      merchants: Set<string>;
+    }
+  >();
+  const conflicts = new Map<
+    string,
+    {
+      setId: string;
+      categories: string[];
+      rules: number[];
+      transactions: number;
+      example: string;
+    }
+  >();
   const inert = new Map<string, InertRefine & { transactions: number }>();
   const gaps = new Map<string, { transactions: number; outgoing: number }>();
 
   for (const set of sets) {
     set.rules.forEach((_rule, index) => {
-      reach.set(`${set.setId}#${index}`, { setId: set.setId, index, transactions: 0, merchants: new Set() });
+      reach.set(`${set.setId}#${index}`, {
+        setId: set.setId,
+        index,
+        transactions: 0,
+        merchants: new Set(),
+      });
     });
   }
 
@@ -125,7 +150,11 @@ export function gatherEvidence(sets: readonly RuleSet[], corpus: readonly Candid
         if (established === undefined) {
           const k = `${set.setId}#${index}`;
           const existing = inert.get(k);
-          if (existing) inert.set(k, { ...existing, transactions: existing.transactions + 1 });
+          if (existing)
+            inert.set(k, {
+              ...existing,
+              transactions: existing.transactions + 1,
+            });
           else
             inert.set(k, {
               setId: set.setId,
@@ -157,7 +186,10 @@ export function gatherEvidence(sets: readonly RuleSet[], corpus: readonly Candid
     }
 
     if (!matchedAnything) {
-      const gap = gaps.get(candidate.description) ?? { transactions: 0, outgoing: 0 };
+      const gap = gaps.get(candidate.description) ?? {
+        transactions: 0,
+        outgoing: 0,
+      };
       gap.transactions += 1;
       if (candidate.amount < 0) gap.outgoing += -candidate.amount;
       gaps.set(candidate.description, gap);
@@ -171,11 +203,22 @@ export function gatherEvidence(sets: readonly RuleSet[], corpus: readonly Candid
       transactions: r.transactions,
       merchants: r.merchants.size,
     })),
-    conflicts: [...conflicts.values()].sort((a, b) => b.transactions - a.transactions),
-    inertRefines: [...inert.values()].sort((a, b) => b.transactions - a.transactions),
+    conflicts: [...conflicts.values()].sort(
+      (a, b) => b.transactions - a.transactions,
+    ),
+    inertRefines: [...inert.values()].sort(
+      (a, b) => b.transactions - a.transactions,
+    ),
     gaps: [...gaps.entries()]
-      .map(([description, g]) => ({ description, transactions: g.transactions, outgoing: g.outgoing }))
-      .sort((a, b) => b.outgoing - a.outgoing || a.description.localeCompare(b.description)),
+      .map(([description, g]) => ({
+        description,
+        transactions: g.transactions,
+        outgoing: g.outgoing,
+      }))
+      .sort(
+        (a, b) =>
+          b.outgoing - a.outgoing || a.description.localeCompare(b.description),
+      ),
     scanned: corpus.length,
   };
 }

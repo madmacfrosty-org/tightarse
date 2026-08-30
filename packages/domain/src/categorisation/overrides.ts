@@ -17,7 +17,7 @@
  * transaction. Nothing has better information.
  */
 
-import { evaluate } from "./evaluate.js";
+import { evaluate, inPrecedenceOrder } from "./evaluate.js";
 import type { Rule, RuleSet } from "./rules.js";
 import type { Candidate } from "./taxonomy.js";
 import type { CategoryId } from "./category.js";
@@ -51,7 +51,11 @@ export function overridesSet(sets: readonly RuleSet[], now: Date): RuleSet {
 }
 
 /** One transaction, one category, asserted. */
-export function overrideRule(dedupKey: string, category: CategoryId, note?: string): Rule {
+export function overrideRule(
+  dedupKey: string,
+  category: CategoryId,
+  note?: string,
+): Rule {
   return {
     matcher: { kind: "transaction", dedupKey },
     contributes: { kind: "assert", category },
@@ -110,7 +114,10 @@ export interface OverrideReview {
  * shows, and the answer without it is the question being asked. Doing it any
  * other way means guessing which rule would have won.
  */
-export function reviewOverrides(sets: readonly RuleSet[], corpus: readonly Candidate[]): OverrideReview {
+export function reviewOverrides(
+  sets: readonly RuleSet[],
+  corpus: readonly Candidate[],
+): OverrideReview {
   const overrides = sets.find((s) => s.setId === OVERRIDES);
   if (!overrides || overrides.rules.length === 0) {
     return { total: 0, redundant: [], contradicted: [], orphaned: [] };
@@ -134,7 +141,7 @@ export function reviewOverrides(sets: readonly RuleSet[], corpus: readonly Candi
       continue;
     }
 
-    const effective = evaluate(without, candidate).effective;
+    const effective = evaluate(inPrecedenceOrder(without), candidate).effective;
     if (effective === undefined) continue;
 
     if (effective.category === rule.contributes.category) {

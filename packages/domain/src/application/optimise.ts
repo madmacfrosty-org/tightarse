@@ -20,7 +20,12 @@ import { candidateOf } from "./candidate.js";
 import { gatherEvidence, type Evidence } from "../categorisation/evidence.js";
 import { Category } from "../categorisation/category.js";
 import { RuleSet } from "../categorisation/rules.js";
-import type { Categories, RuleProposer, RuleSets, Transactions } from "../ports/outbound/index.js";
+import type {
+  Categories,
+  RuleProposer,
+  RuleSets,
+  Transactions,
+} from "../ports/outbound/index.js";
 import type { DateRange } from "../ports/index.js";
 
 /**
@@ -79,15 +84,25 @@ export async function optimise(
   tenantId: string,
   options: OptimiseOptions,
 ): Promise<OptimiseReport> {
-  const sets = (await deps.ruleSets.listRuleSets(tenantId)).map((r) => RuleSet.parse(r));
-  const { transactions } = await deps.transactions.listRange(tenantId, options.range);
+  const sets = (await deps.ruleSets.listRuleSets(tenantId)).map((r) =>
+    RuleSet.parse(r),
+  );
+  const { transactions } = await deps.transactions.listRange(
+    tenantId,
+    options.range,
+  );
   const corpus = transactions.map(candidateOf);
 
   const before = gatherEvidence(sets, corpus);
   const proposed = await deps.proposer.propose(before, sets);
 
   if (proposed.length === 0) {
-    return { scanned: corpus.length, before, proposed: [], proposedBy: deps.proposer.proposedBy };
+    return {
+      scanned: corpus.length,
+      before,
+      proposed: [],
+      proposedBy: deps.proposer.proposedBy,
+    };
   }
 
   // Measured against the same corpus, so the two evidences are comparable. A
@@ -102,8 +117,14 @@ export async function optimise(
     proposedBy: deps.proposer.proposedBy,
     after,
     improvement: {
-      conflicts: { before: before.conflicts.length, after: after.conflicts.length },
-      inertRefines: { before: before.inertRefines.length, after: after.inertRefines.length },
+      conflicts: {
+        before: before.conflicts.length,
+        after: after.conflicts.length,
+      },
+      inertRefines: {
+        before: before.inertRefines.length,
+        after: after.inertRefines.length,
+      },
       gaps: { before: before.gaps.length, after: after.gaps.length },
       deadRules: { before: dead(before), after: dead(after) },
     },
@@ -114,7 +135,6 @@ export async function optimise(
 function dead(evidence: Evidence): number {
   return evidence.reach.filter((r) => r.transactions === 0).length;
 }
-
 
 /** What proposing did to one set. */
 export interface Proposed {
@@ -148,7 +168,9 @@ export async function propose(
   // does not exist fails whole rather than half.
   const unknown = await unknownCategories(deps, tenantId, proposed);
   if (unknown.length > 0) {
-    throw new Error(`Refusing rules naming categories that do not exist or are retired: ${unknown.join(", ")}`);
+    throw new Error(
+      `Refusing rules naming categories that do not exist or are retired: ${unknown.join(", ")}`,
+    );
   }
 
   const out: Proposed[] = [];
@@ -161,7 +183,11 @@ export async function propose(
       createdBy: options.by,
     };
     await deps.ruleSets.putRuleSetVersion(tenantId, next);
-    out.push({ setId: next.setId, version: next.version, rules: next.rules.length });
+    out.push({
+      setId: next.setId,
+      version: next.version,
+      rules: next.rules.length,
+    });
   }
   return out;
 }
@@ -184,23 +210,41 @@ export function mayApproveAutomatically(
   report: OptimiseReport,
   current: ReadonlyMap<string, RuleSet>,
 ): { readonly allowed: boolean; readonly because: string } {
-  const authored = report.proposed.filter((s) => current.get(s.setId)?.authored === true).map((s) => s.setId);
+  const authored = report.proposed
+    .filter((s) => current.get(s.setId)?.authored === true)
+    .map((s) => s.setId);
   if (authored.length > 0) {
-    return { allowed: false, because: `replaces an authored set: ${authored.join(", ")}` };
+    return {
+      allowed: false,
+      because: `replaces an authored set: ${authored.join(", ")}`,
+    };
   }
 
   const i = report.improvement;
-  if (i === undefined) return { allowed: false, because: "nothing was proposed" };
+  if (i === undefined)
+    return { allowed: false, because: "nothing was proposed" };
   if (i.gaps.after > i.gaps.before) {
-    return { allowed: false, because: `${i.gaps.after - i.gaps.before} more merchants would match nothing` };
+    return {
+      allowed: false,
+      because: `${i.gaps.after - i.gaps.before} more merchants would match nothing`,
+    };
   }
   if (i.conflicts.after > i.conflicts.before) {
-    return { allowed: false, because: `${i.conflicts.after - i.conflicts.before} more conflicts` };
+    return {
+      allowed: false,
+      because: `${i.conflicts.after - i.conflicts.before} more conflicts`,
+    };
   }
   if (i.inertRefines.after > i.inertRefines.before) {
-    return { allowed: false, because: `${i.inertRefines.after - i.inertRefines.before} more inert refines` };
+    return {
+      allowed: false,
+      because: `${i.inertRefines.after - i.inertRefines.before} more inert refines`,
+    };
   }
-  return { allowed: true, because: "fewer conflicts, no new gaps, nothing authored replaced" };
+  return {
+    allowed: true,
+    because: "fewer conflicts, no new gaps, nothing authored replaced",
+  };
 }
 
 /** What deciding a proposal did. */
@@ -224,11 +268,18 @@ export async function decide(
   deps: Pick<OptimiseDependencies, "ruleSets">,
   tenantId: string,
   proposals: readonly Pick<Proposed, "setId" | "version">[],
-  decision: { readonly status: "effective" } | { readonly status: "rejected"; readonly because: string },
+  decision:
+    | { readonly status: "effective" }
+    | { readonly status: "rejected"; readonly because: string },
 ): Promise<Decided[]> {
   const out: Decided[] = [];
   for (const p of proposals) {
-    await deps.ruleSets.decideRuleSetVersion(tenantId, p.setId, p.version, decision);
+    await deps.ruleSets.decideRuleSetVersion(
+      tenantId,
+      p.setId,
+      p.version,
+      decision,
+    );
     out.push({ setId: p.setId, version: p.version, status: decision.status });
   }
   return out;
@@ -239,7 +290,9 @@ async function currentSets(
   tenantId: string,
 ): Promise<Map<string, RuleSet>> {
   return new Map(
-    (await deps.ruleSets.listRuleSets(tenantId)).map((r) => RuleSet.parse(r)).map((s) => [s.setId, s]),
+    (await deps.ruleSets.listRuleSets(tenantId))
+      .map((r) => RuleSet.parse(r))
+      .map((s) => [s.setId, s]),
   );
 }
 
@@ -261,7 +314,9 @@ async function unknownCategories(
   }
   if (referenced.size === 0) return [];
 
-  const catalogue = (await deps.categories.listCategories(tenantId)).map((r) => Category.parse(r));
+  const catalogue = (await deps.categories.listCategories(tenantId)).map((r) =>
+    Category.parse(r),
+  );
   const usable = new Set(catalogue.filter((c) => !c.retired).map((c) => c.id));
   return [...referenced].filter((id) => !usable.has(id)).sort();
 }

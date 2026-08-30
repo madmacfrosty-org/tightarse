@@ -19,7 +19,7 @@ import type {
   DescriptionSummary,
   Sighting,
 } from "../categorisation/corpus.js";
-import { evaluate } from "../categorisation/evaluate.js";
+import { evaluate, inPrecedenceOrder } from "../categorisation/evaluate.js";
 import { gatherEvidence } from "../categorisation/evidence.js";
 import type { Conflict, Gap } from "../categorisation/evidence.js";
 import { RuleSet } from "../categorisation/rules.js";
@@ -63,7 +63,8 @@ export async function backlog(
   const sightings: Sighting[] = [];
   for (const row of transactions) {
     const candidate = candidateOf(row);
-    const category = evaluate(sets, candidate).effective?.category;
+    const category = evaluate(inPrecedenceOrder(sets), candidate).effective
+      ?.category;
     sightings.push({
       description: candidate.description,
       amount: candidate.amount,

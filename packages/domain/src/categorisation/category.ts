@@ -63,7 +63,9 @@ export type Category = z.infer<typeof Category>;
 /** Categories by id. */
 export type CategoryCatalogue = ReadonlyMap<CategoryId, Category>;
 
-export function catalogueOf(categories: readonly Category[]): CategoryCatalogue {
+export function catalogueOf(
+  categories: readonly Category[],
+): CategoryCatalogue {
   return new Map(categories.map((c) => [c.id, c]));
 }
 
@@ -100,7 +102,10 @@ export interface CategoryResolution {
  * Resolved at read rather than rewritten into rows, which is what lets a
  * taxonomy change avoid reprocessing entirely.
  */
-export function resolveCategory(id: CategoryId, catalogue: CategoryCatalogue): CategoryResolution {
+export function resolveCategory(
+  id: CategoryId,
+  catalogue: CategoryCatalogue,
+): CategoryResolution {
   const path: CategoryId[] = [id];
   const seen = new Set<CategoryId>([id]);
   let current = catalogue.get(id);
@@ -135,6 +140,9 @@ export function resolveCategory(id: CategoryId, catalogue: CategoryCatalogue): C
 }
 
 /** The kind a reference resolves to, for code that may only branch on kind. */
-export function kindOf(id: CategoryId, catalogue: CategoryCatalogue): CategoryKind | undefined {
+export function kindOf(
+  id: CategoryId,
+  catalogue: CategoryCatalogue,
+): CategoryKind | undefined {
   return resolveCategory(id, catalogue).category?.kind;
 }

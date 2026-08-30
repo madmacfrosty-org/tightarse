@@ -45,7 +45,13 @@ export interface Evaluation {
    * Undefined when no set matched, which is an ordinary outcome — it is the
    * backlog, not a failure.
    */
-  readonly effective?: { readonly setId: string; readonly version: number; readonly category: CategoryId } | undefined;
+  readonly effective?:
+    | {
+        readonly setId: string;
+        readonly version: number;
+        readonly category: CategoryId;
+      }
+    | undefined;
   /** Every set, in the order they were evaluated. */
   readonly sets: readonly SetOutcome[];
 }
@@ -93,7 +99,10 @@ export function matchesMatcher(m: Matcher, candidate: Candidate): boolean {
  * categorises them must be built from the term identically.
  */
 export function literalMatcher(term: string): Matcher {
-  return { kind: "merchant", pattern: term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") };
+  return {
+    kind: "merchant",
+    pattern: term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+  };
 }
 
 /**
@@ -116,8 +125,10 @@ export function filterMatcher(filter: {
   max?: number | undefined;
 }): Matcher | undefined {
   const of: Matcher[] = [];
-  if (filter.term !== undefined && filter.term.length > 0) of.push(literalMatcher(filter.term));
-  if (filter.type !== undefined && filter.type.length > 0) of.push({ kind: "providerCategory", value: filter.type });
+  if (filter.term !== undefined && filter.term.length > 0)
+    of.push(literalMatcher(filter.term));
+  if (filter.type !== undefined && filter.type.length > 0)
+    of.push({ kind: "providerCategory", value: filter.type });
   if (filter.min !== undefined || filter.max !== undefined) {
     of.push({
       kind: "amount",
@@ -201,24 +212,64 @@ export function foldSet(set: RuleSet, candidate: Candidate): SetOutcome {
 }
 
 /**
+ * Put sets in the order their precedence implies, most trusted first.
+ *
+ * Explicit, and separate from `evaluate`, because precedence is on its way out
+ * of the set: a set shared between households sits above one tenant's rules and
+ * below another's, so where it ranks belongs to the decision to use it rather
+ * than to the set (#121). Ordering here means `evaluate` never has to know how
+ * that decision is expressed, and a caller reading from adoptions passes an
+ * ordered list without going through this at all.
+ *
+ * The tie-break on `setId` stays for now, and it is worth being clear about why,
+ * because it is meaningless as a RANKING and load-bearing as a GUARANTEE. Two
+ * sets at equal `order` is a data mistake, but the answer must not then depend
+ * on the order a scan happened to return them in: the same ledger would
+ * categorise differently on two runs and the history would churn. Comparing
+ * names is arbitrary and stable, and stable is the part that matters.
+ *
+ * It has still chosen wrongly once — `provider` sorts before `provider-types`,
+ * and `provider` is the id discarded at read, so the legacy set won every tie
+ * and its answers were thrown away. The fix for that is not a better tie-break;
+ * it is #121, where precedence is a position in an adopted list and equal ranks
+ * cannot be expressed at all. This goes when that lands.
+ */
+export function inPrecedenceOrder(sets: readonly RuleSet[]): RuleSet[] {
+  return [...sets].sort(
+    (a, b) => a.order - b.order || a.setId.localeCompare(b.setId),
+  );
+}
+
+/**
  * Evaluate every set, and say which answer stands.
  *
- * Lower `order` wins, so a household set is 0 and new sets append below without
- * renumbering what sits above them. Precedence is data rather than load order
- * precisely so that an imported rule can never outrank a hand-written one by
- * accident.
+ * **Applies the sets in the order given.** The first with an answer wins, so the
+ * caller decides precedence — `inPrecedenceOrder` for sets that still carry
+ * their own, an adoption list once they do not. Evaluation reads no `order`
+ * field of its own, so precedence can move without this function changing.
+ *
+ * Precedence is data rather than load order precisely so that an imported rule
+ * can never outrank a hand-written one by accident. That is now the caller's
+ * statement rather than a property this function goes looking for.
  */
-export function evaluate(sets: readonly RuleSet[], candidate: Candidate): Evaluation {
-  const outcomes = [...sets]
-    .sort((a, b) => a.order - b.order || a.setId.localeCompare(b.setId))
-    .map((set) => foldSet(set, candidate));
+export function evaluate(
+  sets: readonly RuleSet[],
+  candidate: Candidate,
+): Evaluation {
+  const outcomes = sets.map((set) => foldSet(set, candidate));
 
   const winner = outcomes.find((o) => o.category !== undefined);
 
   return {
     ...(winner?.category === undefined
       ? {}
-      : { effective: { setId: winner.setId, version: winner.version, category: winner.category } }),
+      : {
+          effective: {
+            setId: winner.setId,
+            version: winner.version,
+            category: winner.category,
+          },
+        }),
     sets: outcomes,
   };
 }

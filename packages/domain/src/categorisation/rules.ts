@@ -7,9 +7,18 @@
 
 import { z } from "zod";
 
-const Merchant = z.object({ kind: z.literal("merchant"), pattern: z.string().min(1) });
-const ProviderCategory = z.object({ kind: z.literal("providerCategory"), value: z.string().min(1) });
-const Transaction = z.object({ kind: z.literal("transaction"), dedupKey: z.string().min(1) });
+const Merchant = z.object({
+  kind: z.literal("merchant"),
+  pattern: z.string().min(1),
+});
+const ProviderCategory = z.object({
+  kind: z.literal("providerCategory"),
+  value: z.string().min(1),
+});
+const Transaction = z.object({
+  kind: z.literal("transaction"),
+  dedupKey: z.string().min(1),
+});
 
 /**
  * An amount, or a range of them.
@@ -33,7 +42,11 @@ const AmountRange = z
   });
 
 /** One condition. What a rule held before it could hold several. */
-const Leaf = z.discriminatedUnion("kind", [Merchant, ProviderCategory, Transaction]);
+const Leaf = z.discriminatedUnion("kind", [
+  Merchant,
+  ProviderCategory,
+  Transaction,
+]);
 
 /**
  * Several conditions, all of which must hold.
