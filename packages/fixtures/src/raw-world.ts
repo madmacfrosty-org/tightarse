@@ -33,7 +33,7 @@ import {
   ATM_LOCATIONS,
   DIRECT_DEBIT_ORIGINATORS,
   EMPLOYERS,
-  MERCHANTS,
+  describableMerchants,
   PEOPLE,
   payeeName,
 } from "./vocabulary.js";
@@ -117,11 +117,11 @@ function accountTxn(rng: Rng, atMs: number): Txn {
 
   switch (kind) {
     case "merchant": {
-      const m = pick(MERCHANTS)(rng);
+      const m = pick(describableMerchants())(rng);
       return {
         ...base,
-        amount: -int(m.min, m.max)(rng),
-        description: m.name,
+        amount: -int(m.spend[0], m.spend[1])(rng),
+        description: m.description,
         category: "PURCHASE",
       };
     }
@@ -191,11 +191,11 @@ function cardTxn(rng: Rng, atMs: number): Txn {
       category: "CREDIT",
     };
   }
-  const m = pick(MERCHANTS)(rng);
+  const m = pick(describableMerchants())(rng);
   return {
     ...base,
-    amount: -int(m.min, m.max)(rng),
-    description: m.name,
+    amount: -int(m.spend[0], m.spend[1])(rng),
+    description: m.description,
     category: "DEBIT",
   };
 }

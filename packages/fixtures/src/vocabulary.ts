@@ -22,37 +22,20 @@
  * household's actual payee. Living private individuals must never appear.
  */
 
-export interface Merchant {
-  /** As it would appear in a bank description: capitals, often a town. */
-  readonly name: string;
-  /** TrueLayer's own category for this kind of spending. */
-  readonly category: string;
-  /** Typical spend range, in minor units. */
-  readonly min: number;
-  readonly max: number;
-}
-
-/** Everyday retail, weighted towards the ordinary in the generator. */
-export const MERCHANTS: readonly Merchant[] = [
-  { name: "TESCO STORES 3411", category: "PURCHASE", min: 3_20, max: 94_50 },
-  { name: "SAINSBURYS SMKTS", category: "PURCHASE", min: 4_10, max: 88_00 },
-  { name: "ASDA SUPERSTORE", category: "PURCHASE", min: 5_00, max: 102_30 },
-  { name: "WAITROSE 442", category: "PURCHASE", min: 6_75, max: 76_40 },
-  { name: "MARKS&SPENCER PLC", category: "PURCHASE", min: 4_50, max: 120_00 },
-  { name: "GREGGS PLC", category: "PURCHASE", min: 1_80, max: 12_40 },
-  { name: "PRET A MANGER", category: "PURCHASE", min: 3_40, max: 18_20 },
-  { name: "COSTA COFFEE", category: "PURCHASE", min: 2_60, max: 14_00 },
-  { name: "BOOTS THE CHEMIST", category: "PURCHASE", min: 2_99, max: 46_00 },
-  { name: "SCREWFIX DIRECT", category: "PURCHASE", min: 7_50, max: 240_00 },
-  { name: "B&Q LIMITED", category: "PURCHASE", min: 8_00, max: 310_00 },
-  { name: "ARGOS LTD", category: "PURCHASE", min: 12_00, max: 420_00 },
-  { name: "SHELL SERVICE STN", category: "PURCHASE", min: 35_00, max: 98_00 },
-  { name: "BP CONNECT", category: "PURCHASE", min: 32_00, max: 95_00 },
-  { name: "TRAINLINE.COM", category: "PURCHASE", min: 9_40, max: 186_00 },
-  { name: "TFL TRAVEL CHARGE", category: "PURCHASE", min: 2_40, max: 28_60 },
-  { name: "ROYAL MAIL GROUP", category: "PURCHASE", min: 1_95, max: 24_00 },
-  { name: "AMAZON.CO.UK", category: "PURCHASE", min: 4_99, max: 260_00 },
-];
+/**
+ * Merchants come from the domain, not from here.
+ *
+ * `@tightarse/domain`'s `merchants.ts` is the single list: it drives both the
+ * seeded rules and the descriptions below, so a generated transaction is
+ * matched by a generated rule by construction. Keeping a second list here is
+ * how the two stopped agreeing, and why seeded data used to arrive entirely
+ * uncategorised.
+ */
+export {
+  describableMerchants,
+  MERCHANTS,
+  type Merchant,
+} from "@tightarse/domain";
 
 /** Cash. Its own category in the provider's taxonomy. */
 export const ATM_LOCATIONS: readonly string[] = [

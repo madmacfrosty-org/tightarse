@@ -13,7 +13,7 @@ import {
   weighted,
 } from "../src/gen.js";
 import {
-  MERCHANTS,
+  describableMerchants,
   PEOPLE,
   payeeName,
   DIRECT_DEBIT_ORIGINATORS,
@@ -28,7 +28,7 @@ import {
 
 describe("determinism", () => {
   it("gives the same result for the same seed, every time", () => {
-    const gen = listOf(pick(MERCHANTS), 50);
+    const gen = listOf(pick(describableMerchants()), 50);
     expect(gen(seeded(7))).toEqual(gen(seeded(7)));
   });
 
@@ -50,8 +50,8 @@ describe("determinism", () => {
 describe("combinators", () => {
   it("picks only from what it was given", () => {
     const rng = seeded(11);
-    for (let i = 0; i < 200; i += 1)
-      expect(MERCHANTS).toContain(pick(MERCHANTS)(rng));
+    const ms = describableMerchants();
+    for (let i = 0; i < 200; i += 1) expect(ms).toContain(pick(ms)(rng));
   });
 
   it("refuses an empty list rather than producing undefined", () => {
@@ -103,14 +103,14 @@ describe("combinators", () => {
   it("chains a dependent generator off an earlier value", () => {
     // The reason for the combinator at all: an amount that depends on which
     // merchant was chosen, rather than a range shared by every merchant.
-    const gen = chain(pick(MERCHANTS), (m) =>
-      map(int(m.min, m.max), (amount) => ({ m, amount })),
+    const gen = chain(pick(describableMerchants()), (m) =>
+      map(int(m.spend[0], m.spend[1]), (amount) => ({ m, amount })),
     );
     const rng = seeded(4);
     for (let i = 0; i < 200; i += 1) {
       const { m, amount } = gen(rng);
-      expect(amount).toBeGreaterThanOrEqual(m.min);
-      expect(amount).toBeLessThanOrEqual(m.max);
+      expect(amount).toBeGreaterThanOrEqual(m.spend[0]);
+      expect(amount).toBeLessThanOrEqual(m.spend[1]);
     }
   });
 
@@ -132,10 +132,10 @@ describe("vocabulary", () => {
   it("carries amounts in minor units, never decimals", () => {
     // A float here is the most dangerous bug this codebase has: major units
     // reaching the ledger read as pence and understate spending a hundredfold.
-    for (const m of MERCHANTS) {
-      expect(Number.isInteger(m.min)).toBe(true);
-      expect(Number.isInteger(m.max)).toBe(true);
-      expect(m.max).toBeGreaterThanOrEqual(m.min);
+    for (const m of describableMerchants()) {
+      expect(Number.isInteger(m.spend[0])).toBe(true);
+      expect(Number.isInteger(m.spend[1])).toBe(true);
+      expect(m.spend[1]).toBeGreaterThanOrEqual(m.spend[0]);
     }
     for (const d of DIRECT_DEBIT_ORIGINATORS) {
       expect(Number.isInteger(d.min)).toBe(true);
