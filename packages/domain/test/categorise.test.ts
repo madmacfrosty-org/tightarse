@@ -19,8 +19,14 @@ import type { Row } from "../src/ports/outbound/index.js";
 const NOW = new Date("2026-03-01T09:00:00.000Z");
 const RANGE = { from: "2026-01-01", to: "2026-03-01" };
 
-const evaluation = (category?: string, setId = "built-in", version = 1): Evaluation => ({
-  ...(category === undefined ? {} : { effective: { setId, version, category } }),
+const evaluation = (
+  category?: string,
+  setId = "built-in",
+  version = 1,
+): Evaluation => ({
+  ...(category === undefined
+    ? {}
+    : { effective: { setId, version, category } }),
   sets: [],
 });
 
@@ -36,17 +42,65 @@ const stored = (over: Partial<Categorisation> = {}): Categorisation => ({
   ...over,
 });
 
-const args = { dedupKey: "d1", timestamp: "2026-02-01T00:00:00.000Z", now: NOW.toISOString() };
+const args = {
+  dedupKey: "d1",
+  timestamp: "2026-02-01T00:00:00.000Z",
+  now: NOW.toISOString(),
+};
 
 describe("what to do about one transaction", () => {
   it("writes nothing when the rules produce what is already stored", () => {
     // Write volume proportional to changes rather than to transactions is what
     // makes re-applying the whole ledger cheap enough to be the default.
-    expect(decide({ ...args, evaluation: evaluation("groceries"), current: stored() })).toEqual({ kind: "unchanged" });
+    expect(
+      decide({
+        ...args,
+        evaluation: evaluation("groceries"),
+        current: stored(),
+      }),
+    ).toEqual({ kind: "unchanged" });
+  });
+
+  it("writes nothing when a newer version of the SAME set still agrees", () => {
+    // The write-volume guarantee. A rule edit that bumps a version without
+    // changing any answer must not rewrite every row in the ledger, so the
+    // stored setVersion is the one that first produced the answer rather than
+    // the last to agree with it.
+    const d = decide({
+      ...args,
+      evaluation: evaluation("groceries", "built-in", 7),
+      current: stored({ setVersion: 1 }),
+    });
+
+    expect(d).toEqual({ kind: "unchanged" });
+  });
+
+  it("re-attributes when a DIFFERENT set now produces the same answer", () => {
+    // Provenance has changed even though the category has not. Leaving the row
+    // credited to the old set makes setId mean "whichever set first happened to
+    // say this", and makes a set impossible to replace: adopting one that agrees
+    // about most transactions would leave those transactions attributed to the
+    // set it replaced, for ever.
+    const d = decide({
+      ...args,
+      evaluation: evaluation("groceries", "provider-types"),
+      current: stored({ setId: "provider", version: 2 }),
+    });
+
+    expect(d.kind).toBe("append");
+    if (d.kind !== "append") throw new Error("expected append");
+    expect(d.next.setId).toBe("provider-types");
+    expect(d.next.category).toBe("groceries");
+    // A new version of the categorisation, not a rewrite of the old one.
+    expect(d.next.version).toBe(3);
   });
 
   it("treats a different answer as a change and appends the next version", () => {
-    const d = decide({ ...args, evaluation: evaluation("fuel"), current: stored({ version: 3 }) });
+    const d = decide({
+      ...args,
+      evaluation: evaluation("fuel"),
+      current: stored({ version: 3 }),
+    });
     expect(d.kind).toBe("append");
     if (d.kind !== "append") throw new Error("expected append");
     expect(d.next.version).toBe(4);
@@ -80,21 +134,29 @@ describe("what to do about one transaction", () => {
     // exists to do.
     //
     // Found by running it: 2,229 real transactions were frozen this way.
-    const d = decide({ ...args, evaluation: evaluation("fuel"), current: stored({ setId: "household" }) });
+    const d = decide({
+      ...args,
+      evaluation: evaluation("fuel"),
+      current: stored({ setId: "household" }),
+    });
     expect(d.kind).toBe("append");
   });
 
   it("surfaces a stored category that nothing matches any more, and leaves it alone", () => {
     // Silently keeping a category nobody can explain is worse than saying so,
     // and deleting it would lose the history.
-    expect(decide({ ...args, evaluation: evaluation(undefined), current: stored() })).toEqual({
+    expect(
+      decide({ ...args, evaluation: evaluation(undefined), current: stored() }),
+    ).toEqual({
       kind: "orphaned",
       category: "groceries",
     });
   });
 
   it("says nothing for a transaction no rule matches, which is the backlog", () => {
-    expect(decide({ ...args, evaluation: evaluation(undefined) })).toEqual({ kind: "none" });
+    expect(decide({ ...args, evaluation: evaluation(undefined) })).toEqual({
+      kind: "none",
+    });
   });
 });
 
@@ -104,7 +166,9 @@ const rule = (pattern: string, category: string): Rule => ({
   appliesTo: "debits",
 });
 
-const set = (over: Partial<RuleSet> & { setId: string; order: number; rules: Rule[] }): RuleSet => ({
+const set = (
+  over: Partial<RuleSet> & { setId: string; order: number; rules: Rule[] },
+): RuleSet => ({
   version: 1,
   name: over.setId,
   authored: false,
@@ -121,13 +185,27 @@ const txRow = (dedupKey: string, description: string): Row => ({
   timestamp: "2026-02-01T00:00:00.000Z",
 });
 
-function ledger(txns: Row[], cats: Row[] = [], sets: RuleSet[] = [set({ setId: "built-in", order: 2, rules: [rule("somemart", "groceries")] })]) {
+function ledger(
+  txns: Row[],
+  cats: Row[] = [],
+  sets: RuleSet[] = [
+    set({
+      setId: "built-in",
+      order: 2,
+      rules: [rule("somemart", "groceries")],
+    }),
+  ],
+) {
   const written: Categorisation[] = [];
   return {
     written,
     deps: {
       transactions: {
-        listRange: async () => ({ transactions: txns, enrichments: [], categorisations: cats }),
+        listRange: async () => ({
+          transactions: txns,
+          enrichments: [],
+          categorisations: cats,
+        }),
       },
       ruleSets: { listRuleSets: async () => sets as unknown as Row[] },
       categorisations: {
@@ -144,19 +222,29 @@ describe("applying over a range", () => {
     const { deps, written } = ledger([txRow("d1", "SOMEMART SUPERSTORE")]);
     const report = await categorise(deps, "frost", { range: RANGE, now: NOW });
     expect(report).toMatchObject({ scanned: 1, appended: 1, unchanged: 0 });
-    expect(written[0]).toMatchObject({ dedupKey: "d1", category: "groceries", version: 1 });
+    expect(written[0]).toMatchObject({
+      dedupKey: "d1",
+      category: "groceries",
+      version: 1,
+    });
   });
 
   it("writes nothing the second time, because idempotency is load-bearing", async () => {
     // Applying the same set versions to the same transactions must give the
     // same answer, or every run appends and the history fills with churn.
     const first = ledger([txRow("d1", "SOMEMART SUPERSTORE")]);
-    const report1 = await categorise(first.deps, "frost", { range: RANGE, now: NOW });
+    const report1 = await categorise(first.deps, "frost", {
+      range: RANGE,
+      now: NOW,
+    });
     expect(report1.appended).toBe(1);
 
     const asStored = first.written.map((c) => c as unknown as Row);
     const second = ledger([txRow("d1", "SOMEMART SUPERSTORE")], asStored);
-    const report2 = await categorise(second.deps, "frost", { range: RANGE, now: NOW });
+    const report2 = await categorise(second.deps, "frost", {
+      range: RANGE,
+      now: NOW,
+    });
     expect(report2).toMatchObject({ appended: 0, unchanged: 1 });
     expect(second.written).toEqual([]);
   });
@@ -171,10 +259,25 @@ describe("applying over a range", () => {
   it("re-applies over what an authored set produced, rather than freezing it", async () => {
     // A household rule change must reach the transactions it already matched.
     // Running this for real found 2,229 frozen by the opposite reading.
-    const authored = set({ setId: "household", order: 0, authored: true, rules: [] });
-    const builtIn = set({ setId: "built-in", order: 2, rules: [rule("somemart", "fuel")] });
-    const cat = { ...stored({ setId: "household", category: "gifts-charity" }) } as unknown as Row;
-    const { deps, written } = ledger([txRow("d1", "SOMEMART SUPERSTORE")], [cat], [authored, builtIn]);
+    const authored = set({
+      setId: "household",
+      order: 0,
+      authored: true,
+      rules: [],
+    });
+    const builtIn = set({
+      setId: "built-in",
+      order: 2,
+      rules: [rule("somemart", "fuel")],
+    });
+    const cat = {
+      ...stored({ setId: "household", category: "gifts-charity" }),
+    } as unknown as Row;
+    const { deps, written } = ledger(
+      [txRow("d1", "SOMEMART SUPERSTORE")],
+      [cat],
+      [authored, builtIn],
+    );
     const report = await categorise(deps, "frost", { range: RANGE, now: NOW });
     expect(report).toMatchObject({ appended: 1 });
     expect(written[0]).toMatchObject({ category: "fuel", version: 2 });
@@ -193,7 +296,13 @@ describe("applying over a range", () => {
   });
 
   it("ignores a proposed version, which must not change what anything reads", async () => {
-    const cats = [stored({ version: 2, category: "fuel", status: "proposed" }) as unknown as Row];
+    const cats = [
+      stored({
+        version: 2,
+        category: "fuel",
+        status: "proposed",
+      }) as unknown as Row,
+    ];
     const { deps } = ledger([txRow("d1", "SOMEMART SUPERSTORE")], cats);
     const report = await categorise(deps, "frost", { range: RANGE, now: NOW });
     expect(report).toMatchObject({ appended: 1 });
@@ -205,9 +314,17 @@ describe("applying over a range", () => {
       order: 2,
       rules: [rule("somemart", "groceries"), rule("superstore", "shopping")],
     });
-    const { deps, written } = ledger([txRow("d1", "SOMEMART SUPERSTORE")], [], [conflicted]);
+    const { deps, written } = ledger(
+      [txRow("d1", "SOMEMART SUPERSTORE")],
+      [],
+      [conflicted],
+    );
     const report = await categorise(deps, "frost", { range: RANGE, now: NOW });
-    expect(report).toMatchObject({ conflicts: 1, uncategorised: 1, appended: 0 });
+    expect(report).toMatchObject({
+      conflicts: 1,
+      uncategorised: 1,
+      appended: 0,
+    });
     expect(written).toEqual([]);
   });
 
@@ -225,16 +342,28 @@ describe("applying over a range", () => {
         },
       ],
     });
-    const { deps } = ledger([txRow("d1", "SOMEMART FORECOURT 118")], [], [qualifierOnly]);
+    const { deps } = ledger(
+      [txRow("d1", "SOMEMART FORECOURT 118")],
+      [],
+      [qualifierOnly],
+    );
     const report = await categorise(deps, "frost", { range: RANGE, now: NOW });
-    expect(report).toMatchObject({ inertRefines: 1, uncategorised: 1, appended: 0 });
+    expect(report).toMatchObject({
+      inertRefines: 1,
+      uncategorised: 1,
+      appended: 0,
+    });
   });
 
   it("reports a stored category nothing matches any more, and does not touch it", async () => {
     const cat = stored({ category: "groceries" }) as unknown as Row;
     const { deps, written } = ledger([txRow("d1", "UTTERLY UNKNOWN")], [cat]);
     const report = await categorise(deps, "frost", { range: RANGE, now: NOW });
-    expect(report).toMatchObject({ orphaned: 1, appended: 0, uncategorised: 0 });
+    expect(report).toMatchObject({
+      orphaned: 1,
+      appended: 0,
+      uncategorised: 0,
+    });
     expect(written).toEqual([]);
   });
 
@@ -259,7 +388,10 @@ describe("applying over a range", () => {
   it("survives a row missing the fields a rule would read", async () => {
     // A scan returns whatever is stored. A row without a description is not a
     // reason to fail the run — it simply matches nothing.
-    const { deps, written } = ledger([{ dedupKey: "d1", timestamp: "2026-02-01T00:00:00.000Z" }, {}]);
+    const { deps, written } = ledger([
+      { dedupKey: "d1", timestamp: "2026-02-01T00:00:00.000Z" },
+      {},
+    ]);
     const report = await categorise(deps, "frost", { range: RANGE, now: NOW });
     expect(report).toMatchObject({ scanned: 2, uncategorised: 2 });
     expect(written).toEqual([]);
@@ -301,20 +433,36 @@ describe("applying over a range", () => {
     // improvement. "412 would change" cannot be judged; "groceries -> fuel" can.
     const cat = stored({ category: "shopping" }) as unknown as Row;
     const { deps } = ledger([txRow("d1", "SOMEMART SUPERSTORE")], [cat]);
-    const report = await categorise(deps, "frost", { range: RANGE, now: NOW, dryRun: true });
+    const report = await categorise(deps, "frost", {
+      range: RANGE,
+      now: NOW,
+      dryRun: true,
+    });
     expect(report.changes).toHaveLength(1);
-    expect(report.changes[0]).toMatchObject({ from: "shopping", to: "groceries", setId: "built-in" });
+    expect(report.changes[0]).toMatchObject({
+      from: "shopping",
+      to: "groceries",
+      setId: "built-in",
+    });
   });
 
   it("omits `from` for a transaction that had no category", async () => {
     const { deps } = ledger([txRow("d1", "SOMEMART SUPERSTORE")]);
-    const report = await categorise(deps, "frost", { range: RANGE, now: NOW, dryRun: true });
+    const report = await categorise(deps, "frost", {
+      range: RANGE,
+      now: NOW,
+      dryRun: true,
+    });
     expect(report.changes[0]?.from).toBeUndefined();
   });
 
   it("decides everything and writes nothing on a dry run", async () => {
     const { deps, written } = ledger([txRow("d1", "SOMEMART SUPERSTORE")]);
-    const report = await categorise(deps, "frost", { range: RANGE, now: NOW, dryRun: true });
+    const report = await categorise(deps, "frost", {
+      range: RANGE,
+      now: NOW,
+      dryRun: true,
+    });
     expect(report.appended).toBe(1);
     expect(written).toEqual([]);
   });

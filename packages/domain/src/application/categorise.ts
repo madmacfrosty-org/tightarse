@@ -26,7 +26,12 @@ import { Categorisation } from "../categorisation/categorisation.js";
 import { RuleSet } from "../categorisation/rules.js";
 import { evaluate, type Evaluation } from "../categorisation/evaluate.js";
 import type { CategoryId } from "../categorisation/category.js";
-import type { Categorisations, RuleSets, Row, Transactions } from "../ports/outbound/index.js";
+import type {
+  Categorisations,
+  RuleSets,
+  Row,
+  Transactions,
+} from "../ports/outbound/index.js";
 import type { DateRange } from "../ports/index.js";
 
 /**
@@ -89,9 +94,17 @@ export function decide(args: DecideArgs): Decision {
 
   const effective = evaluation.effective;
   if (!effective) {
-    return current ? { kind: "orphaned", category: current.category } : { kind: "none" };
+    return current
+      ? { kind: "orphaned", category: current.category }
+      : { kind: "none" };
   }
-  if (current && current.category === effective.category) return { kind: "unchanged" };
+  if (
+    current &&
+    current.category === effective.category &&
+    current.setId === effective.setId
+  ) {
+    return { kind: "unchanged" };
+  }
 
   return {
     kind: "append",
@@ -166,9 +179,14 @@ export async function categorise(
   tenantId: string,
   options: CategoriseOptions,
 ): Promise<CategoriseReport> {
-  const sets = (await deps.ruleSets.listRuleSets(tenantId)).map((r) => RuleSet.parse(r));
+  const sets = (await deps.ruleSets.listRuleSets(tenantId)).map((r) =>
+    RuleSet.parse(r),
+  );
 
-  const { transactions, categorisations } = await deps.transactions.listRange(tenantId, options.range);
+  const { transactions, categorisations } = await deps.transactions.listRange(
+    tenantId,
+    options.range,
+  );
   const current = latestByTransaction(categorisations);
   const now = options.now.toISOString();
 
@@ -240,7 +258,6 @@ export async function categorise(
   };
 }
 
-
 /**
  * The categorisation in force for each transaction.
  *
@@ -249,13 +266,16 @@ export async function categorise(
  * A `proposed` version is not in force: it exists so an approval flow has a
  * shape, and until one exists it must not change what anything reads.
  */
-function latestByTransaction(rows: readonly Row[]): Map<string, Categorisation> {
+function latestByTransaction(
+  rows: readonly Row[],
+): Map<string, Categorisation> {
   const out = new Map<string, Categorisation>();
   for (const row of rows) {
     const parsed = Categorisation.safeParse(row);
     if (!parsed.success || parsed.data.status !== "effective") continue;
     const existing = out.get(parsed.data.dedupKey);
-    if (!existing || parsed.data.version > existing.version) out.set(parsed.data.dedupKey, parsed.data);
+    if (!existing || parsed.data.version > existing.version)
+      out.set(parsed.data.dedupKey, parsed.data);
   }
   return out;
 }
