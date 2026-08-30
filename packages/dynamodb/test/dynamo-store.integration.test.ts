@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  DynamoDBDocumentClient,
+  PutCommand,
+  QueryCommand,
+} from "@aws-sdk/lib-dynamodb";
 import { type Transaction } from "@tightarse/domain";
 import { DynamoStore } from "../src/dynamo-store";
 import { DynamoTransactions } from "../src/transactions";
@@ -133,7 +137,10 @@ suite("DynamoStore (integration)", () => {
    * survives a rewrite therefore has to look at the row rather than at what
    * the port hands the domain.
    */
-  const storedRows = async (from: string, to: string): Promise<Record<string, unknown>[]> => {
+  const storedRows = async (
+    from: string,
+    to: string,
+  ): Promise<Record<string, unknown>[]> => {
     const res = await doc.send(
       new QueryCommand({
         TableName: TABLE,
@@ -378,6 +385,85 @@ suite("DynamoStore account merge (integration)", () => {
     expect(found?.["displayName"]).toBe("Current Account");
     expect(found?.["currentBalance"]).toBe(12345);
     expect(found?.["availableBalance"]).toBe(20000);
+  });
+});
+
+suite("which sets a tenant uses (integration)", () => {
+  let ledger: DynamoStore;
+  let doc: DynamoDBDocumentClient;
+
+  beforeAll(() => {
+    ({ ledger, doc } = testLedger());
+  });
+
+  const adoption = (setId: string, version = 1, supersedes?: string) => ({
+    setId,
+    version,
+    adoptedAt: "2026-08-30T00:00:00.000Z",
+    ...(supersedes === undefined ? {} : { supersedes }),
+  });
+
+  it("has adopted nothing until it says otherwise", async () => {
+    expect(await ledger.getAdoptions(`${TENANT}-fresh`)).toEqual([]);
+  });
+
+  it("round-trips the list, order intact", async () => {
+    // Order is the whole meaning: index 0 outranks index 1. A store that
+    // returned these as a set rather than a list would lose the precedence.
+    const list = [
+      adoption("overrides"),
+      adoption("household"),
+      adoption("built-in", 3),
+    ];
+    await ledger.putAdoptions(TENANT, list);
+
+    expect(await ledger.getAdoptions(TENANT)).toEqual(list);
+  });
+
+  it("replaces the list wholesale rather than merging into it", async () => {
+    // Written whole because separate items could be updated independently and
+    // leave two sets claiming the same rank.
+    await ledger.putAdoptions(TENANT, [
+      adoption("a"),
+      adoption("b"),
+      adoption("c"),
+    ]);
+    await ledger.putAdoptions(TENANT, [adoption("b", 2)]);
+
+    const out = await ledger.getAdoptions(TENANT);
+    expect(out.map((x) => x.setId)).toEqual(["b"]);
+    expect(out[0]!.version).toBe(2);
+  });
+
+  it("keeps supersedes when it is set, and omits it when it is not", async () => {
+    await ledger.putAdoptions(TENANT, [
+      adoption("provider-types", 1, "provider"),
+      adoption("built-in"),
+    ]);
+
+    const [replacement, plain] = await ledger.getAdoptions(TENANT);
+    expect(replacement!.supersedes).toBe("provider");
+    expect(plain!.supersedes).toBeUndefined();
+  });
+
+  it("refuses a stored list it cannot read rather than dropping an entry", async () => {
+    // Not configuration that can be skipped: a dropped adoption silently
+    // changes which rules outrank which.
+    await ledger.putAdoptions(TENANT, [adoption("ok")]);
+    await doc.send(
+      new PutCommand({
+        TableName: TABLE!,
+        Item: {
+          ...keys.adoptions(TENANT),
+          kind: "ADOPTIONS",
+          adoptions: [{ setId: "" }],
+        },
+      }),
+    );
+
+    await expect(ledger.getAdoptions(TENANT)).rejects.toThrow(
+      /unreadable adoption/,
+    );
   });
 });
 

@@ -98,6 +98,10 @@ export class DynamoStore
     this.rulesets.putRuleSetVersion(...a);
   readonly decideRuleSetVersion: RuleSets["decideRuleSetVersion"] = (...a) =>
     this.rulesets.decideRuleSetVersion(...a);
+  readonly getAdoptions: RuleSets["getAdoptions"] = (...a) =>
+    this.rulesets.getAdoptions(...a);
+  readonly putAdoptions: RuleSets["putAdoptions"] = (...a) =>
+    this.rulesets.putAdoptions(...a);
   readonly getCustomRules: RuleSets["getCustomRules"] = (...a) =>
     this.rulesets.getCustomRules(...a);
   readonly getMemberTenant: Household["getMemberTenant"] = (...a) =>

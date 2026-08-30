@@ -57,7 +57,10 @@ export abstract class TableAdapter {
       );
   }
 
-  protected async queryByPrefix(tenantId: string, prefix: string): Promise<Record<string, unknown>[]> {
+  protected async queryByPrefix(
+    tenantId: string,
+    prefix: string,
+  ): Promise<Record<string, unknown>[]> {
     return this.queryAll({
       TableName: this.table,
       KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
@@ -66,12 +69,17 @@ export abstract class TableAdapter {
   }
 
   /** Query every page. Callers deal in complete result sets at this volume. */
-  protected async queryAll(input: QueryCommandInput): Promise<Record<string, unknown>[]> {
+  protected async queryAll(
+    input: QueryCommandInput,
+  ): Promise<Record<string, unknown>[]> {
     const out: Record<string, unknown>[] = [];
     let start: Record<string, unknown> | undefined;
     do {
       const res = await this.doc.send(
-        new QueryCommand({ ...input, ...(start ? { ExclusiveStartKey: start } : {}) }),
+        new QueryCommand({
+          ...input,
+          ...(start ? { ExclusiveStartKey: start } : {}),
+        }),
       );
       out.push(...((res.Items ?? []) as Record<string, unknown>[]));
       start = res.LastEvaluatedKey as Record<string, unknown> | undefined;
@@ -86,18 +94,26 @@ export abstract class TableAdapter {
    * ignoring the response silently drops rows — the kind of data loss that shows
    * up months later as a missing transaction.
    */
-  protected async batchWrite(requests: readonly Record<string, unknown>[]): Promise<void> {
+  protected async batchWrite(
+    requests: readonly Record<string, unknown>[],
+  ): Promise<void> {
     for (let i = 0; i < requests.length; i += BATCH_SIZE) {
       let batch = requests.slice(i, i + BATCH_SIZE);
       for (let attempt = 0; batch.length > 0; attempt += 1) {
         if (attempt > 8) {
-          throw new Error(`BatchWrite still had ${batch.length} unprocessed items after ${attempt} attempts`);
+          throw new Error(
+            `BatchWrite still had ${batch.length} unprocessed items after ${attempt} attempts`,
+          );
         }
         if (attempt > 0) {
-          await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * 50, 2000)));
+          await new Promise((r) =>
+            setTimeout(r, Math.min(2 ** attempt * 50, 2000)),
+          );
         }
         const res = await this.doc.send(
-          new BatchWriteCommand({ RequestItems: { [this.table]: batch as never } }),
+          new BatchWriteCommand({
+            RequestItems: { [this.table]: batch as never },
+          }),
         );
         batch = (res.UnprocessedItems?.[this.table] ?? []) as typeof batch;
       }
@@ -137,7 +153,11 @@ export abstract class TableAdapter {
         values[vk] = value;
         // if_not_exists keeps the first observation. Everything else is the
         // transaction itself and is safe to overwrite with an identical value.
-        sets.push(preserve.includes(attr) ? `${nk} = if_not_exists(${nk}, ${vk})` : `${nk} = ${vk}`);
+        sets.push(
+          preserve.includes(attr)
+            ? `${nk} = if_not_exists(${nk}, ${vk})`
+            : `${nk} = ${vk}`,
+        );
       }
       await this.doc.send(
         new UpdateCommand({

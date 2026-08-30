@@ -7,23 +7,18 @@
  * disagreeing about what is in force.
  */
 
-import {
-  TransactWriteCommand,
-} from "@aws-sdk/lib-dynamodb";
-import {
-  type Categorisation,
-} from "@tightarse/domain";
+import { TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { type Categorisation } from "@tightarse/domain";
 import { keys } from "./keys.js";
-import type {
-  Categorisations,
-} from "@tightarse/domain";
-import {
-  categorisationItems,
-} from "./items.js";
+import type { Categorisations } from "@tightarse/domain";
+import { categorisationItems } from "./items.js";
 import { TableAdapter } from "./table.js";
 
 /** The DynamoDB adapter for the `Categorisations` port. */
-export class DynamoCategorisations extends TableAdapter implements Categorisations {
+export class DynamoCategorisations
+  extends TableAdapter
+  implements Categorisations
+{
   /**
    * Record a transaction's categorisation from one set: the version and the
    * current pointer, atomically.
@@ -56,11 +51,16 @@ export class DynamoCategorisations extends TableAdapter implements Categorisatio
    * somebody asks why a category changed — which is a detail view, not something
    * a list carries.
    */
-  async listCategorisationHistory(tenantId: string, dedupKey: string): Promise<Record<string, unknown>[]> {
+  async listCategorisationHistory(
+    tenantId: string,
+    dedupKey: string,
+  ): Promise<Record<string, unknown>[]> {
     return this.queryAll({
       TableName: this.table,
       KeyConditionExpression: "pk = :pk",
-      ExpressionAttributeValues: { ":pk": keys.categorisationVersion(tenantId, dedupKey, "", 0).pk },
+      ExpressionAttributeValues: {
+        ":pk": keys.categorisationVersion(tenantId, dedupKey, "", 0).pk,
+      },
     });
   }
 }

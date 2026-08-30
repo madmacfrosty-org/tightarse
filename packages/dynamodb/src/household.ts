@@ -7,23 +7,15 @@
  */
 
 import { ScanCommand } from "@aws-sdk/lib-dynamodb";
-import {
-  DeleteCommand,
-  GetCommand,
-  PutCommand,
-} from "@aws-sdk/lib-dynamodb";
+import { DeleteCommand, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import {
   type Consent,
   type Member,
   type TenantSettings,
 } from "@tightarse/domain";
 import { keys } from "./keys.js";
-import type {
-  Household,
-} from "@tightarse/domain";
-import {
-  consentItem,
-} from "./items.js";
+import type { Household } from "@tightarse/domain";
+import { consentItem } from "./items.js";
 import { TableAdapter } from "./table.js";
 
 /** The DynamoDB adapter for the `Household` port. */
@@ -40,7 +32,16 @@ export class DynamoHousehold extends TableAdapter implements Household {
   async putMember(m: Member): Promise<void> {
     const { pk, sk } = keys.member(m.email);
     await this.doc.send(
-      new PutCommand({ TableName: this.table, Item: { pk, sk, kind: "MEMBER", ...m, email: m.email.trim().toLowerCase() } }),
+      new PutCommand({
+        TableName: this.table,
+        Item: {
+          pk,
+          sk,
+          kind: "MEMBER",
+          ...m,
+          email: m.email.trim().toLowerCase(),
+        },
+      }),
     );
   }
 
@@ -53,7 +54,9 @@ export class DynamoHousehold extends TableAdapter implements Household {
    * switch.
    */
   async deleteMember(email: string): Promise<void> {
-    await this.doc.send(new DeleteCommand({ TableName: this.table, Key: keys.member(email) }));
+    await this.doc.send(
+      new DeleteCommand({ TableName: this.table, Key: keys.member(email) }),
+    );
   }
 
   /**
@@ -65,8 +68,11 @@ export class DynamoHousehold extends TableAdapter implements Household {
    * administrative command run a handful of times would cost storage on every
    * write forever. Scanning a table this size, for this, is the cheaper trade.
    */
-  async listMembers(): Promise<Array<{ email: string; tenantId: string; addedAt?: string }>> {
-    const found: Array<{ email: string; tenantId: string; addedAt?: string }> = [];
+  async listMembers(): Promise<
+    Array<{ email: string; tenantId: string; addedAt?: string }>
+  > {
+    const found: Array<{ email: string; tenantId: string; addedAt?: string }> =
+      [];
     let last: Record<string, unknown> | undefined;
     do {
       const res = await this.doc.send(
@@ -79,7 +85,9 @@ export class DynamoHousehold extends TableAdapter implements Household {
         }),
       );
       for (const item of res.Items ?? []) {
-        found.push(item as { email: string; tenantId: string; addedAt?: string });
+        found.push(
+          item as { email: string; tenantId: string; addedAt?: string },
+        );
       }
       last = res.LastEvaluatedKey;
     } while (last);
@@ -101,7 +109,10 @@ export class DynamoHousehold extends TableAdapter implements Household {
   async putSettings(s: TenantSettings): Promise<void> {
     const { pk, sk } = keys.settings(s.tenantId);
     await this.doc.send(
-      new PutCommand({ TableName: this.table, Item: { pk, sk, kind: "SETTINGS", ...s } }),
+      new PutCommand({
+        TableName: this.table,
+        Item: { pk, sk, kind: "SETTINGS", ...s },
+      }),
     );
   }
 
@@ -110,6 +121,8 @@ export class DynamoHousehold extends TableAdapter implements Household {
   }
 
   async putConsent(c: Consent): Promise<void> {
-    await this.doc.send(new PutCommand({ TableName: this.table, Item: consentItem(c) }));
+    await this.doc.send(
+      new PutCommand({ TableName: this.table, Item: consentItem(c) }),
+    );
   }
 }

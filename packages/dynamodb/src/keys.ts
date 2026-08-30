@@ -113,6 +113,23 @@ export const keys = {
   }),
 
   /**
+   * Which sets a tenant uses, and in what order — one item, not one per set.
+   *
+   * The order IS the value, so it is written whole: separate items carrying
+   * positions could be updated independently and leave two sets claiming the
+   * same rank, which is the state #121 exists to make unrepresentable. One item
+   * also makes adoption atomic, so replacing a set never has a window where both
+   * compete — the window that hid a category behind a payment rail.
+   *
+   * Same partition as the sets themselves, so precedence is one key away from
+   * what it ranks.
+   */
+  adoptions: (tenantId: string) => ({
+    pk: `T#${tenantId}`,
+    sk: "ADOPTIONS",
+  }),
+
+  /**
    * One immutable version of a rule set. The record; the current row above is
    * derived from it.
    *
@@ -142,7 +159,12 @@ export const keys = {
    * `CAT` sorts before `TX` within a timestamp, so these arrive in the
    * same range query the API and the categoriser already make.
    */
-  categorisation: (tenantId: string, timestamp: string, dedup: string, setId: string) => ({
+  categorisation: (
+    tenantId: string,
+    timestamp: string,
+    dedup: string,
+    setId: string,
+  ) => ({
     pk: `T#${tenantId}#TX`,
     sk: `${timestamp}#${RowKind.categorisation}#${dedup}#${setId}`,
   }),
@@ -155,7 +177,12 @@ export const keys = {
    * make that query grow with churn rather than with transactions. This is
    * fetched only when somebody asks why a category changed.
    */
-  categorisationVersion: (tenantId: string, dedup: string, setId: string, version: number) => ({
+  categorisationVersion: (
+    tenantId: string,
+    dedup: string,
+    setId: string,
+    version: number,
+  ) => ({
     pk: `T#${tenantId}#CATH#${dedup}`,
     sk: `${setId}#${String(version).padStart(6, "0")}`,
   }),
@@ -179,7 +206,12 @@ export const keys = {
    * Both halves are deterministic, so re-transforming the same raw object still
    * converges. Same shape as the transaction sort key.
    */
-  balanceReading: (tenantId: string, accountId: string, asOf: string, fetchedAt: string) => ({
+  balanceReading: (
+    tenantId: string,
+    accountId: string,
+    asOf: string,
+    fetchedAt: string,
+  ) => ({
     pk: `T#${tenantId}#BAL#${accountId}`,
     sk: `${asOf}#${fetchedAt}`,
   }),
@@ -189,15 +221,24 @@ export const keys = {
    * amount and can vanish. Ingest deletes and replaces the whole partition per
    * account each sync, with a TTL as backstop.
    */
-  pending: (tenantId: string, accountId: string, timestamp: string, providerId: string) => ({
+  pending: (
+    tenantId: string,
+    accountId: string,
+    timestamp: string,
+    providerId: string,
+  ) => ({
     pk: `T#${tenantId}#PEND#${accountId}`,
     sk: `${timestamp}#${providerId}`,
   }),
 
   /** gsi1: per-account history, same sort-key layout as the base table. */
-  accountIndex: (tenantId: string, accountId: string, timestamp: string, dedup: string) => ({
+  accountIndex: (
+    tenantId: string,
+    accountId: string,
+    timestamp: string,
+    dedup: string,
+  ) => ({
     gsi1pk: `T#${tenantId}#ACC#${accountId}`,
     gsi1sk: `${timestamp}#${RowKind.transaction}#${dedup}`,
   }),
-
 } as const;

@@ -31,6 +31,7 @@ import type { AccountId } from "../../ledger/account.js";
 import type { Categorisation } from "../../categorisation/categorisation.js";
 import type { Category } from "../../categorisation/category.js";
 import type { RuleSet } from "../../categorisation/rules.js";
+import type { Adoptions } from "../../categorisation/adoption.js";
 import type { Evidence } from "../../categorisation/evidence.js";
 import type { CustomRule } from "../../categorisation/enrichment.js";
 import type { Member } from "../../household/member.js";
@@ -303,6 +304,27 @@ export interface RuleSets {
    * `household` set.
    */
   getCustomRules(tenantId: string): Promise<CustomRule[]>;
+  /**
+   * Which sets this tenant uses, most trusted first.
+   *
+   * Empty for a tenant that has adopted nothing — which today is every tenant,
+   * because precedence still lives on the set. Callers fall back to that while
+   * both exist (#121).
+   */
+  getAdoptions(tenantId: string): Promise<Adoptions>;
+  /**
+   * Replace the whole list.
+   *
+   * Whole, because the order is the value: writing one entry at a time could
+   * leave two sets claiming the same rank, which is the state this design makes
+   * unrepresentable.
+   *
+   * **No optimistic concurrency yet.** Two adoptions racing would lose one
+   * silently. Tolerable only because a single accept path writes this today;
+   * it stops being tolerable the moment a second one does, and it is recorded
+   * on #121 rather than left to be discovered.
+   */
+  putAdoptions(tenantId: string, adoptions: Adoptions): Promise<void>;
 }
 
 /**

@@ -13,18 +13,16 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import {
+  Adoption,
+  type Adoptions,
   type Category,
   type CustomRule,
   RuleSet,
 } from "@tightarse/domain";
 import { keys } from "./keys.js";
-import type {
-  Categories,
-  RuleSets,
-} from "@tightarse/domain";
-import {
-  ruleSetItems,
-} from "./items.js";
+import type { Categories, RuleSets } from "@tightarse/domain";
+import { ruleSetItems } from "./items.js";
+import { parseFacts } from "./parse.js";
 import { TableAdapter } from "./table.js";
 
 /** The DynamoDB adapter for the `RuleSets` port. */
@@ -46,7 +44,11 @@ export class DynamoCategories extends TableAdapter implements Categories {
         // Nothing needs the marker: rows in the tenant partition are found by
         // their sort-key prefix, and `kind` identifies rows only inside a
         // transaction's partition, where categories never live.
-        Item: { ...keys.category(tenantId, category.id), ...category, tenantId },
+        Item: {
+          ...keys.category(tenantId, category.id),
+          ...category,
+          tenantId,
+        },
       }),
     );
   }
@@ -76,7 +78,10 @@ export class DynamoRuleSets extends TableAdapter implements RuleSets {
    * produced it, so "what did this rule say when it fired?" needs the version it
    * names to still exist.
    */
-  async listRuleSetHistory(tenantId: string, setId: string): Promise<Record<string, unknown>[]> {
+  async listRuleSetHistory(
+    tenantId: string,
+    setId: string,
+  ): Promise<Record<string, unknown>[]> {
     return this.queryAll({
       TableName: this.table,
       KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
@@ -105,17 +110,26 @@ export class DynamoRuleSets extends TableAdapter implements RuleSets {
     // A published version is immutable. Rewriting one would change what a
     // categorisation's provenance means after the fact.
     const record = {
-      Put: { TableName: this.table, Item: version, ConditionExpression: "attribute_not_exists(pk)" },
+      Put: {
+        TableName: this.table,
+        Item: version,
+        ConditionExpression: "attribute_not_exists(pk)",
+      },
     };
 
     if (set.status !== "effective") {
-      await this.doc.send(new TransactWriteCommand({ TransactItems: [record] }));
+      await this.doc.send(
+        new TransactWriteCommand({ TransactItems: [record] }),
+      );
       return;
     }
 
     await this.doc.send(
       new TransactWriteCommand({
-        TransactItems: [{ Put: { TableName: this.table, Item: current } }, record],
+        TransactItems: [
+          { Put: { TableName: this.table, Item: current } },
+          record,
+        ],
       }),
     );
   }
@@ -159,9 +173,15 @@ export class DynamoRuleSets extends TableAdapter implements RuleSets {
       return;
     }
 
-    const existing = await this.doc.send(new GetCommand({ TableName: this.table, Key: key }));
-    if (!existing.Item) throw new Error(`No version ${version} of rule set "${setId}"`);
-    const accepted = { ...existing.Item, status: "effective" } as Record<string, unknown>;
+    const existing = await this.doc.send(
+      new GetCommand({ TableName: this.table, Key: key }),
+    );
+    if (!existing.Item)
+      throw new Error(`No version ${version} of rule set "${setId}"`);
+    const accepted = { ...existing.Item, status: "effective" } as Record<
+      string,
+      unknown
+    >;
     const { current } = ruleSetItems(tenantId, RuleSet.parse(accepted));
 
     await this.doc.send(
@@ -174,10 +194,18 @@ export class DynamoRuleSets extends TableAdapter implements RuleSets {
               UpdateExpression: "SET #s = :effective",
               ConditionExpression: "#s = :proposed",
               ExpressionAttributeNames: { "#s": "status" },
-              ExpressionAttributeValues: { ":effective": "effective", ":proposed": "proposed" },
+              ExpressionAttributeValues: {
+                ":effective": "effective",
+                ":proposed": "proposed",
+              },
             },
           },
-          { Put: { TableName: this.table, Item: { ...current, status: "effective" } } },
+          {
+            Put: {
+              TableName: this.table,
+              Item: { ...current, status: "effective" },
+            },
+          },
         ],
       }),
     );
@@ -190,11 +218,45 @@ export class DynamoRuleSets extends TableAdapter implements RuleSets {
    * categoriser wants all of them on every run. A row each would turn one Get
    * into a Query for no benefit.
    */
-  async getCustomRules(tenantId: string): Promise<CustomRule[]> {
+  /**
+   * The adoption list, or empty when a tenant has adopted nothing.
+   *
+   * Parsed strictly. An adoption is not configuration that can be skipped: an
+   * unreadable one silently changes which rules outrank which, so dropping it
+   * would change the household's categories without saying so.
+   */
+  async getAdoptions(tenantId: string): Promise<Adoptions> {
     const res = await this.doc.send(
-      new GetCommand({ TableName: this.table, Key: keys.customRules(tenantId) }),
+      new GetCommand({ TableName: this.table, Key: keys.adoptions(tenantId) }),
     );
-    return ((res.Item as { rules?: CustomRule[] } | undefined)?.rules ?? []) as CustomRule[];
+    const stored = res.Item?.["adoptions"];
+    if (stored === undefined) return [];
+    return parseFacts(Adoption, stored as unknown[], "adoption");
   }
 
+  /** Replace the whole list. See the port for why it is not written piecemeal. */
+  async putAdoptions(tenantId: string, adoptions: Adoptions): Promise<void> {
+    await this.doc.send(
+      new PutCommand({
+        TableName: this.table,
+        Item: {
+          ...keys.adoptions(tenantId),
+          kind: "ADOPTIONS",
+          tenantId,
+          adoptions,
+        },
+      }),
+    );
+  }
+
+  async getCustomRules(tenantId: string): Promise<CustomRule[]> {
+    const res = await this.doc.send(
+      new GetCommand({
+        TableName: this.table,
+        Key: keys.customRules(tenantId),
+      }),
+    );
+    return ((res.Item as { rules?: CustomRule[] } | undefined)?.rules ??
+      []) as CustomRule[];
+  }
 }
