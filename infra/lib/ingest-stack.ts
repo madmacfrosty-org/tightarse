@@ -289,8 +289,17 @@ export class IngestStack extends cdk.Stack {
       ...common,
       entry: path.join(__dirname, "../../services/transform/src/transform-handler.ts"),
       handler: "handler",
-      // 512 is the ceiling on a new AWS account until its Lambda quota is
-      // raised. Ample here: the largest raw object is about 6MB decompressed.
+      // 512 is a deliberate cap, not a quota we are waiting to escape.
+      //
+      // These accounts do sit at the default limit — an earlier note claimed it
+      // had since been raised (#43) and it had not — but raising it is not the
+      // plan. A Lambda that wants a large heap is usually one holding a whole
+      // dataset in memory when it could stream or be split, so the cap is a
+      // design constraint worth keeping rather than an obstacle.
+      //
+      // Ample here regardless: the largest raw object is about 6MB decompressed.
+      // `infra/test/quotas.test.ts` asserts it across every stack, because a
+      // deploy above it fails and rolls the stack back.
       memorySize: 512,
       timeout: cdk.Duration.minutes(5),
       environment: {
