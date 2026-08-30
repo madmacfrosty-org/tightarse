@@ -79,8 +79,6 @@ export class DynamoStore
     this.accounts.putBalances(...a);
   readonly putBalanceReading: Balances["putBalanceReading"] = (...a) =>
     this.balances.putBalanceReading(...a);
-  readonly listBalanceReadings: Balances["listBalanceReadings"] = (...a) =>
-    this.balances.listBalanceReadings(...a);
   readonly markBalanceReadingDirty: Balances["markBalanceReadingDirty"] = (
     ...a
   ) => this.balances.markBalanceReadingDirty(...a);

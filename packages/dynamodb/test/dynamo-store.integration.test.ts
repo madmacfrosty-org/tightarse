@@ -8,6 +8,7 @@ import {
 import { type Transaction } from "@tightarse/domain";
 import { DynamoStore } from "../src/dynamo-store";
 import { DynamoTransactions } from "../src/transactions";
+import { DynamoBalances } from "../src/balances";
 import { resolveTestTarget } from "../src/test-table";
 import { keys } from "../src/keys";
 
@@ -68,6 +69,7 @@ const suite = TABLE ? describe : describe.skip;
 function testLedger(): {
   ledger: DynamoStore;
   transactions: DynamoTransactions;
+  balances: DynamoBalances;
   doc: DynamoDBDocumentClient;
 } {
   // Throws rather than falling back if this run is aimed anywhere it should not
@@ -102,6 +104,8 @@ function testLedger(): {
       tableName: target.tableName,
       client: doc,
     }),
+    // Balance readings are not on any port either, for the same reason.
+    balances: new DynamoBalances({ tableName: target.tableName, client: doc }),
     doc,
   };
 }
@@ -580,9 +584,10 @@ suite("household access", () => {
 
 suite("balance readings (integration)", () => {
   let ledger: DynamoStore;
+  let balances: DynamoBalances;
 
   beforeAll(() => {
-    ({ ledger } = testLedger());
+    ({ ledger, balances } = testLedger());
   });
 
   const reading = (accountId: string, at: string, balance: number) => ({
@@ -609,7 +614,7 @@ suite("balance readings (integration)", () => {
       reading("bal-1", "2026-01-03T05:00:00.000Z", 80_00),
     );
 
-    const rows = await ledger.listBalanceReadings(TENANT, "bal-1");
+    const rows = await balances.listBalanceReadings(TENANT, "bal-1");
     expect(rows).toHaveLength(3);
   });
 
@@ -624,7 +629,7 @@ suite("balance readings (integration)", () => {
       reading("bal-2", "2026-02-01T05:00:00.000Z", 200),
     );
 
-    const rows = await ledger.listBalanceReadings(TENANT, "bal-2");
+    const rows = await balances.listBalanceReadings(TENANT, "bal-2");
     expect(rows.map((r) => r["balance"])).toEqual([100, 200, 300]);
   });
 
@@ -634,7 +639,7 @@ suite("balance readings (integration)", () => {
     const r = reading("bal-3", "2026-01-01T05:00:00.000Z", 500);
     await ledger.putBalanceReading(r);
     await ledger.putBalanceReading(r);
-    expect(await ledger.listBalanceReadings(TENANT, "bal-3")).toHaveLength(1);
+    expect(await balances.listBalanceReadings(TENANT, "bal-3")).toHaveLength(1);
   });
 
   it("keeps one account's readings out of another's", async () => {
@@ -644,22 +649,23 @@ suite("balance readings (integration)", () => {
     await ledger.putBalanceReading(
       reading("bal-5", "2026-01-01T05:00:00.000Z", 2),
     );
-    expect(await ledger.listBalanceReadings(TENANT, "bal-4")).toHaveLength(1);
+    expect(await balances.listBalanceReadings(TENANT, "bal-4")).toHaveLength(1);
   });
 
   it("stores a negative balance, which is a card or an overdraft", async () => {
     await ledger.putBalanceReading(
       reading("bal-6", "2026-01-01T05:00:00.000Z", -56_790),
     );
-    const [row] = await ledger.listBalanceReadings(TENANT, "bal-6");
+    const [row] = await balances.listBalanceReadings(TENANT, "bal-6");
     expect(row!["balance"]).toBe(-56_790);
   });
 });
 
 suite("marking a reading dirty (integration)", () => {
   let ledger: DynamoStore;
+  let balances: DynamoBalances;
   beforeAll(() => {
-    ({ ledger } = testLedger());
+    ({ ledger, balances } = testLedger());
   });
 
   const at = "2026-06-01T05:00:00.000Z";
@@ -675,7 +681,7 @@ suite("marking a reading dirty (integration)", () => {
   it("marks a reading and records how far off it was", async () => {
     await ledger.putBalanceReading(reading("dirty-1"));
     await ledger.markBalanceReadingDirty(TENANT, "dirty-1", at, at, -20_00);
-    const [row] = await ledger.listBalanceReadings(TENANT, "dirty-1");
+    const [row] = await balances.listBalanceReadings(TENANT, "dirty-1");
     expect(row).toMatchObject({ dirty: true, discrepancy: -20_00 });
   });
 
@@ -685,7 +691,7 @@ suite("marking a reading dirty (integration)", () => {
     await ledger.putBalanceReading(reading("dirty-2"));
     await ledger.markBalanceReadingDirty(TENANT, "dirty-2", at, at, -1);
     await ledger.clearBalanceReadingDirty(TENANT, "dirty-2", at, at);
-    const [row] = await ledger.listBalanceReadings(TENANT, "dirty-2");
+    const [row] = await balances.listBalanceReadings(TENANT, "dirty-2");
     expect(row).not.toHaveProperty("dirty");
     expect(row).not.toHaveProperty("discrepancy");
   });
@@ -695,9 +701,9 @@ suite("marking a reading dirty (integration)", () => {
     await expect(
       ledger.markBalanceReadingDirty(TENANT, "dirty-none", at, at, -1),
     ).rejects.toThrow();
-    expect(await ledger.listBalanceReadings(TENANT, "dirty-none")).toHaveLength(
-      0,
-    );
+    expect(
+      await balances.listBalanceReadings(TENANT, "dirty-none"),
+    ).toHaveLength(0);
   });
 
   it("leaves the balance itself untouched when marking", async () => {
@@ -705,7 +711,7 @@ suite("marking a reading dirty (integration)", () => {
     // have reconciled.
     await ledger.putBalanceReading(reading("dirty-3"));
     await ledger.markBalanceReadingDirty(TENANT, "dirty-3", at, at, -5_00);
-    const [row] = await ledger.listBalanceReadings(TENANT, "dirty-3");
+    const [row] = await balances.listBalanceReadings(TENANT, "dirty-3");
     expect(row!["balance"]).toBe(100_00);
   });
 });

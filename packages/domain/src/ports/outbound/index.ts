@@ -150,7 +150,14 @@ export interface Accounts {
 /** Where balance readings are stored. Append-only: a reading is a fact about a moment. */
 export interface Balances {
   putBalanceReading(reading: BalanceReading): Promise<void>;
-  listBalanceReadings(tenantId: string, accountId: string): Promise<Row[]>;
+  /**
+   * Balance readings are not listed here.
+   *
+   * Nothing in the domain reads them back: reconciliation works from the whole
+   * table, and the only other callers were tests observing what was written. A
+   * port states what the domain MAY ask for, and this is not something it asks
+   * for at all — the same reason pending rows are absent.
+   */
   markBalanceReadingDirty(
     tenantId: string,
     accountId: string,
