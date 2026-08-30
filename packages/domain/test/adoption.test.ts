@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   adopt,
+  isReservedTenant,
+  SHARED_TENANT,
   orderedSets,
   Adoption,
   type Adoptions,
@@ -10,10 +12,24 @@ import {
 
 const at = "2026-08-30T00:00:00.000Z";
 const a = (setId: string, version = 1, supersedes?: string) => ({
+  owner: "frost",
   setId,
   version,
   adoptedAt: at,
   ...(supersedes === undefined ? {} : { supersedes }),
+});
+
+describe("the shared catalogue", () => {
+  it("is a tenant, so a shared set needs no home of its own", () => {
+    // The whole simplification: a shared set is an ordinary rule set owned by a
+    // tenant that is not a household, so the storage layout does not change.
+    expect(isReservedTenant(SHARED_TENANT)).toBe(true);
+  });
+
+  it("does not claim a household's id", () => {
+    expect(isReservedTenant("frost")).toBe(false);
+    expect(isReservedTenant("")).toBe(false);
+  });
 });
 
 describe("precedence is position", () => {

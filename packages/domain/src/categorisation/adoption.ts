@@ -24,8 +24,35 @@ import { z } from "zod";
  * versions are immutable, so the pin costs nothing to hold.
  */
 
+/**
+ * The tenant that owns sets nobody household owns.
+ *
+ * A shared set is not a new kind of thing needing a new place to live — it is an
+ * ordinary rule set belonging to a tenant that happens not to be a household.
+ * That keeps the storage layout exactly as it was, and generalises for free: one
+ * household could share a set with another by the same mechanism.
+ *
+ * Reserved. Nothing stops a household being onboarded under this id today,
+ * because a tenant id is only a bounded string — enforcing it belongs with
+ * onboarding (#94), and `isReservedTenant` is here for that to use.
+ */
+export const SHARED_TENANT = "tightarse";
+
+/** Whether an id belongs to the catalogue rather than to a household. */
+export function isReservedTenant(tenantId: string): boolean {
+  return tenantId === SHARED_TENANT;
+}
+
 export const Adoption = z.object({
-  /** The set being used. May be owned by this tenant or by nobody in particular. */
+  /**
+   * Who owns the set.
+   *
+   * Required, because `setId` alone stops being unique the moment two tenants
+   * can each have a `merchants`. An adoption names a set belonging to somebody:
+   * usually the adopting tenant itself, sometimes the shared catalogue.
+   */
+  owner: z.string().min(1),
+  /** The set being used, within its owner. */
   setId: z.string().min(1),
   /**
    * The exact version in force.

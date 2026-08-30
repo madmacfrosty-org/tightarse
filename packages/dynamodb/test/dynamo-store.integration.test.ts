@@ -388,6 +388,64 @@ suite("DynamoStore account merge (integration)", () => {
   });
 });
 
+suite("a set owned by somebody else (integration)", () => {
+  let ledger: DynamoStore;
+
+  beforeAll(() => {
+    ({ ledger } = testLedger());
+  });
+
+  const SHARED = `${TENANT}-catalogue`;
+
+  const set = (version: number, category: string) => ({
+    setId: "merchants",
+    version,
+    name: "Shared merchants",
+    order: 4,
+    authored: false,
+    status: "effective" as const,
+    createdAt: "2026-08-30T00:00:00.000Z",
+    rules: [
+      {
+        matcher: { kind: "merchant" as const, pattern: "\\bTESCO\\b" },
+        contributes: { kind: "assert" as const, category },
+        appliesTo: "debits" as const,
+      },
+    ],
+  });
+
+  it("reads the exact version asked for, not whatever is current", async () => {
+    // The pin is the whole point: a shared set improving must not recategorise
+    // a household's ledger on somebody else's schedule.
+    await ledger.putRuleSetVersion(SHARED, set(1, "groceries"));
+    await ledger.putRuleSetVersion(SHARED, set(2, "supermarkets"));
+
+    const pinned = await ledger.getRuleSetVersion(SHARED, "merchants", 1);
+    expect(pinned?.version).toBe(1);
+    expect(pinned?.rules[0]?.contributes).toMatchObject({
+      category: "groceries",
+    });
+
+    const later = await ledger.getRuleSetVersion(SHARED, "merchants", 2);
+    expect(later?.rules[0]?.contributes).toMatchObject({
+      category: "supermarkets",
+    });
+  });
+
+  it("says nothing rather than guessing when the version does not exist", async () => {
+    expect(
+      await ledger.getRuleSetVersion(SHARED, "merchants", 99),
+    ).toBeUndefined();
+    expect(await ledger.getRuleSetVersion(SHARED, "absent", 1)).toBeUndefined();
+  });
+
+  it("does not reach a set the owner never published", async () => {
+    expect(
+      await ledger.getRuleSetVersion(`${TENANT}-nobody`, "merchants", 1),
+    ).toBeUndefined();
+  });
+});
+
 suite("which sets a tenant uses (integration)", () => {
   let ledger: DynamoStore;
   let doc: DynamoDBDocumentClient;
@@ -397,6 +455,7 @@ suite("which sets a tenant uses (integration)", () => {
   });
 
   const adoption = (setId: string, version = 1, supersedes?: string) => ({
+    owner: TENANT,
     setId,
     version,
     adoptedAt: "2026-08-30T00:00:00.000Z",
@@ -456,7 +515,7 @@ suite("which sets a tenant uses (integration)", () => {
         Item: {
           ...keys.adoptions(TENANT),
           kind: "ADOPTIONS",
-          adoptions: [{ setId: "" }],
+          adoptions: [{ owner: TENANT, setId: "" }],
         },
       }),
     );
