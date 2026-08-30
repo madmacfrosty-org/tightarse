@@ -49,6 +49,37 @@ const order = [
 ];
 
 describe("what a report shows", () => {
+  it("keeps a category asserted by a rule set that matches on provider type", () => {
+    // The regression. `provider` is the sentinel for "nothing categorised
+    // this" — synthesised at read time and marked provisional everywhere. A
+    // seeded rule set was also called `provider`, so everything it asserted was
+    // discarded here as though no rule had matched, and an ATM withdrawal
+    // categorised as cash was displayed as uncategorised.
+    const out = effectiveCategories(
+      [tx("d1", { providerCategory: "ATM" })],
+      [cat("d1", "cash-withdrawal", { setId: "provider-types" })],
+      [{ setId: "provider-types", order: 3 }],
+    );
+
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      category: "cash-withdrawal",
+      setId: "provider-types",
+    });
+  });
+
+  it("still drops the synthesised fallback, which is a rail and not an answer", () => {
+    // The behaviour the filter is actually for: the provider's own transaction
+    // type standing in for a category must not be promoted to one.
+    const out = effectiveCategories(
+      [tx("d1", { providerCategory: "ATM" })],
+      [],
+      [{ setId: "built-in", order: 2 }],
+    );
+
+    expect(out).toEqual([]);
+  });
+
   it("takes what a rule set assigned, naming the set", () => {
     const out = effectiveCategories([tx("d1")], [cat("d1", "fuel")], order);
     expect(out).toHaveLength(1);

@@ -184,7 +184,17 @@ export function seedRuleSets(options: SeedOptions): RuleSet[] {
       createdAt,
     },
     {
-      setId: "provider",
+      // NOT `provider`. That id is the sentinel meaning "no rule categorised
+      // this, here is the payment rail" — synthesised at read time by
+      // `providerCategorisation`, never stored, and read that way by the whole
+      // stack: `summarise` marks it provisional, the dashboard greys it, and the
+      // published contract documents it as "`provider` where nothing did".
+      //
+      // This set asserts REAL categories from the provider's own transaction
+      // type. Sharing the name made `effectiveCategories` discard every one of
+      // them as though nothing had matched, so an ATM withdrawal was
+      // categorised as cash and then displayed as uncategorised.
+      setId: "provider-types",
       version: 1,
       name: "Provider transaction types",
       order: PROVIDER_ORDER,

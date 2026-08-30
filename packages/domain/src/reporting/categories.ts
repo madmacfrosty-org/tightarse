@@ -16,6 +16,7 @@
 
 import { resolve, type SetOrder } from "../categorisation/resolve.js";
 import { Categorisation } from "../categorisation/categorisation.js";
+import { PROVIDER_SET } from "../categorisation/provider.js";
 import type { RecordedTransaction } from "../ledger/transaction.js";
 import type { Row } from "../ports/outbound/index.js";
 
@@ -57,10 +58,14 @@ export function effectiveCategories(
     if (forTx === undefined) continue;
 
     const effective = resolve(tx, forTx, order).effective;
-    // Skip the provider's own: it is not stored, so it cannot be here, but a
-    // future source might be — and a report should not silently promote a
-    // payment rail to a spending category.
-    if (effective === undefined || effective.setId === "provider") continue;
+    // Skip the synthesised fallback — the payment rail standing in for an
+    // answer. A report should not silently promote one to a spending category.
+    //
+    // Named by its constant rather than by a literal. A seeded RULE SET was
+    // once also called `provider`, and this line discarded everything it
+    // asserted; the constant is what the sentinel means, and nothing else may
+    // borrow it.
+    if (effective === undefined || effective.setId === PROVIDER_SET) continue;
 
     out.set(tx.dedupKey, effective);
   }

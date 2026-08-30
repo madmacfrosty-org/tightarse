@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { PROVIDER_SET } from "../src/categorisation/provider.js";
 import {
   Category,
   catalogueOf,
@@ -6,7 +7,13 @@ import {
   MAX_RESOLUTION_DEPTH,
   resolveCategory,
 } from "../src/categorisation/category.js";
-import { BUILT_IN_ORDER, HOUSEHOLD_ORDER, SEED_CATEGORIES, seedRuleSets, slugFor } from "../src/categorisation/seed.js";
+import {
+  BUILT_IN_ORDER,
+  HOUSEHOLD_ORDER,
+  SEED_CATEGORIES,
+  seedRuleSets,
+  slugFor,
+} from "../src/categorisation/seed.js";
 import { RuleSet } from "../src/categorisation/rules.js";
 import { RULES } from "../src/categorisation/merchant-rules.js";
 import { CATEGORIES } from "../src/categorisation/taxonomy.js";
@@ -96,7 +103,10 @@ describe("data that would otherwise hang or lose the answer", () => {
     const links = Array.from({ length: MAX_RESOLUTION_DEPTH + 3 }, (_, i) =>
       category({ id: `c${i}`, mergedInto: `c${i + 1}` }),
     );
-    const c = catalogueOf([...links, category({ id: `c${MAX_RESOLUTION_DEPTH + 3}` })]);
+    const c = catalogueOf([
+      ...links,
+      category({ id: `c${MAX_RESOLUTION_DEPTH + 3}` }),
+    ]);
     const r = resolveCategory("c0", c);
     expect(r.stopped).toBe("depth");
     expect(r.path).toHaveLength(MAX_RESOLUTION_DEPTH);
@@ -105,7 +115,9 @@ describe("data that would otherwise hang or lose the answer", () => {
   it("keeps the last category it found when a link names one nobody has", () => {
     // A broken link is not a reason to lose the answer entirely: "merged into
     // something missing" still tells you more than nothing at all.
-    const c = catalogueOf([category({ id: "a", label: "A", mergedInto: "gone" })]);
+    const c = catalogueOf([
+      category({ id: "a", label: "A", mergedInto: "gone" }),
+    ]);
     const r = resolveCategory("a", c);
     expect(r.stopped).toBe("missing");
     expect(r.category?.label).toBe("A");
@@ -124,7 +136,11 @@ describe("kind, the only thing code may branch on", () => {
     // A retired spending category merged into a movement one changes what the
     // totals should do with every old row pointing at it.
     const c = catalogueOf([
-      category({ id: "old-transfer", kind: "spending", mergedInto: "transfer" }),
+      category({
+        id: "old-transfer",
+        kind: "spending",
+        mergedInto: "transfer",
+      }),
       category({ id: "transfer", kind: "movement" }),
     ]);
     expect(kindOf("old-transfer", c)).toBe("movement");
@@ -179,14 +195,19 @@ describe("seeding the labels in service today", () => {
   });
 
   it("parses as the schema, so a seeded catalogue is a valid one", () => {
-    for (const c of SEED_CATEGORIES) expect(() => Category.parse(c)).not.toThrow();
+    for (const c of SEED_CATEGORIES)
+      expect(() => Category.parse(c)).not.toThrow();
   });
 });
 
 describe("seeding the rules in service today", () => {
   const NOW = new Date("2026-03-01T09:00:00.000Z");
   const custom = [
-    { pattern: "SOMEWHERE LOCAL", category: "Groceries", addedAt: "2026-01-01T00:00:00.000Z" },
+    {
+      pattern: "SOMEWHERE LOCAL",
+      category: "Groceries",
+      addedAt: "2026-01-01T00:00:00.000Z",
+    },
   ];
 
   it("turns every shipped pattern into a rule, losing none", () => {
@@ -198,17 +219,27 @@ describe("seeding the rules in service today", () => {
   it("carries the pattern as data, without the flags a RegExp would bring", () => {
     // A rule is data and data has no flags. Matching applies `i` itself, which
     // is what these already carried.
-    const builtIn = seedRuleSets({ now: NOW }).find((s) => s.setId === "built-in");
+    const builtIn = seedRuleSets({ now: NOW }).find(
+      (s) => s.setId === "built-in",
+    );
     for (const r of builtIn?.rules ?? []) {
       expect(r.matcher.kind).toBe("merchant");
       if (r.matcher.kind !== "merchant") continue;
       expect(r.matcher.pattern.startsWith("/")).toBe(false);
-      expect(() => new RegExp(r.matcher.kind === "merchant" ? r.matcher.pattern : "", "i")).not.toThrow();
+      expect(
+        () =>
+          new RegExp(
+            r.matcher.kind === "merchant" ? r.matcher.pattern : "",
+            "i",
+          ),
+      ).not.toThrow();
     }
   });
 
   it("names categories by id, not by the label they used to carry", () => {
-    const builtIn = seedRuleSets({ now: NOW }).find((s) => s.setId === "built-in");
+    const builtIn = seedRuleSets({ now: NOW }).find(
+      (s) => s.setId === "built-in",
+    );
     const ids = new Set(SEED_CATEGORIES.map((c) => c.id));
     for (const r of builtIn?.rules ?? []) {
       if (r.contributes.kind !== "assert") continue;
@@ -233,16 +264,35 @@ describe("seeding the rules in service today", () => {
   });
 
   it("writes no household set when the household has no rules of its own", () => {
-    expect(seedRuleSets({ now: NOW }).map((s) => s.setId)).toEqual(["built-in", "provider"]);
+    // `provider-types`, never `provider`: that id is the sentinel for "nothing
+    // categorised this", and a set sharing it had everything it asserted
+    // discarded at read time.
+    expect(seedRuleSets({ now: NOW }).map((s) => s.setId)).toEqual([
+      "built-in",
+      "provider-types",
+    ]);
+
+    // The collision, as a check. `provider` is the sentinel for "nothing
+    // categorised this"; a set claiming that id has everything it asserts
+    // discarded by `effectiveCategories`, silently and at read time.
+    for (const set of seedRuleSets({ now: NOW }))
+      expect(set.setId).not.toBe(PROVIDER_SET);
   });
 
   it("carries a household rule's note through the conversion", () => {
     // The note is the only record of why a hand-written rule exists. Losing it
     // in a migration makes every one of them unexplainable afterwards.
     const withNote = [
-      { pattern: "SOMEWHERE", category: "Groceries", note: "the corner shop", addedAt: "2026-01-01T00:00:00.000Z" },
+      {
+        pattern: "SOMEWHERE",
+        category: "Groceries",
+        note: "the corner shop",
+        addedAt: "2026-01-01T00:00:00.000Z",
+      },
     ];
-    const household = seedRuleSets({ now: NOW, custom: withNote }).find((s) => s.setId === "household");
+    const household = seedRuleSets({ now: NOW, custom: withNote }).find(
+      (s) => s.setId === "household",
+    );
     expect(household?.rules[0]?.note).toBe("the corner shop");
   });
 
@@ -250,30 +300,39 @@ describe("seeding the rules in service today", () => {
     // No generic pattern can tell a refund from income. Somebody writing a rule
     // for their own employer knows precisely which it is — and converting these
     // as debits-only lost 185 income transactions their category.
-    const household = seedRuleSets({ now: NOW, custom }).find((s) => s.setId === "household");
+    const household = seedRuleSets({ now: NOW, custom }).find(
+      (s) => s.setId === "household",
+    );
     expect(household?.rules.every((r) => r.appliesTo === "all")).toBe(true);
 
-    const builtIn = seedRuleSets({ now: NOW }).find((s) => s.setId === "built-in");
+    const builtIn = seedRuleSets({ now: NOW }).find(
+      (s) => s.setId === "built-in",
+    );
     expect(builtIn?.rules.every((r) => r.appliesTo === "debits")).toBe(true);
   });
 
   it("seeds interest as two rules, because direction decides the category", () => {
-    const provider = seedRuleSets({ now: NOW }).find((s) => s.setId === "provider");
+    const provider = seedRuleSets({ now: NOW }).find(
+      (s) => s.setId === "provider-types",
+    );
     const interest = (provider?.rules ?? []).filter(
-      (r) => r.matcher.kind === "providerCategory" && r.matcher.value === "INTEREST",
+      (r) =>
+        r.matcher.kind === "providerCategory" && r.matcher.value === "INTEREST",
     );
     expect(interest).toHaveLength(2);
-    expect(interest.map((r) => `${r.appliesTo}:${r.contributes.category}`).sort()).toEqual([
-      "credits:income",
-      "debits:fees-charges",
-    ]);
+    expect(
+      interest.map((r) => `${r.appliesTo}:${r.contributes.category}`).sort(),
+    ).toEqual(["credits:income", "debits:fees-charges"]);
   });
 
   it("produces sets that parse as the schema", () => {
-    for (const s of seedRuleSets({ now: NOW, custom })) expect(() => RuleSet.parse(s)).not.toThrow();
+    for (const s of seedRuleSets({ now: NOW, custom }))
+      expect(() => RuleSet.parse(s)).not.toThrow();
   });
 
   it("starts every set at version one, since none continues anything", () => {
-    expect(seedRuleSets({ now: NOW, custom }).every((s) => s.version === 1)).toBe(true);
+    expect(
+      seedRuleSets({ now: NOW, custom }).every((s) => s.version === 1),
+    ).toBe(true);
   });
 });
