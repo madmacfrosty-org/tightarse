@@ -12,7 +12,9 @@ import type { Candidate } from "../src/categorisation/taxonomy.js";
  * it at the path that runs.
  */
 describe("brand names as they actually appear on statements", () => {
-  const builtIn = seedRuleSets({ now: new Date("2026-01-01T00:00:00.000Z") }).find((s) => s.setId === "built-in")!;
+  const builtIn = seedRuleSets({
+    now: new Date("2026-01-01T00:00:00.000Z"),
+  }).find((s) => s.setId === "built-in")!;
 
   const categoryOf = (description: string, over: Partial<Candidate> = {}) =>
     evaluate([builtIn], {
@@ -37,7 +39,9 @@ describe("brand names as they actually appear on statements", () => {
   it("uses the provider type for cash, where the description is a place not a merchant", () => {
     // An ATM withdrawal's description is usually a location, and the provider's
     // own transaction type is far more reliable than trying to read it.
-    const provider = seedRuleSets({ now: new Date("2026-01-01T00:00:00.000Z") }).find((s) => s.setId === "provider")!;
+    const provider = seedRuleSets({
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    }).find((s) => s.setId === "provider-types")!;
     expect(
       evaluate([provider], {
         dedupKey: "d1",
