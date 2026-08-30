@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   adopt,
+  orderedSets,
   Adoption,
   type Adoptions,
   precedenceOf,
@@ -121,5 +122,55 @@ describe("adopting", () => {
   it("supersedes a set that is not adopted, without inventing a position", () => {
     const out = adopt([a("household")], a("provider-types", 1, "provider"));
     expect(out.map((x) => x.setId)).toEqual(["household", "provider-types"]);
+  });
+});
+
+describe("the sets a tenant actually uses", () => {
+  const set = (setId: string, order: number) => ({ setId, order });
+
+  it("falls back to the sets' own order when nothing is adopted", () => {
+    // Every tenant today. Precedence is mid-migration from the set to the
+    // adoption, and the fallback is what lets both exist without a data change.
+    const out = orderedSets([], [set("built-in", 2), set("household", 0)]);
+    expect(out.map((s) => s.setId)).toEqual(["household", "built-in"]);
+  });
+
+  it("keeps the fallback deterministic when two sets share an order", () => {
+    // A data mistake, but the answer must not depend on the order a scan
+    // returned them in, or the same ledger categorises differently twice.
+    const a = orderedSets([], [set("bbb", 5), set("aaa", 5)]);
+    const b = orderedSets([], [set("aaa", 5), set("bbb", 5)]);
+    expect(a.map((s) => s.setId)).toEqual(b.map((s) => s.setId));
+  });
+
+  it("uses the adopted order once there is one, ignoring the sets' own", () => {
+    const out = orderedSets(
+      [a("built-in"), a("household")],
+      [set("household", 0), set("built-in", 2)],
+    );
+
+    // Adopted order wins outright: built-in outranks household here because the
+    // tenant said so, despite what the rows carry.
+    expect(out.map((s) => s.setId)).toEqual(["built-in", "household"]);
+  });
+
+  it("leaves out a set that exists but was never adopted", () => {
+    // Adoption is opt-in. A shared set sitting in the table is an offer, not an
+    // instruction.
+    const out = orderedSets(
+      [a("household")],
+      [set("household", 0), set("shared-merchants", 4)],
+    );
+    expect(out.map((s) => s.setId)).toEqual(["household"]);
+  });
+
+  it("ignores an adoption whose set is missing rather than failing", () => {
+    const out = orderedSets([a("gone"), a("household")], [set("household", 0)]);
+    expect(out.map((s) => s.setId)).toEqual(["household"]);
+  });
+
+  it("cannot express two sets at the same rank", () => {
+    const out = orderedSets([a("x"), a("y")], [set("x", 9), set("y", 9)]);
+    expect(out.map((s) => s.setId)).toEqual(["x", "y"]);
   });
 });

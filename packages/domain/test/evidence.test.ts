@@ -47,18 +47,37 @@ describe("how far a rule reaches", () => {
     // probably right; 400 across 200 merchants is a rule that has escaped, and
     // a transaction count alone cannot tell those apart.
     const sets = [set("built-in", 2, [asserts("somemart", "groceries")])];
-    const corpus = [tx("SOMEMART 1"), tx("SOMEMART 1"), tx("SOMEMART 2"), tx("ELSEWHERE")];
+    const corpus = [
+      tx("SOMEMART 1"),
+      tx("SOMEMART 1"),
+      tx("SOMEMART 2"),
+      tx("ELSEWHERE"),
+    ];
     const e = gatherEvidence(sets, corpus);
-    expect(e.reach[0]).toMatchObject({ setId: "built-in", index: 0, transactions: 3, merchants: 2 });
+    expect(e.reach[0]).toMatchObject({
+      setId: "built-in",
+      index: 0,
+      transactions: 3,
+      merchants: 2,
+    });
   });
 
   it("reports a rule that matches nothing, rather than omitting it", () => {
     // A rule matching nothing is dead weight nobody can justify keeping, and it
     // is invisible if only matching rules are listed.
-    const sets = [set("built-in", 2, [asserts("somemart", "groceries"), asserts("nowhere", "shopping")])];
+    const sets = [
+      set("built-in", 2, [
+        asserts("somemart", "groceries"),
+        asserts("nowhere", "shopping"),
+      ]),
+    ];
     const e = gatherEvidence(sets, [tx("SOMEMART 1")]);
     expect(e.reach).toHaveLength(2);
-    expect(e.reach[1]).toMatchObject({ index: 1, transactions: 0, merchants: 0 });
+    expect(e.reach[1]).toMatchObject({
+      index: 1,
+      transactions: 0,
+      merchants: 0,
+    });
   });
 
   it("does not count a rule against a credit it excludes", () => {
@@ -72,8 +91,17 @@ describe("conflicts", () => {
   it("groups a conflict by the rules that collided, not by transaction", () => {
     // Thirty transactions hitting one bad pair is one defect to fix, not thirty
     // findings to read.
-    const sets = [set("built-in", 2, [asserts("somemart", "groceries"), asserts("store", "shopping")])];
-    const corpus = [tx("SOMEMART STORE 1"), tx("SOMEMART STORE 2"), tx("SOMEMART STORE 3")];
+    const sets = [
+      set("built-in", 2, [
+        asserts("somemart", "groceries"),
+        asserts("store", "shopping"),
+      ]),
+    ];
+    const corpus = [
+      tx("SOMEMART STORE 1"),
+      tx("SOMEMART STORE 2"),
+      tx("SOMEMART STORE 3"),
+    ];
     const e = gatherEvidence(sets, corpus);
     expect(e.conflicts).toHaveLength(1);
     expect(e.conflicts[0]).toMatchObject({
@@ -85,7 +113,12 @@ describe("conflicts", () => {
   });
 
   it("names a transaction it happens on, so a human can see which rule is wrong", () => {
-    const sets = [set("built-in", 2, [asserts("somemart", "groceries"), asserts("store", "shopping")])];
+    const sets = [
+      set("built-in", 2, [
+        asserts("somemart", "groceries"),
+        asserts("store", "shopping"),
+      ]),
+    ];
     const e = gatherEvidence(sets, [tx("SOMEMART STORE 1")]);
     expect(e.conflicts[0]?.example).toBe("SOMEMART STORE 1");
   });
@@ -100,12 +133,22 @@ describe("conflicts", () => {
     ];
     const e = gatherEvidence(sets, [tx("AAA")]);
     expect(e.conflicts).toHaveLength(2);
-    expect(e.conflicts.map((c) => c.setId).sort()).toEqual(["built-in", "household"]);
+    expect(e.conflicts.map((c) => c.setId).sort()).toEqual([
+      "built-in",
+      "household",
+    ]);
   });
 
   it("does not call an assert and a refine a conflict", () => {
-    const sets = [set("built-in", 2, [asserts("somemart", "groceries"), refines("forecourt", "fuel")])];
-    expect(gatherEvidence(sets, [tx("SOMEMART FORECOURT")]).conflicts).toEqual([]);
+    const sets = [
+      set("built-in", 2, [
+        asserts("somemart", "groceries"),
+        refines("forecourt", "fuel"),
+      ]),
+    ];
+    expect(gatherEvidence(sets, [tx("SOMEMART FORECOURT")]).conflicts).toEqual(
+      [],
+    );
   });
 
   it("orders conflicts by how much of the ledger they affect", () => {
@@ -124,7 +167,12 @@ describe("inert refines", () => {
     // Each one names a missing assert: we know it is a forecourt, but not whose.
     const sets = [set("built-in", 2, [refines("forecourt", "fuel")])];
     const e = gatherEvidence(sets, [tx("A FORECOURT"), tx("A FORECOURT")]);
-    expect(e.inertRefines[0]).toMatchObject({ setId: "built-in", index: 0, category: "fuel", transactions: 2 });
+    expect(e.inertRefines[0]).toMatchObject({
+      setId: "built-in",
+      index: 0,
+      category: "fuel",
+      transactions: 2,
+    });
   });
 
   it("keeps two sets' inert refines apart at the same position", () => {
@@ -145,17 +193,33 @@ describe("inert refines", () => {
   });
 
   it("says nothing when the refine had something to refine", () => {
-    const sets = [set("built-in", 2, [asserts("somemart", "groceries"), refines("forecourt", "fuel")])];
-    expect(gatherEvidence(sets, [tx("SOMEMART FORECOURT")]).inertRefines).toEqual([]);
+    const sets = [
+      set("built-in", 2, [
+        asserts("somemart", "groceries"),
+        refines("forecourt", "fuel"),
+      ]),
+    ];
+    expect(
+      gatherEvidence(sets, [tx("SOMEMART FORECOURT")]).inertRefines,
+    ).toEqual([]);
   });
 });
 
 describe("the gaps", () => {
   it("collects what nothing matched, costliest first", () => {
     const sets = [set("built-in", 2, [asserts("somemart", "groceries")])];
-    const corpus = [tx("UNKNOWN A"), tx("UNKNOWN B"), tx("UNKNOWN B"), tx("SOMEMART")];
+    const corpus = [
+      tx("UNKNOWN A"),
+      tx("UNKNOWN B"),
+      tx("UNKNOWN B"),
+      tx("SOMEMART"),
+    ];
     const e = gatherEvidence(sets, corpus);
-    expect(e.gaps[0]).toEqual({ description: "UNKNOWN B", transactions: 2, outgoing: 20_00 });
+    expect(e.gaps[0]).toEqual({
+      description: "UNKNOWN B",
+      transactions: 2,
+      outgoing: 20_00,
+    });
     expect(e.gaps.map((g) => g.description)).not.toContain("SOMEMART");
   });
 
@@ -163,7 +227,12 @@ describe("the gaps", () => {
     // The orderings genuinely disagree: frequent gaps are small recurring
     // spends, and a rule is worth writing for the money it accounts for.
     const sets = [set("built-in", 2, [])];
-    const corpus = [tx("FREQUENT", -1_00), tx("FREQUENT", -1_00), tx("FREQUENT", -1_00), tx("EXPENSIVE", -400_00)];
+    const corpus = [
+      tx("FREQUENT", -1_00),
+      tx("FREQUENT", -1_00),
+      tx("FREQUENT", -1_00),
+      tx("EXPENSIVE", -400_00),
+    ];
     const e = gatherEvidence(sets, corpus);
     expect(e.gaps.map((g) => g.description)).toEqual(["EXPENSIVE", "FREQUENT"]);
   });
@@ -171,13 +240,20 @@ describe("the gaps", () => {
   it("counts a credit as a sighting but not as money leaving", () => {
     const sets = [set("built-in", 2, [])];
     const e = gatherEvidence(sets, [tx("REFUND", 25_00), tx("REFUND", -5_00)]);
-    expect(e.gaps[0]).toEqual({ description: "REFUND", transactions: 2, outgoing: 5_00 });
+    expect(e.gaps[0]).toEqual({
+      description: "REFUND",
+      transactions: 2,
+      outgoing: 5_00,
+    });
   });
 
   it("counts a transaction matched by any set as covered, not just the winning one", () => {
     // A lower-precedence set answering is still an answer; listing it as a gap
     // would send someone writing a rule that already exists.
-    const sets = [set("household", 0, [asserts("nothing", "x")]), set("built-in", 2, [asserts("somemart", "groceries")])];
+    const sets = [
+      set("household", 0, [asserts("nothing", "x")]),
+      set("built-in", 2, [asserts("somemart", "groceries")]),
+    ];
     expect(gatherEvidence(sets, [tx("SOMEMART")]).gaps).toEqual([]);
   });
 

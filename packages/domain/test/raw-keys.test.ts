@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { datasetForEndpoint, parseRawKey, rawObjectKey } from "../src/raw/keys.js";
+import {
+  datasetForEndpoint,
+  parseRawKey,
+  rawObjectKey,
+} from "../src/raw/keys.js";
 
 /**
  * How the raw landing zone is laid out.
@@ -17,24 +21,32 @@ describe("naming a dataset from the endpoint that answered", () => {
     // The one distinction the sign convention depends on. Cards are reported from
     // the issuer's point of view, so conflating the two datasets is how every card
     // purchase became income.
-    expect(datasetForEndpoint("/data/v1/accounts/{id}/transactions")).toBe("truelayer.transactions");
-    expect(datasetForEndpoint("/data/v1/cards/{id}/transactions")).toBe("truelayer.card_transactions");
+    expect(datasetForEndpoint("/data/v1/accounts/{id}/transactions")).toBe(
+      "truelayer.transactions",
+    );
+    expect(datasetForEndpoint("/data/v1/cards/{id}/transactions")).toBe(
+      "truelayer.card_transactions",
+    );
   });
 
   it("replaces a real account id with a placeholder", () => {
     // Ids are 32 hex characters. Without the substitution every account would map
     // to no dataset at all and the whole sync would fail on the first item.
     const id = "a".repeat(32);
-    expect(datasetForEndpoint(`/data/v1/accounts/${id}/balance`)).toBe("truelayer.balance");
-    expect(datasetForEndpoint(`/data/v1/cards/${id}/transactions/pending`)).toBe(
-      "truelayer.card_transactions_pending",
+    expect(datasetForEndpoint(`/data/v1/accounts/${id}/balance`)).toBe(
+      "truelayer.balance",
     );
+    expect(
+      datasetForEndpoint(`/data/v1/cards/${id}/transactions/pending`),
+    ).toBe("truelayer.card_transactions_pending");
   });
 
   it("refuses an endpoint it does not know rather than inventing a name", () => {
     // A silent fallback would write objects under a dataset the transform has no
     // handler for, and they would sit in the raw zone looking fine.
-    expect(() => datasetForEndpoint("/data/v1/accounts/{id}/loans")).toThrow(/No dataset mapping/);
+    expect(() => datasetForEndpoint("/data/v1/accounts/{id}/loans")).toThrow(
+      /No dataset mapping/,
+    );
   });
 });
 
@@ -53,7 +65,10 @@ describe("where an object lands", () => {
   });
 
   it("orders lexicographically by fetch time, which is why there is no date partition", () => {
-    const earlier = rawObjectKey({ ...args, fetchedAt: "2026-08-19T05:00:00.000Z" });
+    const earlier = rawObjectKey({
+      ...args,
+      fetchedAt: "2026-08-19T05:00:00.000Z",
+    });
     expect(rawObjectKey(args) > earlier).toBe(true);
   });
 
@@ -63,7 +78,11 @@ describe("where an object lands", () => {
   });
 
   it("omits the account segment for a listing, which belongs to no account", () => {
-    const key = rawObjectKey({ ...args, dataset: "truelayer.accounts", accountId: undefined });
+    const key = rawObjectKey({
+      ...args,
+      dataset: "truelayer.accounts",
+      accountId: undefined,
+    });
     expect(key).not.toContain("account=");
   });
 });
@@ -100,7 +119,11 @@ describe("reading a key back", () => {
   it("refuses anything that is not a raw object key", () => {
     // The transform would otherwise carry on with an undefined tenant and write
     // rows into somebody else's partition.
-    expect(() => parseRawKey("some/other/object.json")).toThrow(/Not a raw object key/);
-    expect(() => parseRawKey("tenant=frost/no-dataset/x.json.gz")).toThrow(/Not a raw object key/);
+    expect(() => parseRawKey("some/other/object.json")).toThrow(
+      /Not a raw object key/,
+    );
+    expect(() => parseRawKey("tenant=frost/no-dataset/x.json.gz")).toThrow(
+      /Not a raw object key/,
+    );
   });
 });

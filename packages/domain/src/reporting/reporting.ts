@@ -27,7 +27,7 @@ import type {
 import { Category } from "../categorisation/category.js";
 import { filterMatcher, matchesMatcher } from "../categorisation/evaluate.js";
 import { candidateOf } from "../application/candidate.js";
-import { effectiveCategories, orderOf } from "./categories.js";
+import { effectiveCategories, precedenceFor } from "./categories.js";
 import { mergeCategories, summarise, toAccountState } from "./summary.js";
 import type { RecordedTransaction } from "../ledger/transaction.js";
 import {
@@ -140,13 +140,16 @@ export async function summary(
   range: Range,
   opts: SummaryOptions = {},
 ): Promise<Summary> {
-  const [{ transactions, categorisations }, sets] = await Promise.all([
-    deps.ledger.listRange(tenantId, range),
-    deps.ledger.listRuleSets(tenantId),
-  ]);
+  const [{ transactions, categorisations }, sets, adoptions] =
+    await Promise.all([
+      deps.ledger.listRange(tenantId, range),
+      deps.ledger.listRuleSets(tenantId),
+      deps.ledger.getAdoptions(tenantId),
+    ]);
+  const precedence = precedenceFor(adoptions, sets);
   return summarise(
     transactions,
-    effectiveCategories(transactions, categorisations, orderOf(sets)),
+    effectiveCategories(transactions, categorisations, precedence),
     range,
     // `transfers: false` disables detection; the default enables it.
     opts.nettingTransfers === false ? { transfers: false } : {},
@@ -173,10 +176,13 @@ export async function transactions(
   range: Range,
   filter?: TransactionFilter,
 ): Promise<TransactionsResult> {
-  const [{ transactions: txns, categorisations }, sets] = await Promise.all([
-    deps.ledger.listRange(tenantId, range),
-    deps.ledger.listRuleSets(tenantId),
-  ]);
+  const [{ transactions: txns, categorisations }, sets, adoptions] =
+    await Promise.all([
+      deps.ledger.listRange(tenantId, range),
+      deps.ledger.listRuleSets(tenantId),
+      deps.ledger.getAdoptions(tenantId),
+    ]);
+  const precedence = precedenceFor(adoptions, sets);
 
   const rows = txns;
   // Built once, not per row: escaping a term eleven thousand times to reach the
@@ -191,7 +197,7 @@ export async function transactions(
     range,
     transactions: mergeCategories(
       wanted,
-      effectiveCategories(rows, categorisations, orderOf(sets)),
+      effectiveCategories(rows, categorisations, precedence),
     ),
   };
 }

@@ -19,14 +19,33 @@ import { Categorisation } from "../categorisation/categorisation.js";
 import { PROVIDER_SET } from "../categorisation/provider.js";
 import type { RecordedTransaction } from "../ledger/transaction.js";
 import type { Row } from "../ports/outbound/index.js";
+import { orderedSets, type Adoptions } from "../categorisation/adoption.js";
 
-/** Set precedence, from the sets themselves. Data, never load order. */
-export function orderOf(sets: readonly Row[]): SetOrder[] {
-  return sets
+/**
+ * Set precedence, from what the tenant adopted.
+ *
+ * Falls back to the sets' own `order` when a tenant has adopted nothing, which
+ * is every tenant today: precedence is mid-migration from the set to the
+ * adoption (#121), and the fallback is what lets both exist without a data
+ * change. It goes when every tenant has a list.
+ *
+ * A set that exists but was not adopted does not rank at all, which is the
+ * point — a shared set sitting in the table is an offer, not an instruction.
+ */
+export function precedenceFor(
+  adoptions: Adoptions,
+  sets: readonly Row[],
+): SetOrder[] {
+  const shaped = sets
     .filter(
       (s) => typeof s["setId"] === "string" && typeof s["order"] === "number",
     )
     .map((s) => ({ setId: String(s["setId"]), order: Number(s["order"]) }));
+
+  return orderedSets(adoptions, shaped).map((s, index) => ({
+    setId: s.setId,
+    order: index,
+  }));
 }
 
 /**

@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { summariseCorpus, detectCadence } from "../src/categorisation/corpus.js";
+import {
+  summariseCorpus,
+  detectCadence,
+} from "../src/categorisation/corpus.js";
 import type { Sighting } from "../src/categorisation/corpus.js";
 
 /**
@@ -15,7 +18,8 @@ import type { Sighting } from "../src/categorisation/corpus.js";
  */
 
 const BASE = Date.parse("2026-01-05T00:00:00.000Z");
-const day = (n: number): string => new Date(BASE + n * 86_400_000).toISOString();
+const day = (n: number): string =>
+  new Date(BASE + n * 86_400_000).toISOString();
 
 const seen = (over: Partial<Sighting> = {}): Sighting => ({
   description: "SOMEMART 118",
@@ -25,8 +29,14 @@ const seen = (over: Partial<Sighting> = {}): Sighting => ({
 });
 
 /** Sightings of one amount on a fixed beat. */
-const beat = (gap: number, count: number, over: Partial<Sighting> = {}): Sighting[] =>
-  Array.from({ length: count }, (_, i) => seen({ ...over, timestamp: day(i * gap) }));
+const beat = (
+  gap: number,
+  count: number,
+  over: Partial<Sighting> = {},
+): Sighting[] =>
+  Array.from({ length: count }, (_, i) =>
+    seen({ ...over, timestamp: day(i * gap) }),
+  );
 
 describe("collapsing by description", () => {
   it("counts sightings and totals what left the household", () => {
@@ -37,11 +47,18 @@ describe("collapsing by description", () => {
     ]);
 
     expect(descriptions).toHaveLength(2);
-    expect(descriptions[0]).toMatchObject({ description: "SOMEMART 118", transactions: 2, outgoing: 15_00 });
+    expect(descriptions[0]).toMatchObject({
+      description: "SOMEMART 118",
+      transactions: 2,
+      outgoing: 15_00,
+    });
   });
 
   it("leaves credits out of the outgoing total but still counts them", () => {
-    const [only] = summariseCorpus([seen({ amount: -10_00 }), seen({ amount: 30_00 })]).descriptions;
+    const [only] = summariseCorpus([
+      seen({ amount: -10_00 }),
+      seen({ amount: 30_00 }),
+    ]).descriptions;
 
     expect(only).toMatchObject({ transactions: 2, outgoing: 10_00 });
   });
@@ -71,13 +88,23 @@ describe("collapsing by description", () => {
   });
 
   it("orders equally-common categories by name, so two runs agree", () => {
-    const [only] = summariseCorpus([seen({ category: "Groceries" }), seen({ category: "Fuel" })]).descriptions;
+    const [only] = summariseCorpus([
+      seen({ category: "Groceries" }),
+      seen({ category: "Fuel" }),
+    ]).descriptions;
 
-    expect(only!.categories.map((c) => c.category)).toEqual(["Fuel", "Groceries"]);
+    expect(only!.categories.map((c) => c.category)).toEqual([
+      "Fuel",
+      "Groceries",
+    ]);
   });
 
   it("counts the uncategorised apart from the categorised", () => {
-    const [only] = summariseCorpus([seen(), seen({ category: "Fuel" }), seen()]).descriptions;
+    const [only] = summariseCorpus([
+      seen(),
+      seen({ category: "Fuel" }),
+      seen(),
+    ]).descriptions;
 
     expect(only).toMatchObject({ uncategorised: 2, transactions: 3 });
     expect(only!.categories).toEqual([{ category: "Fuel", transactions: 1 }]);
@@ -85,11 +112,16 @@ describe("collapsing by description", () => {
 
   it("puts the costliest description first, not the commonest", () => {
     const { descriptions } = summariseCorpus([
-      ...Array.from({ length: 5 }, () => seen({ description: "FREQUENT", amount: -1_00 })),
+      ...Array.from({ length: 5 }, () =>
+        seen({ description: "FREQUENT", amount: -1_00 }),
+      ),
       seen({ description: "EXPENSIVE", amount: -400_00 }),
     ]);
 
-    expect(descriptions.map((d) => d.description)).toEqual(["EXPENSIVE", "FREQUENT"]);
+    expect(descriptions.map((d) => d.description)).toEqual([
+      "EXPENSIVE",
+      "FREQUENT",
+    ]);
   });
 
   it("orders equal-value descriptions by name, so the output is stable", () => {
@@ -127,7 +159,9 @@ describe("detecting a beat", () => {
 
   it("survives a missed month, because the median ignores one long gap", () => {
     // Paid monthly, skipped one: gaps of 30, 60, 30, 30.
-    expect(detectCadence([day(0), day(30), day(90), day(120), day(150)])).toBe("monthly");
+    expect(detectCadence([day(0), day(30), day(90), day(120), day(150)])).toBe(
+      "monthly",
+    );
   });
 
   it("ignores same-day repeats, which are a pair of payments and not a rhythm", () => {
@@ -137,18 +171,24 @@ describe("detecting a beat", () => {
   it("does not let same-day repeats drag the beat off a real rhythm", () => {
     // Four sightings on one day and then a weekly beat. Counting the zero gaps
     // would put the median at nothing and lose an obviously weekly payment.
-    expect(detectCadence([day(0), day(0), day(0), day(0), day(7), day(14)])).toBe("weekly");
+    expect(
+      detectCadence([day(0), day(0), day(0), day(0), day(7), day(14)]),
+    ).toBe("weekly");
   });
 
   it("gives a tie to the shorter beat", () => {
     // Twenty-nine days is one day off four-weekly and one off monthly.
-    expect(detectCadence([day(0), day(29), day(58), day(87)])).toBe("four-weekly");
+    expect(detectCadence([day(0), day(29), day(58), day(87)])).toBe(
+      "four-weekly",
+    );
   });
 
   it("takes the middle gap of the sorted gaps, not of the order they arrived", () => {
     // Gaps of 60, 7, 7, 60. Sorted, the middle is 60 and this is no rhythm;
     // read in arrival order the middle is 7 and it would pass as weekly.
-    expect(detectCadence([day(0), day(60), day(67), day(74), day(134)])).toBeUndefined();
+    expect(
+      detectCadence([day(0), day(60), day(67), day(74), day(134)]),
+    ).toBeUndefined();
   });
 
   it("finds nothing in irregular dates", () => {
@@ -181,13 +221,25 @@ describe("collapsing by amount", () => {
   });
 
   it("keeps a recurring credit, and keeps its sign", () => {
-    const { recurrences } = summariseCorpus(beat(30, 4, { description: "PAYROLL", amount: 2_000_00 }));
+    const { recurrences } = summariseCorpus(
+      beat(30, 4, { description: "PAYROLL", amount: 2_000_00 }),
+    );
 
-    expect(recurrences[0]).toMatchObject({ amount: 2_000_00, cadence: "monthly", outgoing: 0 });
+    expect(recurrences[0]).toMatchObject({
+      amount: 2_000_00,
+      cadence: "monthly",
+      outgoing: 0,
+    });
   });
 
   it("reports nothing for amounts that repeat without a beat", () => {
-    expect(summariseCorpus([seen({ timestamp: day(0) }), seen({ timestamp: day(3) }), seen({ timestamp: day(40) })]).recurrences).toEqual([]);
+    expect(
+      summariseCorpus([
+        seen({ timestamp: day(0) }),
+        seen({ timestamp: day(3) }),
+        seen({ timestamp: day(40) }),
+      ]).recurrences,
+    ).toEqual([]);
   });
 
   it("counts how much of a recurrence the rules currently miss", () => {
@@ -237,6 +289,10 @@ describe("the summary as a whole", () => {
   });
 
   it("has nothing to say about an empty ledger", () => {
-    expect(summariseCorpus([])).toEqual({ descriptions: [], recurrences: [], scanned: 0 });
+    expect(summariseCorpus([])).toEqual({
+      descriptions: [],
+      recurrences: [],
+      scanned: 0,
+    });
   });
 });

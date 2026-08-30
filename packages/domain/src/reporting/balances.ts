@@ -55,7 +55,6 @@ export interface AccountFacts {
   readonly balanceAsOf?: string | undefined;
 }
 
-
 import type { BalancePoint } from "../ports/inbound/index.js";
 
 const DAY = 86_400_000;
@@ -90,7 +89,11 @@ export function accountSeries(
   // two rows with the same dedup key are the same row — so a branch for it
   // would be untestable except by constructing a state the ledger cannot hold.
   const rows = [...movements].sort((a, b) =>
-    a.timestamp === b.timestamp ? a.dedupKey.localeCompare(b.dedupKey) : a.timestamp < b.timestamp ? -1 : 1,
+    a.timestamp === b.timestamp
+      ? a.dedupKey.localeCompare(b.dedupKey)
+      : a.timestamp < b.timestamp
+        ? -1
+        : 1,
   );
   if (rows.length === 0) return days.map(() => undefined);
 
@@ -119,9 +122,18 @@ export function accountSeries(
   // "today", which would be wrong for every other range.
   const observations: Array<{ day: string; balance: number }> = rows
     .filter((r) => r.runningBalance !== undefined)
-    .map((r) => ({ day: r.timestamp.slice(0, 10), balance: r.runningBalance! }));
-  if (account.currentBalance !== undefined && account.balanceAsOf !== undefined) {
-    observations.push({ day: account.balanceAsOf, balance: account.currentBalance });
+    .map((r) => ({
+      day: r.timestamp.slice(0, 10),
+      balance: r.runningBalance!,
+    }));
+  if (
+    account.currentBalance !== undefined &&
+    account.balanceAsOf !== undefined
+  ) {
+    observations.push({
+      day: account.balanceAsOf,
+      balance: account.currentBalance,
+    });
   }
   // Stable sort keeps the live balance after a transaction on the same day,
   // because it was read later.
@@ -153,7 +165,8 @@ export function netPositionSeries(
   days: readonly string[],
 ): BalancePoint[] {
   const byAccount = new Map<string, Movement[]>();
-  for (const m of movements) byAccount.set(m.accountId, [...(byAccount.get(m.accountId) ?? []), m]);
+  for (const m of movements)
+    byAccount.set(m.accountId, [...(byAccount.get(m.accountId) ?? []), m]);
 
   const series = accounts.map((a) => ({
     isCard: a.isCard === true,
