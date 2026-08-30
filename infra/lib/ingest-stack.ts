@@ -289,8 +289,8 @@ export class IngestStack extends cdk.Stack {
       ...common,
       entry: path.join(__dirname, "../../services/transform/src/transform-handler.ts"),
       handler: "handler",
-      // 512 is the ceiling on a new AWS account until its Lambda quota is
-      // raised. Ample here: the largest raw object is about 6MB decompressed.
+      // The account default, unraised. Ample: the largest raw object is about
+      // 6MB decompressed.
       memorySize: 512,
       timeout: cdk.Duration.minutes(5),
       environment: {

@@ -19,7 +19,7 @@ import { templates } from "./harness";
 const { foundation, data, api, ingest, web } = templates();
 const ALL = { foundation, data, api, ingest, web };
 
-/** Until the account's Lambda quota is raised, this is the ceiling. */
+/** The account default. Not raised, and nothing here needs it raised. */
 const MEMORY_CEILING = 512;
 
 describe("lambda memory", () => {
