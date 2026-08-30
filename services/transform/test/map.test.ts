@@ -159,7 +159,7 @@ describe("sign convention", () => {
   });
 
   it("makes a card payment money in, so it can pair with the account debit", () => {
-    // Raw: amount -5779.7, type CREDIT — "PAYMENT RECEIVED - THANK YOU".
+    // Raw: amount -5779.7, type CREDIT — "CARD PAYMENT THANK YOU".
     const t = card({ amount: -5779.7, transaction_type: "CREDIT", description: "PAYMENT RECEIVED" });
     expect(t.amount).toBe(577970);
     expect(t.transactionType).toBe("CREDIT");

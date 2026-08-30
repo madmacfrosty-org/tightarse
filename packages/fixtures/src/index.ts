@@ -25,6 +25,10 @@
  */
 
 /** A transaction in TrueLayer's wire shape. */
+export * from "./gen.js";
+export * from "./raw-world.js";
+export * from "./vocabulary.js";
+
 export interface RawTransaction {
   timestamp: string;
   description: string;
@@ -263,7 +267,7 @@ export function generateHousehold(opts: HouseholdOptions = {}): Household {
       });
       cardTransactions.push({
         timestamp: paidAt,
-        description: "PAYMENT RECEIVED - THANK YOU",
+        description: "CARD PAYMENT THANK YOU",
         transaction_type: "CREDIT",
         transaction_category: "CREDIT",
         transaction_classification: [],

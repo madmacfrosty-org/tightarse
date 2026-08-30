@@ -34,6 +34,7 @@ export * from "./categorisation/preview.js";
 export * from "./categorisation/taxonomy.js";
 export * from "./categorisation/category.js";
 export * from "./categorisation/seed.js";
+export * from "./categorisation/merchants.js";
 export * from "./categorisation/merchant-rules.js";
 export * from "./categorisation/categorisation.js";
 export * from "./categorisation/enrichment.js";
