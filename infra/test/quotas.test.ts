@@ -14,18 +14,12 @@ import { templates } from "./harness";
  * written down as a test in `ingest-stack.test.ts`; a Lambda later added to the
  * API stack, where no such test existed, was rejected at deploy for the exact
  * same reason. This file is that lesson kept somewhere it covers everything.
- *
- * The memory cap is also a CHOICE, which matters for how this reads. Raising the
- * account quota is not planned: a function wanting a large heap is usually one
- * holding a whole dataset in memory where it could stream or be split. So this
- * assertion is not a placeholder awaiting an increase — deleting it because the
- * quota moved would remove a constraint worth keeping.
  */
 
 const { foundation, data, api, ingest, web } = templates();
 const ALL = { foundation, data, api, ingest, web };
 
-/** Until the account's Lambda quota is raised, this is the ceiling. */
+/** The account default. Not raised, and nothing here needs it raised. */
 const MEMORY_CEILING = 512;
 
 describe("lambda memory", () => {
