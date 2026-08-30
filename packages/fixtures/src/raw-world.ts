@@ -105,7 +105,6 @@ function accountTxn(rng: Rng, atMs: number): Txn {
     [8, "atm"],
     [8, "directDebit"],
     [6, "standingOrder"],
-    [8, "salary"],
   ] as const)(rng);
 
   const id = idOf(rng);
@@ -161,14 +160,44 @@ function accountTxn(rng: Rng, atMs: number): Txn {
         category: "STANDING_ORDER",
       };
     }
-    case "salary":
-      return {
-        ...base,
-        amount: int(1_800_00, 3_400_00)(rng),
-        description: pick(EMPLOYERS)(rng),
-        category: "CREDIT",
-      };
   }
+}
+
+/**
+ * One card transaction.
+ *
+ * Deliberately NOT the account mix. A card sees purchases and, every so often,
+ * the payment that clears it — no salary, no direct debits, no standing orders.
+ * Reusing the account generator put salary credits on a credit card, which
+ * inflated income to something no household earns and would have made every
+ * total built on this fixture quietly wrong.
+ */
+function cardTxn(rng: Rng, atMs: number): Txn {
+  const base = {
+    timestamp: dayStamp(atMs),
+    transactionId: idOf(rng),
+    providerId: idOf(rng, 24),
+    normalisedId: idOf(rng, 24),
+  };
+  const clearing = weighted([
+    [1, true],
+    [11, false],
+  ] as const)(rng);
+  if (clearing) {
+    return {
+      ...base,
+      amount: int(150_00, 900_00)(rng),
+      description: "CARD PAYMENT THANK YOU",
+      category: "CREDIT",
+    };
+  }
+  const m = pick(MERCHANTS)(rng);
+  return {
+    ...base,
+    amount: -int(m.min, m.max)(rng),
+    description: m.name,
+    category: "DEBIT",
+  };
 }
 
 /**
@@ -288,12 +317,40 @@ export function generateRawWorld(opts: WorldOptions): RawObject[] {
 
   // Transactions, newest-first, then balances chained backwards from closing.
   const count = int(months * 18, months * 34)(rng);
-  const newestFirst: Txn[] = [];
+  const spending: Txn[] = [];
   for (let i = 0; i < count; i += 1) {
-    newestFirst.push(
+    spending.push(
       accountTxn(rng, endMs - Math.floor((i / count) * months * 30 * DAY)),
     );
   }
+
+  // Salary is monthly, not one outcome of a weighted mix. Left in the mix it
+  // fired at random and produced an income several times what the household
+  // earns — a fixture that misrepresents the SHAPE of a ledger, rather than one
+  // that merely differs from a particular ledger. A fixed pay day also gives
+  // recurrence detection something real to find.
+  const payDay = int(24, 28)(rng);
+  const salaryAmount = int(2_100_00, 3_200_00)(rng);
+  const employer = pick(EMPLOYERS)(rng);
+  const salaries: Txn[] = [];
+  for (let m = 0; m < months; m += 1) {
+    const d = new Date(endMs);
+    d.setUTCMonth(d.getUTCMonth() - m, payDay);
+    if (d.getTime() > endMs) continue;
+    salaries.push({
+      timestamp: dayStamp(d.getTime()),
+      amount: salaryAmount,
+      description: employer,
+      category: "CREDIT",
+      transactionId: idOf(rng),
+      providerId: idOf(rng, 24),
+      normalisedId: idOf(rng, 24),
+    });
+  }
+
+  const newestFirst = [...spending, ...salaries].sort((a, b) =>
+    b.timestamp.localeCompare(a.timestamp),
+  );
   const closing = int(-1_200_00, 4_500_00)(rng);
   const settled = withBalances(newestFirst, closing);
 
@@ -304,11 +361,9 @@ export function generateRawWorld(opts: WorldOptions): RawObject[] {
   const cardCount = int(months * 8, months * 20)(rng);
   const cardTxns: Txn[] = [];
   for (let i = 0; i < cardCount; i += 1) {
-    const t = accountTxn(
-      rng,
-      endMs - Math.floor((i / cardCount) * months * 30 * DAY),
+    cardTxns.push(
+      cardTxn(rng, endMs - Math.floor((i / cardCount) * months * 30 * DAY)),
     );
-    cardTxns.push({ ...t, category: t.amount < 0 ? "DEBIT" : "CREDIT" });
   }
 
   const from = new Date(endMs - months * 30 * DAY).toISOString().slice(0, 10);

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { generateRawWorld } from "../src/raw-world.js";
+import { EMPLOYERS } from "../src/vocabulary.js";
 
 /**
  * The relationships, asserted.
@@ -97,6 +98,22 @@ describe("cards", () => {
       ),
     );
     expect([...cats].every((c) => c === "CREDIT" || c === "DEBIT")).toBe(true);
+  });
+
+  it("sees purchases and clearing payments, not salary or mandates", () => {
+    // A card receiving salary credits inflated income to something no household
+    // earns, and every total built on the fixture would have been wrong while
+    // every schema-level assertion still passed.
+    const rs = results(world(), "truelayer.card_transactions");
+    const credits = rs.filter((t) => t.transaction_type === "CREDIT");
+    expect(credits.length).toBeGreaterThan(0);
+    for (const c of credits)
+      expect(c.description).toBe("CARD PAYMENT THANK YOU");
+    for (const e of EMPLOYERS) {
+      expect(rs.some((t) => (t.description as string).includes(e))).toBe(false);
+    }
+    // Spending dominates a card; clearing payments are occasional.
+    expect(credits.length * 3).toBeLessThan(rs.length);
   });
 
   it("reports a debit positive, from the issuer's point of view", () => {
@@ -221,6 +238,39 @@ describe("amounts and direction", () => {
       expect(typeof t.description).toBe("string");
       expect(t.description.length).toBeGreaterThan(2);
     }
+  });
+});
+
+describe("salary", () => {
+  it("arrives once a month, same amount, same day", () => {
+    // Drawn from the weighted mix it fired at random, producing an income
+    // several times what a household earns. Monthly and constant is both
+    // truthful and something recurrence detection can actually find.
+    const rs = results(world(), "truelayer.transactions");
+    const pay = rs.filter((t) => EMPLOYERS.some((e) => t.description === e));
+    // Eleven or twelve: the current month's pay day may still be ahead of the
+    // anchor, which is what a real ledger looks like mid-month.
+    expect(pay.length).toBeGreaterThanOrEqual(11);
+    expect(pay.length).toBeLessThanOrEqual(12);
+    expect(new Set(pay.map((t) => t.amount)).size).toBe(1);
+    expect(new Set(pay.map((t) => t.timestamp.slice(8, 10))).size).toBe(1);
+    expect(new Set(pay.map((t) => t.timestamp.slice(0, 7))).size).toBe(
+      pay.length,
+    );
+  });
+
+  it("leaves income within sight of spending", () => {
+    // Not a precise figure, a sanity bound: a ledger whose income dwarfs its
+    // outgoings by an order of magnitude does not exercise anything real.
+    const rs = results(world(), "truelayer.transactions");
+    const income = rs
+      .filter((t) => t.amount > 0)
+      .reduce((n, t) => n + t.amount, 0);
+    const spend = rs
+      .filter((t) => t.amount < 0)
+      .reduce((n, t) => n - t.amount, 0);
+    expect(income).toBeLessThan(spend * 4);
+    expect(income).toBeGreaterThan(spend / 4);
   });
 });
 
