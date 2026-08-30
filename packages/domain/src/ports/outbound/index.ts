@@ -264,6 +264,34 @@ export interface Notifications {
 }
 
 /**
+ * One rule set version, belonging to somebody else.
+ *
+ * Its own port, and read-only, because it is the first thing in this system
+ * that crosses a tenant boundary. Everywhere else "a tenant only ever touches
+ * its own partition" holds by construction — the claim gives a tenant id and
+ * every call takes it. A shared set is an ordinary set owned by a tenant that
+ * is not a household (#121), so reaching it means reading somebody else's
+ * partition, and that deserves to be a capability a component is handed rather
+ * than a widened parameter on a method it already has.
+ *
+ * Narrow deliberately. `listRuleSets(tenantId)` with an arbitrary tenant would
+ * read any household's rules; this reads one named version of one named set and
+ * can do nothing else.
+ *
+ * By version, not "current", because an adoption pins a version. Reading
+ * whatever the owner has now would let a shared set change a household's
+ * categories on somebody else's schedule, which is the thing pinning exists to
+ * prevent.
+ */
+export interface SharedRuleSets {
+  getRuleSetVersion(
+    owner: string,
+    setId: string,
+    version: number,
+  ): Promise<RuleSet | undefined>;
+}
+
+/**
  * Rule sets. Authored, versioned, and never regenerated.
  *
  * `putRuleSetVersion` writes the immutable record and the current pointer in one

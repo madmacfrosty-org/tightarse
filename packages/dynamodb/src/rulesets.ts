@@ -93,6 +93,31 @@ export class DynamoRuleSets extends TableAdapter implements RuleSets {
   }
 
   /**
+   * One version of one set, belonging to any tenant.
+   *
+   * The only read here that crosses a tenant boundary, and it is by exact key —
+   * no scan, no prefix, nothing that could enumerate a household's rules.
+   *
+   * Parsed strictly. A set adopted from elsewhere decides how a household's
+   * transactions are categorised; skipping an unreadable one would quietly
+   * change the answer rather than say something is wrong.
+   */
+  async getRuleSetVersion(
+    owner: string,
+    setId: string,
+    version: number,
+  ): Promise<RuleSet | undefined> {
+    const res = await this.doc.send(
+      new GetCommand({
+        TableName: this.table,
+        Key: keys.ruleSetVersion(owner, setId, version),
+      }),
+    );
+    if (res.Item === undefined) return undefined;
+    return parseFacts(RuleSet, [res.Item], "rule set version")[0];
+  }
+
+  /**
    * Write a rule set version.
    *
    * An `effective` one is published: the immutable record and the current

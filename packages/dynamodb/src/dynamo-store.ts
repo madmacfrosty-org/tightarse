@@ -18,6 +18,7 @@ import type {
   Categorisations,
   Household,
   RuleSets,
+  SharedRuleSets,
   Transactions,
 } from "@tightarse/domain";
 import { DynamoAccounts } from "./accounts.js";
@@ -98,6 +99,8 @@ export class DynamoStore
     this.rulesets.putRuleSetVersion(...a);
   readonly decideRuleSetVersion: RuleSets["decideRuleSetVersion"] = (...a) =>
     this.rulesets.decideRuleSetVersion(...a);
+  readonly getRuleSetVersion: SharedRuleSets["getRuleSetVersion"] = (...a) =>
+    this.rulesets.getRuleSetVersion(...a);
   readonly getAdoptions: RuleSets["getAdoptions"] = (...a) =>
     this.rulesets.getAdoptions(...a);
   readonly putAdoptions: RuleSets["putAdoptions"] = (...a) =>
