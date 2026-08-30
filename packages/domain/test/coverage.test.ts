@@ -1,15 +1,28 @@
 import { describe, it, expect } from "vitest";
-import { clampToCoverage, completeFrom, coverageOf, openingBalance } from "../src/reporting/coverage.js";
+import {
+  clampToCoverage,
+  completeFrom,
+  coverageOf,
+  openingBalance,
+} from "../src/reporting/coverage.js";
 import type { AccountFacts, Movement } from "../src/reporting/balances.js";
 
 // Distinct and ascending, mirroring the ledger's tiebreak within a timestamp.
 let cardKey = 0;
 
 const current: AccountFacts = { accountId: "cur", isCard: false };
-const card: AccountFacts = { accountId: "card", isCard: true, currentBalance: 50_00 };
+const card: AccountFacts = {
+  accountId: "card",
+  isCard: true,
+  currentBalance: 50_00,
+};
 
 let seq = 0;
-const m = (timestamp: string, amount: number, runningBalance?: number): Movement => ({
+const m = (
+  timestamp: string,
+  amount: number,
+  runningBalance?: number,
+): Movement => ({
   accountId: "cur",
   timestamp,
   amount,
@@ -21,7 +34,10 @@ describe("opening balance", () => {
   it("takes a current account's from the provider's own running total", () => {
     // Running balance is stated after the transaction, so the balance before it
     // is that figure less the transaction's own amount.
-    const rows = [m("2025-01-10T00:00:00Z", -20_00, 80_00), m("2025-02-10T00:00:00Z", -5_00, 75_00)];
+    const rows = [
+      m("2025-01-10T00:00:00Z", -20_00, 80_00),
+      m("2025-02-10T00:00:00Z", -5_00, 75_00),
+    ];
     expect(openingBalance(current, rows)).toBe(100_00);
   });
 
@@ -30,8 +46,18 @@ describe("opening balance", () => {
     // same arithmetic reconciliation runs, which is what validates it against
     // real balance readings rather than against itself.
     const rows = [
-      { accountId: "card", dedupKey: `c${cardKey++}`, timestamp: "2025-01-10T00:00:00Z", amount: -30_00 },
-      { accountId: "card", dedupKey: `c${cardKey++}`, timestamp: "2025-02-10T00:00:00Z", amount: -20_00 },
+      {
+        accountId: "card",
+        dedupKey: `c${cardKey++}`,
+        timestamp: "2025-01-10T00:00:00Z",
+        amount: -30_00,
+      },
+      {
+        accountId: "card",
+        dedupKey: `c${cardKey++}`,
+        timestamp: "2025-02-10T00:00:00Z",
+        amount: -20_00,
+      },
     ];
     expect(openingBalance(card, rows)).toBe(0);
   });
@@ -39,7 +65,14 @@ describe("opening balance", () => {
   it("finds the debt a card was already carrying", () => {
     // Owes £50 having only ever spent £20, so £30 predates our data. This is
     // the real case: every card in the household reports one.
-    const rows = [{ accountId: "card", dedupKey: `c${cardKey++}`, timestamp: "2025-01-10T00:00:00Z", amount: -20_00 }];
+    const rows = [
+      {
+        accountId: "card",
+        dedupKey: `c${cardKey++}`,
+        timestamp: "2025-01-10T00:00:00Z",
+        amount: -20_00,
+      },
+    ];
     expect(openingBalance(card, rows)).toBe(30_00);
   });
 
@@ -48,10 +81,17 @@ describe("opening balance", () => {
     // complete and let it stop constraining the range — the exact failure this
     // whole rule exists to prevent.
     expect(openingBalance(current, [])).toBeUndefined();
-    expect(openingBalance(current, [m("2025-01-10T00:00:00Z", -20_00)])).toBeUndefined();
+    expect(
+      openingBalance(current, [m("2025-01-10T00:00:00Z", -20_00)]),
+    ).toBeUndefined();
     expect(
       openingBalance({ accountId: "card", isCard: true }, [
-        { accountId: "card", dedupKey: `c${cardKey++}`, timestamp: "2025-01-10T00:00:00Z", amount: -20_00 },
+        {
+          accountId: "card",
+          dedupKey: `c${cardKey++}`,
+          timestamp: "2025-01-10T00:00:00Z",
+          amount: -20_00,
+        },
       ]),
     ).toBeUndefined();
   });
@@ -79,19 +119,38 @@ describe("coverage of one account", () => {
     // Summed across thousands of transactions against today's balance, so one
     // missing refund leaves a residue. Exact zero would make the verdict turn
     // on rounding; a pound is far below any real opening balance.
-    const rows = [{ accountId: "card", dedupKey: `c${cardKey++}`, timestamp: "2025-01-10T00:00:00Z", amount: -49_99 }];
+    const rows = [
+      {
+        accountId: "card",
+        dedupKey: `c${cardKey++}`,
+        timestamp: "2025-01-10T00:00:00Z",
+        amount: -49_99,
+      },
+    ];
     expect(coverageOf(card, rows).historyComplete).toBe(true);
-    const bigger = [{ accountId: "card", dedupKey: `c${cardKey++}`, timestamp: "2025-01-10T00:00:00Z", amount: -40_00 }];
+    const bigger = [
+      {
+        accountId: "card",
+        dedupKey: `c${cardKey++}`,
+        timestamp: "2025-01-10T00:00:00Z",
+        amount: -40_00,
+      },
+    ];
     expect(coverageOf(card, bigger).historyComplete).toBe(false);
   });
 
   it("finds the earliest start however the rows arrive", () => {
     // Nothing here guarantees ordering. The ledger returns rows sorted, but
     // this takes an array and must not quietly depend on that.
-    const ascending = [m("2025-01-10T00:00:00Z", -20_00, 480_00), m("2025-06-10T00:00:00Z", -5_00, 475_00)];
+    const ascending = [
+      m("2025-01-10T00:00:00Z", -20_00, 480_00),
+      m("2025-06-10T00:00:00Z", -5_00, 475_00),
+    ];
     const descending = [...ascending].reverse();
     expect(coverageOf(current, descending).historyFrom).toBe("2025-01-10");
-    expect(coverageOf(current, descending)).toEqual(coverageOf(current, ascending));
+    expect(coverageOf(current, descending)).toEqual(
+      coverageOf(current, ascending),
+    );
   });
 
   it("says nothing about an account with no transactions", () => {
@@ -130,13 +189,17 @@ describe("when a household total becomes trustworthy", () => {
   it("treats an unknown account as constraining, not as complete", () => {
     // Absent means we could not tell. Assuming complete would draw a total that
     // might be missing an account; assuming incomplete only shortens the chart.
-    expect(completeFrom([{ accountId: "a", historyFrom: "2024-01-01" }])).toBe("2024-01-01");
+    expect(completeFrom([{ accountId: "a", historyFrom: "2024-01-01" }])).toBe(
+      "2024-01-01",
+    );
   });
 
   it("returns nothing when no account constrains the range", () => {
     expect(completeFrom([])).toBeUndefined();
     expect(
-      completeFrom([{ accountId: "a", historyFrom: "2021-01-01", historyComplete: true }]),
+      completeFrom([
+        { accountId: "a", historyFrom: "2021-01-01", historyComplete: true },
+      ]),
     ).toBeUndefined();
     // No start date cannot constrain anything, even though it is not complete.
     expect(completeFrom([{ accountId: "a" }])).toBeUndefined();
@@ -147,11 +210,16 @@ describe("clamping a requested range", () => {
   const asked = { from: "2021-01-01", to: "2026-08-16" };
 
   it("narrows a request that reaches back past complete coverage", () => {
-    expect(clampToCoverage(asked, "2025-02-10")).toEqual({ from: "2025-02-10", to: "2026-08-16" });
+    expect(clampToCoverage(asked, "2025-02-10")).toEqual({
+      from: "2025-02-10",
+      to: "2026-08-16",
+    });
   });
 
   it("leaves a request already inside coverage alone", () => {
-    expect(clampToCoverage({ from: "2026-01-01", to: "2026-08-16" }, "2025-02-10")).toEqual({
+    expect(
+      clampToCoverage({ from: "2026-01-01", to: "2026-08-16" }, "2025-02-10"),
+    ).toEqual({
       from: "2026-01-01",
       to: "2026-08-16",
     });
@@ -164,7 +232,9 @@ describe("clamping a requested range", () => {
   it("collapses rather than sliding forward when the range ends before coverage", () => {
     // Asking about 2021 when nothing is complete until 2025 must not quietly
     // answer about 2025 — that is a different question, confidently answered.
-    expect(clampToCoverage({ from: "2021-01-01", to: "2022-01-01" }, "2025-02-10")).toEqual({
+    expect(
+      clampToCoverage({ from: "2021-01-01", to: "2022-01-01" }, "2025-02-10"),
+    ).toEqual({
       from: "2022-01-01",
       to: "2022-01-01",
     });
@@ -178,8 +248,20 @@ describe("ordering within a single instant", () => {
     // account's opening balance, so "first" has to mean the same thing on every
     // run or the completeness verdict flickers.
     const rows = [
-      { accountId: "cur", timestamp: "2025-01-10T00:00:00Z", amount: -20_00, dedupKey: "b", runningBalance: 80_00 },
-      { accountId: "cur", timestamp: "2025-01-10T00:00:00Z", amount: -30_00, dedupKey: "a", runningBalance: 110_00 },
+      {
+        accountId: "cur",
+        timestamp: "2025-01-10T00:00:00Z",
+        amount: -20_00,
+        dedupKey: "b",
+        runningBalance: 80_00,
+      },
+      {
+        accountId: "cur",
+        timestamp: "2025-01-10T00:00:00Z",
+        amount: -30_00,
+        dedupKey: "a",
+        runningBalance: 110_00,
+      },
     ];
     const forwards = openingBalance(current, rows);
     const backwards = openingBalance(current, [...rows].reverse());

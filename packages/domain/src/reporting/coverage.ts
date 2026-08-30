@@ -66,7 +66,11 @@ export function openingBalance(
   // transaction of the earliest day decides a current account's opening
   // balance, so "first" has to mean the same thing every time.
   const rows = [...movements].sort((a, b) =>
-    a.timestamp === b.timestamp ? a.dedupKey.localeCompare(b.dedupKey) : a.timestamp < b.timestamp ? -1 : 1,
+    a.timestamp === b.timestamp
+      ? a.dedupKey.localeCompare(b.dedupKey)
+      : a.timestamp < b.timestamp
+        ? -1
+        : 1,
   );
 
   if (account.isCard === true) {
@@ -89,10 +93,12 @@ export function coverageOf(
     // be missing before a date that does not exist.
     return { accountId: account.accountId };
   }
-  const historyFrom = movements.reduce(
-    (min, m) => (m.timestamp < min ? m.timestamp : min),
-    movements[0]!.timestamp,
-  ).slice(0, 10);
+  const historyFrom = movements
+    .reduce(
+      (min, m) => (m.timestamp < min ? m.timestamp : min),
+      movements[0]!.timestamp,
+    )
+    .slice(0, 10);
 
   const opening = openingBalance(account, movements);
   return {
@@ -100,7 +106,8 @@ export function coverageOf(
     historyFrom,
     // Undefined opening balance means we cannot tell, and the safe reading of
     // "cannot tell" is that history is missing.
-    historyComplete: opening !== undefined && Math.abs(opening) < ZERO_TOLERANCE,
+    historyComplete:
+      opening !== undefined && Math.abs(opening) < ZERO_TOLERANCE,
   };
 }
 
@@ -114,11 +121,15 @@ export function coverageOf(
  * `undefined` when nothing constrains the range — every account is complete, or
  * there are no accounts — and the caller may then use the full span.
  */
-export function completeFrom(coverage: readonly AccountCoverage[]): string | undefined {
+export function completeFrom(
+  coverage: readonly AccountCoverage[],
+): string | undefined {
   const limiting = coverage
     .filter((c) => c.historyComplete !== true && c.historyFrom !== undefined)
     .map((c) => c.historyFrom!);
-  return limiting.length === 0 ? undefined : limiting.reduce((a, b) => (a > b ? a : b));
+  return limiting.length === 0
+    ? undefined
+    : limiting.reduce((a, b) => (a > b ? a : b));
 }
 
 /**
@@ -135,5 +146,8 @@ export function clampToCoverage(
   if (complete === undefined || complete <= requested.from) return requested;
   // A range entirely before coverage collapses to nothing rather than
   // silently sliding forward into a period nobody asked about.
-  return { from: complete > requested.to ? requested.to : complete, to: requested.to };
+  return {
+    from: complete > requested.to ? requested.to : complete,
+    to: requested.to,
+  };
 }

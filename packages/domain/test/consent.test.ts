@@ -31,7 +31,9 @@ describe("a lapsed consent", () => {
   });
 
   it("keeps the message it was given", () => {
-    expect(new ConsentExpired("consent expired for conn-1").message).toBe("consent expired for conn-1");
+    expect(new ConsentExpired("consent expired for conn-1").message).toBe(
+      "consent expired for conn-1",
+    );
   });
 
   it("is not satisfied by an ordinary error that happens to say the same thing", () => {

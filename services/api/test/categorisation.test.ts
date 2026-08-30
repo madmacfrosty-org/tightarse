@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { commitFrom, rangeFrom, route, type CategorisationDeps } from "../src/categorisation.js";
+import {
+  commitFrom,
+  rangeFrom,
+  route,
+  type CategorisationDeps,
+} from "../src/categorisation.js";
 import type { Backlog } from "@tightarse/domain";
 
 /**
@@ -11,7 +16,13 @@ import type { Backlog } from "@tightarse/domain";
  * parameter, no header and no body.
  */
 
-const EMPTY: Backlog = { descriptions: [], recurrences: [], gaps: [], conflicts: [], scanned: 0 };
+const EMPTY: Backlog = {
+  descriptions: [],
+  recurrences: [],
+  gaps: [],
+  conflicts: [],
+  scanned: 0,
+};
 
 const EMPTY_PREDICTION = {
   gained: EMPTY_EFFECT(),
@@ -27,7 +38,13 @@ function EMPTY_EFFECT() {
   return { transactions: 0, outgoing: 0, merchants: 0, entries: [] };
 }
 
-const deps = (backlog: Backlog = EMPTY): CategorisationDeps & { seen: string[]; proposals: unknown[]; categories: unknown[] } => {
+const deps = (
+  backlog: Backlog = EMPTY,
+): CategorisationDeps & {
+  seen: string[];
+  proposals: unknown[];
+  categories: unknown[];
+} => {
   const seen: string[] = [];
   const proposals: unknown[] = [];
   const categories: unknown[] = [];
@@ -46,25 +63,34 @@ const deps = (backlog: Backlog = EMPTY): CategorisationDeps & { seen: string[]; 
       proposals.push(request);
       return { prediction: EMPTY_PREDICTION };
     }),
-    addCategory: vi.fn(async (tenantId: string, request: { label: string; kind?: string }) => {
-      seen.push(tenantId);
-      categories.push(request);
-      return {
-        id: request.label.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-        label: request.label,
-        kind: request.kind ?? "spending",
-      };
-    }),
-  } as unknown as CategorisationDeps & { seen: string[]; proposals: unknown[]; categories: unknown[] };
+    addCategory: vi.fn(
+      async (tenantId: string, request: { label: string; kind?: string }) => {
+        seen.push(tenantId);
+        categories.push(request);
+        return {
+          id: request.label.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+          label: request.label,
+          kind: request.kind ?? "spending",
+        };
+      },
+    ),
+  } as unknown as CategorisationDeps & {
+    seen: string[];
+    proposals: unknown[];
+    categories: unknown[];
+  };
 };
 
 const event = (over: Record<string, unknown> = {}) => ({
   rawPath: "/v1/categorisation/gaps",
-  requestContext: { authorizer: { jwt: { claims: { "custom:tenant": "frost" } } } },
+  requestContext: {
+    authorizer: { jwt: { claims: { "custom:tenant": "frost" } } },
+  },
   queryStringParameters: { from: "2026-01-01", to: "2026-12-31" },
   ...over,
 });
-const body = (res: { body: string }) => JSON.parse(res.body) as Record<string, unknown>;
+const body = (res: { body: string }) =>
+  JSON.parse(res.body) as Record<string, unknown>;
 
 describe("whose ledger is read", () => {
   it("takes the household from the verified claim", async () => {
@@ -81,14 +107,23 @@ describe("whose ledger is read", () => {
     const d = deps();
     await route(
       d,
-      event({ queryStringParameters: { from: "2026-01-01", to: "2026-12-31", tenantId: "someone-else" } }),
+      event({
+        queryStringParameters: {
+          from: "2026-01-01",
+          to: "2026-12-31",
+          tenantId: "someone-else",
+        },
+      }),
     );
 
     expect(d.seen).toEqual(["frost"]);
   });
 
   it("answers 403 for a token carrying no household", async () => {
-    const res = await route(deps(), event({ requestContext: { authorizer: { jwt: { claims: {} } } } }));
+    const res = await route(
+      deps(),
+      event({ requestContext: { authorizer: { jwt: { claims: {} } } } }),
+    );
 
     expect(res.statusCode).toBe(403);
     expect(body(res)["error"]).toContain("No household");
@@ -103,7 +138,10 @@ describe("whose ledger is read", () => {
 
 describe("the range", () => {
   it("takes both ends from the query", () => {
-    expect(rangeFrom(event())).toEqual({ from: "2026-01-01", to: "2026-12-31" });
+    expect(rangeFrom(event())).toEqual({
+      from: "2026-01-01",
+      to: "2026-12-31",
+    });
   });
 
   it.each([
@@ -111,18 +149,28 @@ describe("the range", () => {
     ["to", { from: "2026-01-01" }],
     ["both", {}],
   ])("refuses a request missing %s, rather than inventing one", (_which, q) => {
-    expect(() => rangeFrom({ queryStringParameters: q })).toThrow(/both required/);
+    expect(() => rangeFrom({ queryStringParameters: q })).toThrow(
+      /both required/,
+    );
   });
 
   it("accepts a single day, where both ends are the same", () => {
-    expect(rangeFrom({ queryStringParameters: { from: "2026-05-05", to: "2026-05-05" } })).toEqual({
+    expect(
+      rangeFrom({
+        queryStringParameters: { from: "2026-05-05", to: "2026-05-05" },
+      }),
+    ).toEqual({
       from: "2026-05-05",
       to: "2026-05-05",
     });
   });
 
   it("refuses a range that runs backwards", () => {
-    expect(() => rangeFrom({ queryStringParameters: { from: "2026-12-31", to: "2026-01-01" } })).toThrow(/after/);
+    expect(() =>
+      rangeFrom({
+        queryStringParameters: { from: "2026-12-31", to: "2026-01-01" },
+      }),
+    ).toThrow(/after/);
   });
 
   it("treats a missing query object as a missing range", () => {
@@ -157,13 +205,15 @@ describe("routing", () => {
         },
       ],
       gaps: [{ description: "UNKNOWN SHOP", transactions: 1, outgoing: 10_00 }],
-      conflicts: [{
-    setId: "household",
-    categories: ["groceries", "fuel"],
-    rules: [0, 3],
-    transactions: 4,
-    example: "SOMEMART FORECOURT",
-  }],
+      conflicts: [
+        {
+          setId: "household",
+          categories: ["groceries", "fuel"],
+          rules: [0, 3],
+          transactions: 4,
+          example: "SOMEMART FORECOURT",
+        },
+      ],
       scanned: 4,
     };
     const res = await route(deps(backlog), event());
@@ -173,7 +223,15 @@ describe("routing", () => {
       range: { from: "2026-01-01", to: "2026-12-31" },
       scanned: 4,
       gaps: [{ description: "UNKNOWN SHOP", transactions: 1, outgoing: 10_00 }],
-      conflicts: [{ setId: "household", categories: ["groceries", "fuel"], rules: [0, 3], transactions: 4, example: "SOMEMART FORECOURT" }],
+      conflicts: [
+        {
+          setId: "household",
+          categories: ["groceries", "fuel"],
+          rules: [0, 3],
+          transactions: 4,
+          example: "SOMEMART FORECOURT",
+        },
+      ],
     });
   });
 
@@ -188,14 +246,22 @@ describe("routing", () => {
   it("answers 400, not 500, for a range that runs backwards", async () => {
     // The status has to survive the throw. Losing it turns a caller's mistake
     // into what looks like a server fault, and hides the message that says so.
-    const res = await route(deps(), event({ queryStringParameters: { from: "2026-12-31", to: "2026-01-01" } }));
+    const res = await route(
+      deps(),
+      event({
+        queryStringParameters: { from: "2026-12-31", to: "2026-01-01" },
+      }),
+    );
 
     expect(res.statusCode).toBe(400);
     expect(body(res)["error"]).toMatch(/after/);
   });
 
   it("answers 404 for a path it does not serve", async () => {
-    const res = await route(deps(), event({ rawPath: "/v1/categorisation/nope" }));
+    const res = await route(
+      deps(),
+      event({ rawPath: "/v1/categorisation/nope" }),
+    );
 
     expect(res.statusCode).toBe(404);
     expect(body(res)["error"]).toContain("/v1/categorisation/nope");
@@ -211,7 +277,11 @@ describe("routing", () => {
   it("never echoes an underlying failure, which can carry table structure", async () => {
     const failing = {
       ...deps(),
-      inspection: { backlog: vi.fn(async () => { throw new Error("ResourceNotFoundException: table Ledger-prod"); }) },
+      inspection: {
+        backlog: vi.fn(async () => {
+          throw new Error("ResourceNotFoundException: table Ledger-prod");
+        }),
+      },
     } as unknown as CategorisationDeps;
     const res = await route(failing, event());
 
@@ -225,7 +295,11 @@ describe("routing", () => {
     // 502 with no body at all.
     const failing = {
       ...deps(),
-      inspection: { backlog: vi.fn(async () => { throw { statusCode: 400, detail: "not an Error" }; }) },
+      inspection: {
+        backlog: vi.fn(async () => {
+          throw { statusCode: 400, detail: "not an Error" };
+        }),
+      },
     } as unknown as CategorisationDeps;
     const res = await route(failing, event());
 
@@ -234,7 +308,9 @@ describe("routing", () => {
   });
 
   it("says it is JSON", async () => {
-    expect((await route(deps(), event())).headers).toEqual({ "content-type": "application/json" });
+    expect((await route(deps(), event())).headers).toEqual({
+      "content-type": "application/json",
+    });
   });
 });
 
@@ -243,14 +319,19 @@ describe("the entry point", () => {
     // Only the entry point may run a constructor, so nothing else covers it.
     const { realDeps } = await import("../src/categorisation.js");
 
-    expect(realDeps().inspection).toEqual(expect.objectContaining({ backlog: expect.any(Function) }));
+    expect(realDeps().inspection).toEqual(
+      expect.objectContaining({ backlog: expect.any(Function) }),
+    );
   });
 
   it("answers rather than throwing when the token carries no household", async () => {
     // The Lambda's own entry, which builds its dependencies on first call. A
     // throw here is a 502 with no body; the handler owes a JSON answer.
     const { handler } = await import("../src/categorisation.js");
-    const res = await handler({ rawPath: "/v1/categorisation/gaps", queryStringParameters: {} });
+    const res = await handler({
+      rawPath: "/v1/categorisation/gaps",
+      queryStringParameters: {},
+    });
 
     expect(res.statusCode).toBe(403);
     expect(JSON.parse(res.body)["error"]).toContain("No household");
@@ -279,12 +360,24 @@ describe("proposing a change", () => {
       ...over,
     });
 
-  it.each(["preview", "propose", "apply"])("takes commit=%s at its word", async (commit) => {
-    const d = deps();
-    await route(d, post({ queryStringParameters: { from: "2026-01-01", to: "2026-12-31", commit } }));
+  it.each(["preview", "propose", "apply"])(
+    "takes commit=%s at its word",
+    async (commit) => {
+      const d = deps();
+      await route(
+        d,
+        post({
+          queryStringParameters: {
+            from: "2026-01-01",
+            to: "2026-12-31",
+            commit,
+          },
+        }),
+      );
 
-    expect(d.proposals[0]).toMatchObject({ commit });
-  });
+      expect(d.proposals[0]).toMatchObject({ commit });
+    },
+  );
 
   it("proposes when nothing was asked for, rather than doing nothing", async () => {
     const d = deps();
@@ -297,7 +390,13 @@ describe("proposing a change", () => {
     // A typo quietly meaning "write and apply" is the wrong way round.
     const res = await route(
       deps(),
-      post({ queryStringParameters: { from: "2026-01-01", to: "2026-12-31", commit: "aply" } }),
+      post({
+        queryStringParameters: {
+          from: "2026-01-01",
+          to: "2026-12-31",
+          commit: "aply",
+        },
+      }),
     );
 
     expect(res.statusCode).toBe(400);
@@ -306,7 +405,10 @@ describe("proposing a change", () => {
 
   it("still takes the household from the claim, never the body", async () => {
     const d = deps();
-    await route(d, post({ body: JSON.stringify({ sets: [set], tenantId: "someone-else" }) }));
+    await route(
+      d,
+      post({ body: JSON.stringify({ sets: [set], tenantId: "someone-else" }) }),
+    );
 
     expect(d.seen).toEqual(["frost"]);
   });
@@ -315,7 +417,9 @@ describe("proposing a change", () => {
     const d = deps();
     await route(d, post());
 
-    expect((d.proposals[0] as any).sets[0]).toMatchObject({ status: "proposed" });
+    expect((d.proposals[0] as any).sets[0]).toMatchObject({
+      status: "proposed",
+    });
   });
 
   it("answers 400 for a body that is not JSON", async () => {
@@ -333,15 +437,24 @@ describe("proposing a change", () => {
   });
 
   it("names the field that was wrong, which is the difference between fixing and guessing", async () => {
-    const res = await route(deps(), post({ body: JSON.stringify({ sets: [{ ...set, order: "first" }] }) }));
+    const res = await route(
+      deps(),
+      post({ body: JSON.stringify({ sets: [{ ...set, order: "first" }] }) }),
+    );
 
     expect(res.statusCode).toBe(400);
     expect(body(res)["error"]).toContain("sets.0.order");
   });
 
   it("refuses an amount matcher open at both ends, which matches everything", async () => {
-    const bad = { ...set, rules: [{ ...set.rules[0], matcher: { kind: "amount" } }] };
-    const res = await route(deps(), post({ body: JSON.stringify({ sets: [bad] }) }));
+    const bad = {
+      ...set,
+      rules: [{ ...set.rules[0], matcher: { kind: "amount" } }],
+    };
+    const res = await route(
+      deps(),
+      post({ body: JSON.stringify({ sets: [bad] }) }),
+    );
 
     expect(res.statusCode).toBe(400);
   });
@@ -358,22 +471,38 @@ describe("proposing a change", () => {
       },
     };
     const d = deps();
-    const res = await route(d, post({ body: JSON.stringify({ sets: [{ ...set, rules: [rule] }] }) }));
+    const res = await route(
+      d,
+      post({ body: JSON.stringify({ sets: [{ ...set, rules: [rule] }] }) }),
+    );
 
     expect(res.statusCode).toBe(200);
     expect((d.proposals[0] as any).sets[0].rules[0].matcher.of).toHaveLength(2);
   });
 
   it("refuses a proposal that proposes nothing", async () => {
-    const res = await route(deps(), post({ body: JSON.stringify({ sets: [] }) }));
+    const res = await route(
+      deps(),
+      post({ body: JSON.stringify({ sets: [] }) }),
+    );
 
     expect(res.statusCode).toBe(400);
   });
 
   it.each([
-    ["both sets and a merchant", { sets: [set], merchant: { term: "somemart", category: "groceries" } }],
+    [
+      "both sets and a merchant",
+      { sets: [set], merchant: { term: "somemart", category: "groceries" } },
+    ],
     ["neither", { because: "no reason" }],
-    ["all three", { sets: [set], merchant: { term: "x", category: "y" }, transactions: { dedupKeys: ["d"], category: "y" } }],
+    [
+      "all three",
+      {
+        sets: [set],
+        merchant: { term: "x", category: "y" },
+        transactions: { dedupKeys: ["d"], category: "y" },
+      },
+    ],
   ])("refuses a request giving %s", async (_case, payload) => {
     // Building a rule from whichever happened to be checked first is worse
     // than refusing either.
@@ -389,7 +518,14 @@ describe("proposing a change", () => {
     // The client says what it wants; escaping happens once, on the server, by
     // the same function that built the search which found the rows.
     const d = deps();
-    await route(d, post({ body: JSON.stringify({ merchant: { term: "PIZZA (EXPRESS)", category: "eating-out" } }) }));
+    await route(
+      d,
+      post({
+        body: JSON.stringify({
+          merchant: { term: "PIZZA (EXPRESS)", category: "eating-out" },
+        }),
+      }),
+    );
 
     expect(d.proposals[0]).toMatchObject({
       merchant: { term: "PIZZA (EXPRESS)", category: "eating-out" },
@@ -397,7 +533,10 @@ describe("proposing a change", () => {
   });
 
   it("refuses a merchant rule with no conditions, naming what is missing", async () => {
-    const res = await route(deps(), post({ body: JSON.stringify({ merchant: { category: "groceries" } }) }));
+    const res = await route(
+      deps(),
+      post({ body: JSON.stringify({ merchant: { category: "groceries" } }) }),
+    );
 
     expect(res.statusCode).toBe(400);
     expect(body(res)["error"]).toContain("a term, a type or an amount bound");
@@ -407,22 +546,43 @@ describe("proposing a change", () => {
     const d = deps();
     await route(
       d,
-      post({ body: JSON.stringify({ merchant: { type: "DIRECT_DEBIT", min: 9000, category: "bills" } }) }),
+      post({
+        body: JSON.stringify({
+          merchant: { type: "DIRECT_DEBIT", min: 9000, category: "bills" },
+        }),
+      }),
     );
 
-    expect(d.proposals[0]).toMatchObject({ merchant: { type: "DIRECT_DEBIT", min: 9000, category: "bills" } });
+    expect(d.proposals[0]).toMatchObject({
+      merchant: { type: "DIRECT_DEBIT", min: 9000, category: "bills" },
+    });
   });
 
   it("takes named transactions", async () => {
     const d = deps();
-    await route(d, post({ body: JSON.stringify({ transactions: { dedupKeys: ["a", "b"], category: "groceries" } }) }));
+    await route(
+      d,
+      post({
+        body: JSON.stringify({
+          transactions: { dedupKeys: ["a", "b"], category: "groceries" },
+        }),
+      }),
+    );
 
-    expect(d.proposals[0]).toMatchObject({ transactions: { dedupKeys: ["a", "b"], category: "groceries" } });
+    expect(d.proposals[0]).toMatchObject({
+      transactions: { dedupKeys: ["a", "b"], category: "groceries" },
+    });
   });
 
   it("refuses a matcher kind the domain does not have, rather than passing it on", async () => {
-    const bad = { ...set, rules: [{ ...set.rules[0], matcher: { kind: "dayOfMonth", value: 15 } }] };
-    const res = await route(deps(), post({ body: JSON.stringify({ sets: [bad] }) }));
+    const bad = {
+      ...set,
+      rules: [{ ...set.rules[0], matcher: { kind: "dayOfMonth", value: 15 } }],
+    };
+    const res = await route(
+      deps(),
+      post({ body: JSON.stringify({ sets: [bad] }) }),
+    );
 
     expect(res.statusCode).toBe(400);
     expect(deps().proposals).toEqual([]);
@@ -432,7 +592,10 @@ describe("proposing a change", () => {
     const d = deps();
     const res = await route(
       d,
-      post({ body: Buffer.from(JSON.stringify({ sets: [set] })).toString("base64"), isBase64Encoded: true }),
+      post({
+        body: Buffer.from(JSON.stringify({ sets: [set] })).toString("base64"),
+        isBase64Encoded: true,
+      }),
     );
 
     expect(res.statusCode).toBe(200);
@@ -443,7 +606,9 @@ describe("proposing a change", () => {
     const d = deps();
     await route(d, post());
 
-    expect(d.proposals[0]).toMatchObject({ range: { from: "2026-01-01", to: "2026-12-31" } });
+    expect(d.proposals[0]).toMatchObject({
+      range: { from: "2026-01-01", to: "2026-12-31" },
+    });
   });
 
   it("refuses a proposal with no range, rather than inventing one", async () => {
@@ -462,14 +627,22 @@ describe("proposing a change", () => {
 
 describe("adding a category", () => {
   const add = (over: Record<string, unknown> = {}) =>
-    event({ rawPath: "/v1/categories", body: JSON.stringify({ label: "Season Ticket" }), ...over });
+    event({
+      rawPath: "/v1/categories",
+      body: JSON.stringify({ label: "Season Ticket" }),
+      ...over,
+    });
 
   it("creates one and says where to find it", async () => {
     const d = deps();
     const res = await route(d, add());
 
     expect(res.statusCode).toBe(201);
-    expect(body(res)).toEqual({ id: "season-ticket", label: "Season Ticket", kind: "spending" });
+    expect(body(res)).toEqual({
+      id: "season-ticket",
+      label: "Season Ticket",
+      kind: "spending",
+    });
   });
 
   it("takes the household from the claim, like everything else", async () => {
@@ -483,7 +656,10 @@ describe("adding a category", () => {
     const d = deps();
     await route(d, add());
 
-    expect(d.categories[0]).toMatchObject({ label: "Season Ticket", kind: "spending" });
+    expect(d.categories[0]).toMatchObject({
+      label: "Season Ticket",
+      kind: "spending",
+    });
   });
 
   it.each(["income", "movement"])("takes %s when asked", async (kind) => {
@@ -494,14 +670,20 @@ describe("adding a category", () => {
   });
 
   it("refuses a kind it does not have", async () => {
-    const res = await route(deps(), add({ body: JSON.stringify({ label: "X", kind: "outgoings" }) }));
+    const res = await route(
+      deps(),
+      add({ body: JSON.stringify({ label: "X", kind: "outgoings" }) }),
+    );
 
     expect(res.statusCode).toBe(400);
     expect(body(res)["error"]).toContain("kind");
   });
 
   it("refuses an empty label", async () => {
-    const res = await route(deps(), add({ body: JSON.stringify({ label: "" }) }));
+    const res = await route(
+      deps(),
+      add({ body: JSON.stringify({ label: "" }) }),
+    );
 
     expect(res.statusCode).toBe(400);
   });
@@ -525,7 +707,12 @@ describe("adding a category", () => {
     // says to pick the existing category instead.
     const taken = new Error("“Eating Out” already uses the name eating-out");
     taken.name = "CategoryExists";
-    const d = { ...deps(), addCategory: vi.fn(async () => { throw taken; }) } as unknown as CategorisationDeps;
+    const d = {
+      ...deps(),
+      addCategory: vi.fn(async () => {
+        throw taken;
+      }),
+    } as unknown as CategorisationDeps;
 
     const res = await route(d, add());
 
@@ -558,7 +745,10 @@ describe("reading the commit mode on its own", () => {
     // there is no field to name and the message has to say so.
     const res = await route(
       deps(),
-      event({ rawPath: "/v1/categorisation/proposals", body: JSON.stringify("hello") }),
+      event({
+        rawPath: "/v1/categorisation/proposals",
+        body: JSON.stringify("hello"),
+      }),
     );
 
     expect(res.statusCode).toBe(400);
@@ -567,10 +757,20 @@ describe("reading the commit mode on its own", () => {
 
   it("reports every malformed field, not just the first", async () => {
     // Three bad rules should not take three round trips to correct.
-    const broken = { setId: "household", version: -1, name: "", order: 0, authored: true, rules: [] };
+    const broken = {
+      setId: "household",
+      version: -1,
+      name: "",
+      order: 0,
+      authored: true,
+      rules: [],
+    };
     const res = await route(
       deps(),
-      event({ rawPath: "/v1/categorisation/proposals", body: JSON.stringify({ sets: [broken] }) }),
+      event({
+        rawPath: "/v1/categorisation/proposals",
+        body: JSON.stringify({ sets: [broken] }),
+      }),
     );
 
     expect(res.statusCode).toBe(400);

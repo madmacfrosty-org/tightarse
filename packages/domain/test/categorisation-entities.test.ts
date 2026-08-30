@@ -1,14 +1,26 @@
 import { describe, it, expect } from "vitest";
-import { Categorisation, Matcher, Contribution, Rule, RuleSet } from "../src/index.js";
+import {
+  Categorisation,
+  Matcher,
+  Contribution,
+  Rule,
+  RuleSet,
+} from "../src/index.js";
 
 describe("matchers", () => {
   it("are predicates over a transaction, not only patterns over a string", () => {
     // A merchant pattern, a provider value and a single transaction are all ways
     // of selecting one — which is what lets an override be expressed as a rule
     // without inventing a second mechanism.
-    expect(Matcher.parse({ kind: "merchant", pattern: "^SOMESHOP" }).kind).toBe("merchant");
-    expect(Matcher.parse({ kind: "providerCategory", value: "ATM" }).kind).toBe("providerCategory");
-    expect(Matcher.parse({ kind: "transaction", dedupKey: "d1" }).kind).toBe("transaction");
+    expect(Matcher.parse({ kind: "merchant", pattern: "^SOMESHOP" }).kind).toBe(
+      "merchant",
+    );
+    expect(Matcher.parse({ kind: "providerCategory", value: "ATM" }).kind).toBe(
+      "providerCategory",
+    );
+    expect(Matcher.parse({ kind: "transaction", dedupKey: "d1" }).kind).toBe(
+      "transaction",
+    );
   });
 
   it("rejects an unknown kind rather than accepting it silently", () => {
@@ -21,11 +33,19 @@ describe("contributions", () => {
     // assert puts a category on the table, refine changes one already there, tag
     // attaches an attribute. Arbitrary transforms would produce rule sets nobody
     // can reason about.
-    expect(Contribution.parse({ kind: "assert", category: "Groceries" }).kind).toBe("assert");
-    expect(Contribution.parse({ kind: "refine", category: "Fuel" }).kind).toBe("refine");
+    expect(
+      Contribution.parse({ kind: "assert", category: "Groceries" }).kind,
+    ).toBe("assert");
+    expect(Contribution.parse({ kind: "refine", category: "Fuel" }).kind).toBe(
+      "refine",
+    );
     // Two kinds only: `tag` was specified, never used, and dropped.
-    expect(() => Contribution.parse({ kind: "tag", tag: "reviewed" })).toThrow();
-    expect(() => Contribution.parse({ kind: "replace", category: "Fuel" })).toThrow();
+    expect(() =>
+      Contribution.parse({ kind: "tag", tag: "reviewed" }),
+    ).toThrow();
+    expect(() =>
+      Contribution.parse({ kind: "replace", category: "Fuel" }),
+    ).toThrow();
   });
 });
 
@@ -120,4 +140,3 @@ describe("a categorisation", () => {
     ).toThrow();
   });
 });
-

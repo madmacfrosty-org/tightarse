@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { decide, mayApproveAutomatically, noProposals, optimise, propose } from "../src/application/optimise.js";
+import {
+  decide,
+  mayApproveAutomatically,
+  noProposals,
+  optimise,
+  propose,
+} from "../src/application/optimise.js";
 import type { Evidence } from "../src/categorisation/evidence.js";
 import type { OptimiseReport } from "../src/application/optimise.js";
 import type { Rule, RuleSet } from "../src/categorisation/rules.js";
@@ -40,27 +46,48 @@ const row = (description: string): Row => ({
   timestamp: "2026-02-01T00:00:00.000Z",
 });
 
-function deps(sets: RuleSet[], rows: Row[], proposer: RuleProposer = noProposals) {
+function deps(
+  sets: RuleSet[],
+  rows: Row[],
+  proposer: RuleProposer = noProposals,
+) {
   return {
-    transactions: { listRange: async () => ({ transactions: rows, enrichments: [], categorisations: [] }) },
+    transactions: {
+      listRange: async () => ({
+        transactions: rows,
+        enrichments: [],
+        categorisations: [],
+      }),
+    },
     ruleSets: { listRuleSets: async () => sets as unknown as Row[] },
     proposer,
   } as never;
 }
 
-const conflicted = set("built-in", [asserts("somemart", "groceries"), asserts("store", "shopping")]);
+const conflicted = set("built-in", [
+  asserts("somemart", "groceries"),
+  asserts("store", "shopping"),
+]);
 const fixed = set("built-in", [asserts("somemart", "groceries")]);
 
 describe("with nothing proposed", () => {
   it("reports what the rules do and proposes nothing", async () => {
-    const report = await optimise(deps([conflicted], [row("SOMEMART STORE")]), "frost", { range: RANGE });
+    const report = await optimise(
+      deps([conflicted], [row("SOMEMART STORE")]),
+      "frost",
+      { range: RANGE },
+    );
     expect(report.proposed).toEqual([]);
     expect(report.proposedBy).toBe("none");
     expect(report.before.conflicts).toHaveLength(1);
   });
 
   it("offers no comparison, because there is nothing to compare with", async () => {
-    const report = await optimise(deps([conflicted], [row("SOMEMART STORE")]), "frost", { range: RANGE });
+    const report = await optimise(
+      deps([conflicted], [row("SOMEMART STORE")]),
+      "frost",
+      { range: RANGE },
+    );
     expect(report.after).toBeUndefined();
     expect(report.improvement).toBeUndefined();
   });
@@ -68,8 +95,15 @@ describe("with nothing proposed", () => {
   it("is the plain diagnostic, on the same path as everything else", async () => {
     // The default proposing nothing is what lets "what is wrong with my rules"
     // be an implementation rather than a branch.
-    const report = await optimise(deps([conflicted], [row("SOMEMART STORE")]), "frost", { range: RANGE });
-    expect(report.before.conflicts[0]).toMatchObject({ rules: [0, 1], transactions: 1 });
+    const report = await optimise(
+      deps([conflicted], [row("SOMEMART STORE")]),
+      "frost",
+      { range: RANGE },
+    );
+    expect(report.before.conflicts[0]).toMatchObject({
+      rules: [0, 1],
+      transactions: 1,
+    });
   });
 });
 
@@ -101,7 +135,10 @@ describe("with something proposed", () => {
   });
 
   it("counts rules that would match nothing, before and after", async () => {
-    const withDeadRule = set("built-in", [asserts("somemart", "groceries"), asserts("nowhere", "shopping")]);
+    const withDeadRule = set("built-in", [
+      asserts("somemart", "groceries"),
+      asserts("nowhere", "shopping"),
+    ]);
     const report = await optimise(
       deps([fixed], [row("SOMEMART STORE")], proposer([withDeadRule])),
       "frost",
@@ -112,7 +149,11 @@ describe("with something proposed", () => {
 
   it("counts coverage as merchants nothing matches", async () => {
     const report = await optimise(
-      deps([fixed], [row("SOMEMART"), row("UNKNOWN")], proposer([set("built-in", [asserts("unknown", "shopping")])])),
+      deps(
+        [fixed],
+        [row("SOMEMART"), row("UNKNOWN")],
+        proposer([set("built-in", [asserts("unknown", "shopping")])]),
+      ),
       "frost",
       { range: RANGE },
     );
@@ -125,7 +166,13 @@ describe("with something proposed", () => {
     // matching transaction says, and under re-application changes history too.
     const writes: unknown[] = [];
     const d = {
-      transactions: { listRange: async () => ({ transactions: [row("SOMEMART STORE")], enrichments: [], categorisations: [] }) },
+      transactions: {
+        listRange: async () => ({
+          transactions: [row("SOMEMART STORE")],
+          enrichments: [],
+          categorisations: [],
+        }),
+      },
       ruleSets: {
         listRuleSets: async () => [conflicted] as unknown as Row[],
         putRuleSetVersion: async (...a: unknown[]) => {
@@ -150,7 +197,9 @@ describe("with something proposed", () => {
         return [];
       },
     };
-    await optimise(deps([conflicted], [row("SOMEMART STORE")], spy), "frost", { range: RANGE });
+    await optimise(deps([conflicted], [row("SOMEMART STORE")], spy), "frost", {
+      range: RANGE,
+    });
     expect(seen?.conflicts).toHaveLength(1);
     expect(seen?.scanned).toBe(1);
   });
@@ -160,8 +209,20 @@ describe("recording a proposal", () => {
   const NOW = new Date("2026-03-01T09:00:00.000Z");
 
   const catalogue = [
-    { id: "one", label: "One", kind: "spending", taxonomy: "household", retired: false },
-    { id: "gone", label: "Gone", kind: "spending", taxonomy: "household", retired: true },
+    {
+      id: "one",
+      label: "One",
+      kind: "spending",
+      taxonomy: "household",
+      retired: false,
+    },
+    {
+      id: "gone",
+      label: "Gone",
+      kind: "spending",
+      taxonomy: "household",
+      retired: true,
+    },
   ] as unknown as Row[];
 
   function ruleSets(existing: RuleSet[], categories: Row[] = catalogue) {
@@ -190,7 +251,10 @@ describe("recording a proposal", () => {
     // it would be decoration.
     const existing = { ...set("built-in", [asserts("a", "one")]), version: 7 };
     const { deps, written } = ruleSets([existing]);
-    const out = await propose(deps, "frost", [{ ...existing, version: 1 }], { now: NOW, by: "test" });
+    const out = await propose(deps, "frost", [{ ...existing, version: 1 }], {
+      now: NOW,
+      by: "test",
+    });
     expect(written[0]).toMatchObject({ version: 8, status: "proposed" });
     expect(out[0]).toEqual({ setId: "built-in", version: 8, rules: 1 });
   });
@@ -199,30 +263,50 @@ describe("recording a proposal", () => {
     // A proposer knows what the rules should be. It has no business deciding
     // where they sit in a history it cannot see.
     const { deps, written } = ruleSets([]);
-    await propose(deps, "frost", [{ ...set("assisted", [asserts("a", "one")]), version: 99 }], { now: NOW, by: "t" });
+    await propose(
+      deps,
+      "frost",
+      [{ ...set("assisted", [asserts("a", "one")]), version: 99 }],
+      { now: NOW, by: "t" },
+    );
     expect(written[0]?.version).toBe(1);
   });
 
   it("records who proposed it and when", async () => {
     const { deps, written } = ruleSets([]);
-    await propose(deps, "frost", [set("built-in", [])], { now: NOW, by: "conflict-resolver" });
-    expect(written[0]).toMatchObject({ createdBy: "conflict-resolver", createdAt: NOW.toISOString() });
+    await propose(deps, "frost", [set("built-in", [])], {
+      now: NOW,
+      by: "conflict-resolver",
+    });
+    expect(written[0]).toMatchObject({
+      createdBy: "conflict-resolver",
+      createdAt: NOW.toISOString(),
+    });
   });
 
   it("proposes over an authored set, because a person may want that", async () => {
     // A derived proposal simplifying three rules into one can legitimately make
     // a hand-written special case redundant. Refusing to propose it means never
     // being offered it; the decision is the person's, at approval.
-    const household = { ...set("household", [asserts("a", "one")]), authored: true };
+    const household = {
+      ...set("household", [asserts("a", "one")]),
+      authored: true,
+    };
     const { deps, written } = ruleSets([household]);
-    await propose(deps, "frost", [household], { now: NOW, by: "conflict-resolver" });
+    await propose(deps, "frost", [household], {
+      now: NOW,
+      by: "conflict-resolver",
+    });
     expect(written).toHaveLength(1);
   });
 
   it("refuses a rule naming a category that does not exist", async () => {
     const { deps, written } = ruleSets([]);
     await expect(
-      propose(deps, "frost", [set("built-in", [asserts("a", "invented")])], { now: NOW, by: "t" }),
+      propose(deps, "frost", [set("built-in", [asserts("a", "invented")])], {
+        now: NOW,
+        by: "t",
+      }),
     ).rejects.toThrow(/invented/);
     expect(written).toEqual([]);
   });
@@ -230,7 +314,10 @@ describe("recording a proposal", () => {
   it("refuses a rule choosing a retired category", async () => {
     const { deps, written } = ruleSets([]);
     await expect(
-      propose(deps, "frost", [set("built-in", [asserts("a", "gone")])], { now: NOW, by: "t" }),
+      propose(deps, "frost", [set("built-in", [asserts("a", "gone")])], {
+        now: NOW,
+        by: "t",
+      }),
     ).rejects.toThrow(/gone/);
     expect(written).toEqual([]);
   });
@@ -238,17 +325,21 @@ describe("recording a proposal", () => {
   it("checks every set before writing any, so a bad one fails the lot", async () => {
     const { deps, written } = ruleSets([]);
     await expect(
-      propose(deps, "frost", [set("a", [asserts("x", "one")]), set("b", [asserts("y", "invented")])], {
-        now: NOW,
-        by: "t",
-      }),
+      propose(
+        deps,
+        "frost",
+        [set("a", [asserts("x", "one")]), set("b", [asserts("y", "invented")])],
+        {
+          now: NOW,
+          by: "t",
+        },
+      ),
     ).rejects.toThrow();
     expect(written).toEqual([]);
   });
 });
 
 describe("deciding a proposal", () => {
-
   function ruleSets() {
     const decisions: unknown[][] = [];
     return {
@@ -267,9 +358,23 @@ describe("deciding a proposal", () => {
 
   it("accepts, which publishes the version", async () => {
     const { deps, decisions } = ruleSets();
-    const out = await decide(deps, "frost", [{ setId: "built-in", version: 8 }], { status: "effective" });
-    expect(decisions[0]).toEqual(["frost", "built-in", 8, { status: "effective" }]);
-    expect(out[0]).toEqual({ setId: "built-in", version: 8, status: "effective" });
+    const out = await decide(
+      deps,
+      "frost",
+      [{ setId: "built-in", version: 8 }],
+      { status: "effective" },
+    );
+    expect(decisions[0]).toEqual([
+      "frost",
+      "built-in",
+      8,
+      { status: "effective" },
+    ]);
+    expect(out[0]).toEqual({
+      setId: "built-in",
+      version: 8,
+      status: "effective",
+    });
   });
 
   it("rejects with a reason, because a declined proposal that leaves no trace is made again", async () => {
@@ -278,7 +383,10 @@ describe("deciding a proposal", () => {
       status: "rejected",
       because: "loses 139 merchants",
     });
-    expect(decisions[0]?.[3]).toEqual({ status: "rejected", because: "loses 139 merchants" });
+    expect(decisions[0]?.[3]).toEqual({
+      status: "rejected",
+      because: "loses 139 merchants",
+    });
   });
 
   it("decides every proposal it is given", async () => {
@@ -299,7 +407,9 @@ describe("deciding a proposal", () => {
     // A rule change and its effect on the ledger are different decisions, and
     // the second is re-runnable.
     const { deps, decisions } = ruleSets();
-    await decide(deps, "frost", [{ setId: "a", version: 1 }], { status: "effective" });
+    await decide(deps, "frost", [{ setId: "a", version: 1 }], {
+      status: "effective",
+    });
     expect(decisions.every((d) => d[0] === "frost")).toBe(true);
   });
 });
@@ -313,7 +423,13 @@ describe("whether a proposal may be approved without a person", () => {
   };
   const report = (over: Partial<OptimiseReport> = {}): OptimiseReport => ({
     scanned: 10,
-    before: { reach: [], conflicts: [], inertRefines: [], gaps: [], scanned: 10 },
+    before: {
+      reach: [],
+      conflicts: [],
+      inertRefines: [],
+      gaps: [],
+      scanned: 10,
+    },
     proposed: [set("built-in", [])],
     proposedBy: "conflict-resolver",
     improvement: better,
@@ -321,12 +437,16 @@ describe("whether a proposal may be approved without a person", () => {
   });
 
   it("allows a change that is unambiguously better", () => {
-    expect(mayApproveAutomatically(report(), new Map())).toMatchObject({ allowed: true });
+    expect(mayApproveAutomatically(report(), new Map())).toMatchObject({
+      allowed: true,
+    });
   });
 
   it("never allows one that replaces an authored set", () => {
     // A person may approve exactly this. A machine may not.
-    const current = new Map([["built-in", { ...set("built-in", []), authored: true }]]);
+    const current = new Map([
+      ["built-in", { ...set("built-in", []), authored: true }],
+    ]);
     const v = mayApproveAutomatically(report(), current);
     expect(v.allowed).toBe(false);
     expect(v.because).toMatch(/authored/);
@@ -343,7 +463,9 @@ describe("whether a proposal may be approved without a person", () => {
 
   it("refuses one that adds conflicts", () => {
     const v = mayApproveAutomatically(
-      report({ improvement: { ...better, conflicts: { before: 0, after: 3 } } }),
+      report({
+        improvement: { ...better, conflicts: { before: 0, after: 3 } },
+      }),
       new Map(),
     );
     expect(v.allowed).toBe(false);
@@ -352,14 +474,19 @@ describe("whether a proposal may be approved without a person", () => {
 
   it("refuses one that adds inert refines", () => {
     const v = mayApproveAutomatically(
-      report({ improvement: { ...better, inertRefines: { before: 0, after: 2 } } }),
+      report({
+        improvement: { ...better, inertRefines: { before: 0, after: 2 } },
+      }),
       new Map(),
     );
     expect(v.allowed).toBe(false);
   });
 
   it("refuses when nothing was proposed", () => {
-    const v = mayApproveAutomatically(report({ improvement: undefined }), new Map());
+    const v = mayApproveAutomatically(
+      report({ improvement: undefined }),
+      new Map(),
+    );
     expect(v.allowed).toBe(false);
     expect(v.because).toMatch(/nothing was proposed/);
   });

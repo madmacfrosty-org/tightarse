@@ -107,3 +107,40 @@ export function adopt(adoptions: Adoptions, next: Adoption): Adoptions {
   out.splice(Math.min(at, out.length), 0, next);
   return out;
 }
+
+/**
+ * The sets a tenant actually uses, in the order they outrank each other.
+ *
+ * Adoption is opt-in: a set that exists but has not been adopted does not
+ * apply. That is the point of the model — a shared set sitting in the table is
+ * an offer, not an instruction.
+ *
+ * **Falls back to the sets' own `order` when a tenant has adopted nothing**,
+ * which today is every tenant. Precedence is mid-migration from the set to the
+ * adoption (#121), and a fallback is what lets the two exist at once without a
+ * data migration. It goes when every tenant has a list.
+ *
+ * Matching is on `setId` alone. The adoption pins a VERSION as well, and
+ * honouring that pin belongs where sets are fetched — this function orders what
+ * it is handed and cannot go and read a different version. No caller enforces
+ * the pin yet; it is recorded on #121 rather than implied to work.
+ */
+export function orderedSets<T extends { setId: string; order: number }>(
+  adoptions: Adoptions,
+  sets: readonly T[],
+): T[] {
+  if (adoptions.length === 0) {
+    // The tie-break survives only here, in the leg that reads the old field.
+    // Two sets at equal `order` is a data mistake, but the answer must not
+    // depend on the order a scan returned them in, or the same ledger would
+    // categorise differently on two runs.
+    return [...sets].sort(
+      (a, b) => a.order - b.order || a.setId.localeCompare(b.setId),
+    );
+  }
+
+  const bySetId = new Map(sets.map((s) => [s.setId, s]));
+  return adoptions
+    .map((a) => bySetId.get(a.setId))
+    .filter((s): s is T => s !== undefined);
+}

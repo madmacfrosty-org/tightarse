@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { observationVersion, providerCategorisation, PROVIDER_SET } from "../src/categorisation/provider.js";
+import {
+  observationVersion,
+  providerCategorisation,
+  PROVIDER_SET,
+} from "../src/categorisation/provider.js";
 
 const tx = {
   dedupKey: "d1",
@@ -21,7 +25,9 @@ describe("the provider's own classification", () => {
     // household category is an assertion between categories, made elsewhere —
     // and for most provider values there is deliberately no mapping at all,
     // which is why 100% provider coverage does not mean 100% categorised.
-    expect(providerCategorisation({ ...tx, providerCategory: "PURCHASE" })!.category).toBe("PURCHASE");
+    expect(
+      providerCategorisation({ ...tx, providerCategory: "PURCHASE" })!.category,
+    ).toBe("PURCHASE");
   });
 
   it("names no rule, because none can be named", () => {
@@ -40,9 +46,13 @@ describe("the provider's own classification", () => {
   });
 
   it("produces nothing when the provider classified nothing", () => {
-    expect(providerCategorisation({ ...tx, providerCategory: undefined })).toBeUndefined();
+    expect(
+      providerCategorisation({ ...tx, providerCategory: undefined }),
+    ).toBeUndefined();
     // Empty string is absence, not a category.
-    expect(providerCategorisation({ ...tx, providerCategory: "" })).toBeUndefined();
+    expect(
+      providerCategorisation({ ...tx, providerCategory: "" }),
+    ).toBeUndefined();
   });
 });
 
@@ -62,7 +72,11 @@ describe("the observation stamp", () => {
   it("orders chronologically as a number", () => {
     // A lexical comparison would be fine here, but the field is numeric, so it
     // has to survive being treated as one.
-    expect(observationVersion("2026-01-09T00:00:00Z")).toBeLessThan(observationVersion("2026-01-10T00:00:00Z"));
-    expect(observationVersion("2025-12-31T00:00:00Z")).toBeLessThan(observationVersion("2026-01-01T00:00:00Z"));
+    expect(observationVersion("2026-01-09T00:00:00Z")).toBeLessThan(
+      observationVersion("2026-01-10T00:00:00Z"),
+    );
+    expect(observationVersion("2025-12-31T00:00:00Z")).toBeLessThan(
+      observationVersion("2026-01-01T00:00:00Z"),
+    );
   });
 });

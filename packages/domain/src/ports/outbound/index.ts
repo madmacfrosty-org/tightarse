@@ -373,13 +373,23 @@ export interface LedgerReads {
   }>;
   listAccounts(tenantId: string): Promise<Row[]>;
   /**
-   * The rule sets, for their precedence.
+   * The rule sets, for their rules.
    *
    * A report cannot say which category is in force without knowing which set
-   * outranks which, and that is data rather than load order. It is a read of the
-   * same tenant partition `listAccounts` already touches.
+   * outranks which. It is a read of the same tenant partition `listAccounts`
+   * already touches.
    */
   listRuleSets(tenantId: string): Promise<Row[]>;
+  /**
+   * Which of those sets the tenant uses, and in what order.
+   *
+   * Precedence used to be read off the set itself. It cannot stay there once a
+   * set can be shared, because the same set ranks differently for different
+   * households (#121), so it moved to the tenant's decision to use it. Empty
+   * for a tenant that has adopted nothing, which is every tenant today — the
+   * reader falls back to the sets' own `order` while both exist.
+   */
+  getAdoptions(tenantId: string): Promise<Adoptions>;
   /**
    * The category catalogue.
    *

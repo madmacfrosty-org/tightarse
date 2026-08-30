@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { handler, ledgerConfig, route, realDeps, type ApiDeps } from "../src/handler.js";
+import {
+  handler,
+  ledgerConfig,
+  route,
+  realDeps,
+  type ApiDeps,
+} from "../src/handler.js";
 import { reporting } from "@tightarse/domain";
 import type { Reporting } from "@tightarse/domain";
 
@@ -15,22 +21,41 @@ const listAccounts = vi.fn();
 // Typed, because an inferred `never[]` makes any set a type error the moment
 // a test needs one — which is exactly what happened.
 const listRuleSets = vi.fn(async (): Promise<Record<string, unknown>[]> => []);
-const listCategories = vi.fn(async (): Promise<Record<string, unknown>[]> => []);
+const listCategories = vi.fn(
+  async (): Promise<Record<string, unknown>[]> => [],
+);
 // Bound through the inbound port, over a fake ledger. These tests assert on real
 // aggregated output, so they keep driving the whole application — see the routing
 // tests at the end for the ones that no longer need a ledger at all.
-const deps: ApiDeps = { reporting: reporting({ ledger: { listRange, listAccounts, listRuleSets, listCategories } }) };
+const deps: ApiDeps = {
+  reporting: reporting({
+    ledger: {
+      listRange,
+      listAccounts,
+      listRuleSets,
+      getAdoptions: vi.fn(async () => []),
+      listCategories,
+    },
+  }),
+};
 
 const event = (over: Record<string, unknown> = {}) => ({
   rawPath: "/summary",
-  requestContext: { authorizer: { jwt: { claims: { "custom:tenant": "frost" } } } },
+  requestContext: {
+    authorizer: { jwt: { claims: { "custom:tenant": "frost" } } },
+  },
   ...over,
 });
 
-const body = (res: { body: string }) => JSON.parse(res.body) as Record<string, unknown>;
+const body = (res: { body: string }) =>
+  JSON.parse(res.body) as Record<string, unknown>;
 
 beforeEach(() => {
-  listRange.mockReset().mockResolvedValue({ transactions: [], enrichments: [], categorisations: [] });
+  listRange.mockReset().mockResolvedValue({
+    transactions: [],
+    enrichments: [],
+    categorisations: [],
+  });
   listAccounts.mockReset().mockResolvedValue([]);
 });
 
@@ -38,26 +63,40 @@ describe("who the caller is allowed to read", () => {
   it("takes the household from the verified claim and never from the request", async () => {
     // A query parameter would let any authenticated household read any other's
     // ledger. This is the single most important behaviour in the service.
-    await route(deps, event({ queryStringParameters: { tenantId: "somebody-else" } }) as never);
+    await route(
+      deps,
+      event({ queryStringParameters: { tenantId: "somebody-else" } }) as never,
+    );
     expect(listRange).toHaveBeenCalledWith("frost", expect.anything());
   });
 
   it("refuses an identity carrying no household, rather than defaulting to one", async () => {
     // Falling back to a default tenant would hand a stranger somebody's ledger.
-    const res = await route(deps, event({ requestContext: { authorizer: { jwt: { claims: {} } } } }) as never);
+    const res = await route(
+      deps,
+      event({
+        requestContext: { authorizer: { jwt: { claims: {} } } },
+      }) as never,
+    );
     expect(res.statusCode).toBe(403);
     expect(listRange).not.toHaveBeenCalled();
   });
 
   it("refuses an unauthenticated request", async () => {
-    const res = await route(deps, event({ requestContext: undefined }) as never);
+    const res = await route(
+      deps,
+      event({ requestContext: undefined }) as never,
+    );
     expect(res.statusCode).toBe(403);
     expect(listRange).not.toHaveBeenCalled();
   });
 
   it("refuses a household claim that is present but empty", async () => {
     const claims = { "custom:tenant": "" };
-    const res = await route(deps, event({ requestContext: { authorizer: { jwt: { claims } } } }) as never);
+    const res = await route(
+      deps,
+      event({ requestContext: { authorizer: { jwt: { claims } } } }) as never,
+    );
     expect(res.statusCode).toBe(403);
   });
 });
@@ -71,20 +110,33 @@ describe("the range a request may ask for", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-10T09:00:00Z"));
     await route(deps, event() as never);
-    expect(listRange).toHaveBeenCalledWith("frost", { from: "2025-03-10", to: "2026-03-10" });
+    expect(listRange).toHaveBeenCalledWith("frost", {
+      from: "2025-03-10",
+      to: "2026-03-10",
+    });
     vi.useRealTimers();
   });
 
   it("rejects a backwards range instead of quietly returning nothing", async () => {
     // An empty result reads as "no transactions", which is indistinguishable
     // from a broken sync.
-    const res = await route(deps, event({ queryStringParameters: { from: "2026-05-01", to: "2026-01-01" } }) as never);
+    const res = await route(
+      deps,
+      event({
+        queryStringParameters: { from: "2026-05-01", to: "2026-01-01" },
+      }) as never,
+    );
     expect(res.statusCode).toBe(400);
     expect(listRange).not.toHaveBeenCalled();
   });
 
   it("accepts a range whose ends are equal, which is a single day", async () => {
-    const res = await route(deps, event({ queryStringParameters: { from: "2026-05-01", to: "2026-05-01" } }) as never);
+    const res = await route(
+      deps,
+      event({
+        queryStringParameters: { from: "2026-05-01", to: "2026-05-01" },
+      }) as never,
+    );
     expect(res.statusCode).toBe(200);
   });
 });
@@ -126,7 +178,10 @@ describe("routing", () => {
       ],
     });
     listRuleSets.mockResolvedValue([{ setId: "built-in", order: 2 }]);
-    const res = await route(deps, event({ rawPath: "/v1/transactions" }) as never);
+    const res = await route(
+      deps,
+      event({ rawPath: "/v1/transactions" }) as never,
+    );
     const rows = body(res)["transactions"] as Array<Record<string, unknown>>;
     expect(rows).toHaveLength(1);
     expect(rows[0]!["category"]).toBe("Groceries");
@@ -139,9 +194,15 @@ describe("routing", () => {
     // the range that was queried mislabels every chart on the page.
     const res = await route(
       deps,
-      event({ rawPath: "/v1/transactions", queryStringParameters: { from: "2026-01-01", to: "2026-02-01" } }) as never,
+      event({
+        rawPath: "/v1/transactions",
+        queryStringParameters: { from: "2026-01-01", to: "2026-02-01" },
+      }) as never,
     );
-    expect(body(res)["range"]).toEqual({ from: "2026-01-01", to: "2026-02-01" });
+    expect(body(res)["range"]).toEqual({
+      from: "2026-01-01",
+      to: "2026-02-01",
+    });
   });
 
   it("does not serve table keys, the tenant or the provider's account id", async () => {
@@ -168,7 +229,15 @@ describe("routing", () => {
     const res = await route(deps, event({ rawPath: "/v1/accounts" }) as never);
     const [account] = body(res)["accounts"] as Array<Record<string, unknown>>;
 
-    for (const leaked of ["pk", "sk", "gsi1pk", "kind", "tenantId", "provider", "providerAccountId"]) {
+    for (const leaked of [
+      "pk",
+      "sk",
+      "gsi1pk",
+      "kind",
+      "tenantId",
+      "provider",
+      "providerAccountId",
+    ]) {
       expect(account).not.toHaveProperty(leaked);
     }
     expect(account).toEqual({
@@ -187,7 +256,13 @@ describe("routing", () => {
     // wrong answer than showing it incomplete. isCard stays absent — "not yet
     // known" is not "not a card". See #29.
     listAccounts.mockResolvedValue([
-      { pk: "T#frost", sk: "ACCOUNT#acc-2", tenantId: "frost", accountId: "acc-2", currentBalance: 500_00 },
+      {
+        pk: "T#frost",
+        sk: "ACCOUNT#acc-2",
+        tenantId: "frost",
+        accountId: "acc-2",
+        currentBalance: 500_00,
+      },
     ]);
     const res = await route(deps, event({ rawPath: "/v1/accounts" }) as never);
     const [account] = body(res)["accounts"] as Array<Record<string, unknown>>;
@@ -203,7 +278,9 @@ describe("routing", () => {
 
 describe("what a failure tells the caller", () => {
   it("does not echo an internal error, which can carry table structure", async () => {
-    listRange.mockRejectedValue(new Error("ResourceNotFound: table tightarse-prod-Ledger"));
+    listRange.mockRejectedValue(
+      new Error("ResourceNotFound: table tightarse-prod-Ledger"),
+    );
     const res = await route(deps, event() as never);
     expect(res.statusCode).toBe(500);
     expect(res.body).not.toContain("tightarse-prod-Ledger");
@@ -211,7 +288,12 @@ describe("what a failure tells the caller", () => {
   });
 
   it("does explain a 4xx, which is the caller's own mistake", async () => {
-    const res = await route(deps, event({ queryStringParameters: { from: "2026-05-01", to: "2026-01-01" } }) as never);
+    const res = await route(
+      deps,
+      event({
+        queryStringParameters: { from: "2026-05-01", to: "2026-01-01" },
+      }) as never,
+    );
     expect(body(res)["error"]).toMatch(/after/);
   });
 });
@@ -246,7 +328,12 @@ describe("the Lambda entry point", () => {
 
 describe("where the ledger client points", () => {
   it("uses the table and region the environment gives it", () => {
-    expect(ledgerConfig({ TABLE_NAME: "tightarse-dev-Ledger", AWS_REGION: "eu-west-2" })).toEqual({
+    expect(
+      ledgerConfig({
+        TABLE_NAME: "tightarse-dev-Ledger",
+        AWS_REGION: "eu-west-2",
+      }),
+    ).toEqual({
       tableName: "tightarse-dev-Ledger",
       region: "eu-west-2",
     });
@@ -267,8 +354,18 @@ describe("where the ledger client points", () => {
 
 describe("balance over time", () => {
   const accountRows = [
-    { accountId: "cur", isCard: false, currentBalance: 900_00, lastSyncedAt: "2026-03-05T05:00:00Z" },
-    { accountId: "card", isCard: true, currentBalance: 100_00, lastSyncedAt: "2026-03-05T05:00:00Z" },
+    {
+      accountId: "cur",
+      isCard: false,
+      currentBalance: 900_00,
+      lastSyncedAt: "2026-03-05T05:00:00Z",
+    },
+    {
+      accountId: "card",
+      isCard: true,
+      currentBalance: 100_00,
+      lastSyncedAt: "2026-03-05T05:00:00Z",
+    },
   ];
   // Both opened inside the data — running balance equals the first amount, and
   // the card's transactions sum to what it owes — so nothing constrains the
@@ -297,11 +394,21 @@ describe("balance over time", () => {
 
   beforeEach(() => {
     listAccounts.mockResolvedValue(accountRows);
-    listRange.mockResolvedValue({ transactions: txnRows, enrichments: [], categorisations: [] });
+    listRange.mockResolvedValue({
+      transactions: txnRows,
+      enrichments: [],
+      categorisations: [],
+    });
   });
 
   it("returns a point for every day in the range", async () => {
-    const res = await route(deps, event({ rawPath: "/v1/balances", queryStringParameters: { from: "2026-03-01", to: "2026-03-05" } }));
+    const res = await route(
+      deps,
+      event({
+        rawPath: "/v1/balances",
+        queryStringParameters: { from: "2026-03-01", to: "2026-03-05" },
+      }),
+    );
     const body = JSON.parse(res.body);
     expect(body.points.map((p: { date: string }) => p.date)).toEqual([
       "2026-03-01",
@@ -318,7 +425,13 @@ describe("balance over time", () => {
     // Reading only the range made every card's history wrong by whatever
     // happened afterwards — and `rangeFrom` defaults to a rolling year, so an
     // unqualified /accounts reported every account as starting a year ago.
-    await route(deps, event({ rawPath: "/v1/balances", queryStringParameters: { from: "2026-03-01", to: "2026-03-02" } }));
+    await route(
+      deps,
+      event({
+        rawPath: "/v1/balances",
+        queryStringParameters: { from: "2026-03-01", to: "2026-03-02" },
+      }),
+    );
     const ranges = listRange.mock.calls.map((c) => c[1]);
     expect(ranges.some((r) => r.from === "1970-01-01")).toBe(true);
   });
@@ -326,7 +439,13 @@ describe("balance over time", () => {
   it("subtracts card debt, so the last point matches the account tiles", async () => {
     // £900 cash less £100 owed. The same figure the net-position tile shows,
     // because a chart disagreeing with the headline number reads as a bug.
-    const res = await route(deps, event({ rawPath: "/v1/balances", queryStringParameters: { from: "2026-03-01", to: "2026-03-05" } }));
+    const res = await route(
+      deps,
+      event({
+        rawPath: "/v1/balances",
+        queryStringParameters: { from: "2026-03-01", to: "2026-03-05" },
+      }),
+    );
     const body = JSON.parse(res.body);
     expect(body.points[body.points.length - 1].net).toBe(800_00);
   });
@@ -335,13 +454,23 @@ describe("balance over time", () => {
     // An account that plainly existed before our data constrains the total.
     listRange.mockResolvedValue({
       transactions: [
-        { ...txnRows[0], runningBalance: 900_00, timestamp: "2026-03-03T00:00:00Z" },
+        {
+          ...txnRows[0],
+          runningBalance: 900_00,
+          timestamp: "2026-03-03T00:00:00Z",
+        },
         txnRows[1],
       ],
       enrichments: [],
       categorisations: [],
     });
-    const res = await route(deps, event({ rawPath: "/v1/balances", queryStringParameters: { from: "2026-01-01", to: "2026-03-05" } }));
+    const res = await route(
+      deps,
+      event({
+        rawPath: "/v1/balances",
+        queryStringParameters: { from: "2026-01-01", to: "2026-03-05" },
+      }),
+    );
     const body = JSON.parse(res.body);
     expect(body.range.from).toBe("2026-03-03");
     expect(body.points[0].date).toBe("2026-03-03");
@@ -351,7 +480,12 @@ describe("balance over time", () => {
 describe("what /accounts says about coverage", () => {
   it("reports where each account's history starts and whether anything precedes it", async () => {
     listAccounts.mockResolvedValue([
-      { accountId: "cur", isCard: false, currentBalance: 100_00, lastSyncedAt: "2026-03-05T05:00:00Z" },
+      {
+        accountId: "cur",
+        isCard: false,
+        currentBalance: 100_00,
+        lastSyncedAt: "2026-03-05T05:00:00Z",
+      },
     ]);
     listRange.mockResolvedValue({
       transactions: [
@@ -379,7 +513,11 @@ describe("what /accounts says about coverage", () => {
 
   it("omits completeFrom when no account constrains the range", async () => {
     listAccounts.mockResolvedValue([{ accountId: "cur", isCard: false }]);
-    listRange.mockResolvedValue({ transactions: [], enrichments: [], categorisations: [] });
+    listRange.mockResolvedValue({
+      transactions: [],
+      enrichments: [],
+      categorisations: [],
+    });
     const res = await route(deps, event({ rawPath: "/v1/accounts" }));
     const body = JSON.parse(res.body);
     expect(body.completeFrom).toBeUndefined();
@@ -402,7 +540,21 @@ describe("routing, against the application rather than through it", () => {
   const fake: Reporting = {
     summary: async () => {
       called.push("summary");
-      return { currency: "GBP", from: "2026-01-01", to: "2026-01-31", transactionCount: 0, income: 0, spend: 0, net: 0, byCategory: [], byMonth: [], internalTransfersNetted: true, transferCount: 0, transferTotal: 0, enrichedCount: 0 };
+      return {
+        currency: "GBP",
+        from: "2026-01-01",
+        to: "2026-01-31",
+        transactionCount: 0,
+        income: 0,
+        spend: 0,
+        net: 0,
+        byCategory: [],
+        byMonth: [],
+        internalTransfersNetted: true,
+        transferCount: 0,
+        transferTotal: 0,
+        enrichedCount: 0,
+      };
     },
     transactions: async (_t, range) => {
       called.push("transactions");
@@ -443,8 +595,19 @@ describe("routing, against the application rather than through it", () => {
     // directly, rather than inferred from which rows came back.
     let seen: string | undefined;
     await route(
-      { reporting: { ...fake, accounts: async (t) => { seen = t; return { accounts: [] }; } } },
-      event({ rawPath: "/v1/accounts", queryStringParameters: { tenantId: "someone-else" } }),
+      {
+        reporting: {
+          ...fake,
+          accounts: async (t) => {
+            seen = t;
+            return { accounts: [] };
+          },
+        },
+      },
+      event({
+        rawPath: "/v1/accounts",
+        queryStringParameters: { tenantId: "someone-else" },
+      }),
     );
     expect(seen).toBe("frost");
   });
@@ -458,7 +621,12 @@ describe("routing, against the application rather than through it", () => {
   it("turns a use-case failure into a 500 that says nothing about the cause", async () => {
     // A thrown error can carry key material and table structure.
     const boom: ApiDeps = {
-      reporting: { ...fake, summary: async () => { throw new Error("table tightarse-prod scan denied"); } },
+      reporting: {
+        ...fake,
+        summary: async () => {
+          throw new Error("table tightarse-prod scan denied");
+        },
+      },
     };
     const res = await route(boom, event({ rawPath: "/v1/summary" }));
     expect(res.statusCode).toBe(500);
@@ -471,8 +639,11 @@ describe("events that are not shaped as expected", () => {
     // API Gateway always sends rawPath, but a direct invocation or a payload
     // version change may not. Reading undefined as a route would match nothing
     // and throw inside the matcher rather than answering.
-    return route(deps, { requestContext: { authorizer: { jwt: { claims: { "custom:tenant": "frost" } } } } } as never)
-      .then((res) => expect(res.statusCode).toBe(404));
+    return route(deps, {
+      requestContext: {
+        authorizer: { jwt: { claims: { "custom:tenant": "frost" } } },
+      },
+    } as never).then((res) => expect(res.statusCode).toBe(404));
   });
 
   it("reports a non-Error failure without leaking its shape", async () => {
@@ -480,13 +651,21 @@ describe("events that are not shaped as expected", () => {
     // is how a stack trace or a table name reaches a client.
     const throwing = {
       reporting: {
-        summary: async () => { throw "a bare string"; },
-        transactions: async () => ({ range: { from: "", to: "" }, transactions: [] }),
+        summary: async () => {
+          throw "a bare string";
+        },
+        transactions: async () => ({
+          range: { from: "", to: "" },
+          transactions: [],
+        }),
         accounts: async () => ({ accounts: [] }),
         balances: async () => ({ range: { from: "", to: "" }, points: [] }),
       },
     };
-    const res = await route(throwing as never, event({ rawPath: "/v1/summary" }));
+    const res = await route(
+      throwing as never,
+      event({ rawPath: "/v1/summary" }),
+    );
     expect(res.statusCode).toBe(500);
     expect(JSON.parse(res.body)).toEqual({ error: "Internal error" });
   });
@@ -520,7 +699,9 @@ describe("the category catalogue", () => {
     const res = await route(spy, event({ rawPath: "/categories" }) as never);
 
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body)).toEqual({ categories: [{ id: "fuel", label: "Fuel", kind: "spending" }] });
+    expect(JSON.parse(res.body)).toEqual({
+      categories: [{ id: "fuel", label: "Fuel", kind: "spending" }],
+    });
   });
 
   it("takes the household from the claim here too", async () => {
@@ -553,7 +734,10 @@ describe("narrowing the list", () => {
       categories: vi.fn(),
       transactions: vi.fn(async (_t: string, _r: unknown, filter?: unknown) => {
         seen.push(filter);
-        return { range: { from: "2026-01-01", to: "2026-12-31" }, transactions: [] };
+        return {
+          range: { from: "2026-01-01", to: "2026-12-31" },
+          transactions: [],
+        };
       }),
     } as unknown as Reporting,
   });
@@ -562,15 +746,25 @@ describe("narrowing the list", () => {
     const seen: unknown[] = [];
     const res = await route(
       spying(seen),
-      event({ rawPath: "/transactions", queryStringParameters: params }) as never,
+      event({
+        rawPath: "/transactions",
+        queryStringParameters: params,
+      }) as never,
     );
     return { seen, res };
   };
 
   it("carries every condition through, and they combine", async () => {
-    const { seen } = await asked({ q: "somemart", type: "DIRECT_DEBIT", min: "9000", max: "10000" });
+    const { seen } = await asked({
+      q: "somemart",
+      type: "DIRECT_DEBIT",
+      min: "9000",
+      max: "10000",
+    });
 
-    expect(seen).toEqual([{ term: "somemart", type: "DIRECT_DEBIT", min: 9000, max: 10000 }]);
+    expect(seen).toEqual([
+      { term: "somemart", type: "DIRECT_DEBIT", min: 9000, max: 10000 },
+    ]);
   });
 
   it.each([
@@ -588,13 +782,16 @@ describe("narrowing the list", () => {
     ["not a number", { min: "abc" }],
     ["negative", { min: "-500" }],
     ["fractional", { max: "10.5" }],
-  ])("refuses a bound that is %s rather than ignoring it", async (_case, params) => {
-    // Dropping it silently answers a question nobody asked, and looks like the
-    // filter did nothing.
-    const { res } = await asked(params);
+  ])(
+    "refuses a bound that is %s rather than ignoring it",
+    async (_case, params) => {
+      // Dropping it silently answers a question nobody asked, and looks like the
+      // filter did nothing.
+      const { res } = await asked(params);
 
-    expect(res.statusCode).toBe(400);
-  });
+      expect(res.statusCode).toBe(400);
+    },
+  );
 
   it("refuses a range that runs backwards", async () => {
     const { res } = await asked({ min: "10000", max: "9000" });
@@ -611,14 +808,25 @@ describe("narrowing the list", () => {
         accounts: vi.fn(),
         balances: vi.fn(),
         categories: vi.fn(),
-        transactions: vi.fn(async (_t: string, _r: unknown, search?: string) => {
-          seen.push(search);
-          return { range: { from: "2026-01-01", to: "2026-12-31" }, transactions: [] };
-        }),
+        transactions: vi.fn(
+          async (_t: string, _r: unknown, search?: string) => {
+            seen.push(search);
+            return {
+              range: { from: "2026-01-01", to: "2026-12-31" },
+              transactions: [],
+            };
+          },
+        ),
       } as unknown as Reporting,
     };
 
-    await route(spy, event({ rawPath: "/transactions", queryStringParameters: { q: "somemart" } }) as never);
+    await route(
+      spy,
+      event({
+        rawPath: "/transactions",
+        queryStringParameters: { q: "somemart" },
+      }) as never,
+    );
 
     expect(seen).toEqual([{ term: "somemart" }]);
   });
@@ -636,14 +844,25 @@ describe("narrowing the list", () => {
         accounts: vi.fn(),
         balances: vi.fn(),
         categories: vi.fn(),
-        transactions: vi.fn(async (_t: string, _r: unknown, search?: string) => {
-          seen.push(search);
-          return { range: { from: "2026-01-01", to: "2026-12-31" }, transactions: [] };
-        }),
+        transactions: vi.fn(
+          async (_t: string, _r: unknown, search?: string) => {
+            seen.push(search);
+            return {
+              range: { from: "2026-01-01", to: "2026-12-31" },
+              transactions: [],
+            };
+          },
+        ),
       } as unknown as Reporting,
     };
 
-    await route(spy, event({ rawPath: "/transactions", queryStringParameters: params }) as never);
+    await route(
+      spy,
+      event({
+        rawPath: "/transactions",
+        queryStringParameters: params,
+      }) as never,
+    );
 
     expect(seen).toEqual([undefined]);
   });

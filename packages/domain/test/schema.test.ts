@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { toMinorUnits, minorUnitExponent, assertSingleCurrency, dedupKey } from "../src/index.js";
+import {
+  toMinorUnits,
+  minorUnitExponent,
+  assertSingleCurrency,
+  dedupKey,
+} from "../src/index.js";
 
 describe("toMinorUnits", () => {
   it("handles the float representations that lose a penny under truncation", () => {
@@ -53,8 +58,12 @@ describe("dedupKey", () => {
   };
 
   it("records which identifier was available in the prefix", () => {
-    expect(dedupKey({ ...base, normalisedProviderTransactionId: "abc" })).toMatch(/^n:[0-9a-f]{32}$/);
-    expect(dedupKey({ ...base, providerTransactionId: "xyz" })).toMatch(/^p:[0-9a-f]{32}$/);
+    expect(
+      dedupKey({ ...base, normalisedProviderTransactionId: "abc" }),
+    ).toMatch(/^n:[0-9a-f]{32}$/);
+    expect(dedupKey({ ...base, providerTransactionId: "xyz" })).toMatch(
+      /^p:[0-9a-f]{32}$/,
+    );
     expect(dedupKey(base)).toMatch(/^c:[0-9a-f]{32}$/);
   });
 
@@ -68,8 +77,16 @@ describe("dedupKey", () => {
     // Measured: 191 card transactions carried only 160 distinct normalised ids,
     // and colliding rows had entirely different amounts. Keying on the id alone
     // would have merged them and lost money from the ledger.
-    const a = dedupKey({ ...base, normalisedProviderTransactionId: "shared", amount: -1142 });
-    const b = dedupKey({ ...base, normalisedProviderTransactionId: "shared", amount: -38185 });
+    const a = dedupKey({
+      ...base,
+      normalisedProviderTransactionId: "shared",
+      amount: -1142,
+    });
+    const b = dedupKey({
+      ...base,
+      normalisedProviderTransactionId: "shared",
+      amount: -38185,
+    });
     expect(a).not.toBe(b);
   });
 
@@ -84,7 +101,9 @@ describe("dedupKey", () => {
   it("is stable for identical input and differs when any component changes", () => {
     expect(dedupKey(base)).toBe(dedupKey({ ...base }));
     expect(dedupKey(base)).not.toBe(dedupKey({ ...base, amount: -1300 }));
-    expect(dedupKey(base)).not.toBe(dedupKey({ ...base, description: "OTHER" }));
+    expect(dedupKey(base)).not.toBe(
+      dedupKey({ ...base, description: "OTHER" }),
+    );
   });
 });
 
@@ -92,14 +111,15 @@ describe("assertSingleCurrency", () => {
   it("refuses to let a mixed-currency set be summed", () => {
     // Silently adding yen to pounds yields a plausible wrong number, which is
     // worse than an error in a finance application.
-    expect(() => assertSingleCurrency([{ currency: "GBP" }, { currency: "JPY" }])).toThrow(
-      /Cannot aggregate across currencies/,
-    );
+    expect(() =>
+      assertSingleCurrency([{ currency: "GBP" }, { currency: "JPY" }]),
+    ).toThrow(/Cannot aggregate across currencies/);
   });
 
   it("passes a uniform set through and reports the currency", () => {
-    expect(assertSingleCurrency([{ currency: "GBP" }, { currency: "GBP" }])).toBe("GBP");
+    expect(
+      assertSingleCurrency([{ currency: "GBP" }, { currency: "GBP" }]),
+    ).toBe("GBP");
     expect(assertSingleCurrency([])).toBeNull();
   });
 });
-

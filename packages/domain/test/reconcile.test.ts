@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { reconcile, reconciliation } from "../src/application/reconcile.js";
 import type { ReconcileDeps } from "../src/application/reconcile.js";
-import type { ReconciliationMovement, Reading } from "../src/ledger/reconciliation.js";
+import type {
+  ReconciliationMovement,
+  Reading,
+} from "../src/ledger/reconciliation.js";
 
 /**
  * The use case around the check.
@@ -14,7 +17,12 @@ import type { ReconciliationMovement, Reading } from "../src/ledger/reconciliati
 
 const TENANT = "frost";
 
-const reading = (accountId: string, asOf: string, balance: number, fetchedAt = asOf): Reading => ({
+const reading = (
+  accountId: string,
+  asOf: string,
+  balance: number,
+  fetchedAt = asOf,
+): Reading => ({
   accountId,
   asOf,
   fetchedAt,
@@ -51,7 +59,11 @@ function deps(
         ) => {
           marked.push(`${tenantId}|${id}|${asOf}|${discrepancy}`);
         },
-        clearBalanceReadingDirty: async (tenantId: string, id: string, asOf: string) => {
+        clearBalanceReadingDirty: async (
+          tenantId: string,
+          id: string,
+          asOf: string,
+        ) => {
           cleared.push(`${tenantId}|${id}|${asOf}`);
         },
       },
@@ -65,9 +77,14 @@ describe("marking what did not add up", () => {
     // to the earlier reading still reconciled.
     const { deps: d, marked } = deps({
       readingsByAccount: {
-        "acc-1": [reading("acc-1", "2026-01-01T05:00:00.000Z", 100_00), reading("acc-1", "2026-01-03T05:00:00.000Z", 70_00)],
+        "acc-1": [
+          reading("acc-1", "2026-01-01T05:00:00.000Z", 100_00),
+          reading("acc-1", "2026-01-03T05:00:00.000Z", 70_00),
+        ],
       },
-      movementsByAccount: { "acc-1": [{ timestamp: "2026-01-02T00:00:00Z", amount: -10_00 }] },
+      movementsByAccount: {
+        "acc-1": [{ timestamp: "2026-01-02T00:00:00Z", amount: -10_00 }],
+      },
     });
     return reconcile(d, TENANT).then((result) => {
       expect(result.breaks).toBe(1);
@@ -76,9 +93,16 @@ describe("marking what did not add up", () => {
   });
 
   it("leaves the earlier reading alone, which still reconciles", async () => {
-    const { deps: d, marked, cleared } = deps({
+    const {
+      deps: d,
+      marked,
+      cleared,
+    } = deps({
       readingsByAccount: {
-        "acc-1": [reading("acc-1", "2026-01-01T05:00:00.000Z", 100_00), reading("acc-1", "2026-01-03T05:00:00.000Z", 70_00)],
+        "acc-1": [
+          reading("acc-1", "2026-01-01T05:00:00.000Z", 100_00),
+          reading("acc-1", "2026-01-03T05:00:00.000Z", 70_00),
+        ],
       },
     });
     await reconcile(d, TENANT);
@@ -100,7 +124,9 @@ describe("marking what did not add up", () => {
 
     const after = deps({
       readingsByAccount: { "acc-1": readings },
-      movementsByAccount: { "acc-1": [{ timestamp: "2026-01-02T00:00:00Z", amount: -30_00 }] },
+      movementsByAccount: {
+        "acc-1": [{ timestamp: "2026-01-02T00:00:00Z", amount: -30_00 }],
+      },
     });
     await reconcile(after.deps, TENANT);
     expect(after.marked).toHaveLength(0);
@@ -116,15 +142,29 @@ describe("running over a household", () => {
     const { deps: d } = deps({
       accounts: async () => ["acc-1", "card-1"],
       readingsByAccount: {
-        "acc-1": [reading("acc-1", "2026-01-01T05:00:00.000Z", 100), reading("acc-1", "2026-01-03T05:00:00.000Z", 100)],
-        "card-1": [reading("card-1", "2026-01-01T05:00:00.000Z", -500), reading("card-1", "2026-01-03T05:00:00.000Z", -700)],
+        "acc-1": [
+          reading("acc-1", "2026-01-01T05:00:00.000Z", 100),
+          reading("acc-1", "2026-01-03T05:00:00.000Z", 100),
+        ],
+        "card-1": [
+          reading("card-1", "2026-01-01T05:00:00.000Z", -500),
+          reading("card-1", "2026-01-03T05:00:00.000Z", -700),
+        ],
       },
     });
     const result = await reconcile(d, TENANT);
     expect(Object.keys(result.accounts)).toEqual(["acc-1", "card-1"]);
     expect(result.checked).toBe(2);
-    expect(result.accounts["card-1"]).toEqual({ readings: 2, checked: 1, breaks: 1 });
-    expect(result.accounts["acc-1"]).toEqual({ readings: 2, checked: 1, breaks: 0 });
+    expect(result.accounts["card-1"]).toEqual({
+      readings: 2,
+      checked: 1,
+      breaks: 1,
+    });
+    expect(result.accounts["acc-1"]).toEqual({
+      readings: 2,
+      checked: 1,
+      breaks: 0,
+    });
   });
 
   it("reports zero checks for a household whose accounts have one reading each", async () => {
@@ -132,12 +172,18 @@ describe("running over a household", () => {
     // here means "nothing checked", not "everything healthy", and the report
     // has to say which.
     const { deps: d } = deps({
-      readingsByAccount: { "acc-1": [reading("acc-1", "2026-01-01T05:00:00.000Z", 100)] },
+      readingsByAccount: {
+        "acc-1": [reading("acc-1", "2026-01-01T05:00:00.000Z", 100)],
+      },
     });
     const result = await reconcile(d, TENANT);
     expect(result.checked).toBe(0);
     expect(result.breaks).toBe(0);
-    expect(result.accounts["acc-1"]).toEqual({ readings: 1, checked: 0, breaks: 0 });
+    expect(result.accounts["acc-1"]).toEqual({
+      readings: 1,
+      checked: 0,
+      breaks: 0,
+    });
   });
 
   it("carries counts only, never a balance", async () => {
@@ -145,14 +191,21 @@ describe("running over a household", () => {
     // this reaches CloudWatch.
     const { deps: d } = deps({
       readingsByAccount: {
-        "acc-1": [reading("acc-1", "2026-01-01T05:00:00.000Z", 123_456), reading("acc-1", "2026-01-03T05:00:00.000Z", 99_999)],
+        "acc-1": [
+          reading("acc-1", "2026-01-01T05:00:00.000Z", 123_456),
+          reading("acc-1", "2026-01-03T05:00:00.000Z", 99_999),
+        ],
       },
     });
     const result = await reconcile(d, TENANT);
     const serialised = JSON.stringify(result);
     expect(serialised).not.toContain("123456");
     expect(serialised).not.toContain("99999");
-    expect(result.accounts["acc-1"]).toEqual({ readings: 2, checked: 1, breaks: 1 });
+    expect(result.accounts["acc-1"]).toEqual({
+      readings: 2,
+      checked: 1,
+      breaks: 1,
+    });
   });
 });
 

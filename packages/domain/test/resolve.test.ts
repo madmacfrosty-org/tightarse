@@ -47,7 +47,14 @@ describe("resolving a transaction", () => {
   });
 
   it("prefers the more trusted set", () => {
-    const r = resolve(tx, [cat({ setId: "built-in", category: "Groceries" }), cat({ setId: "household", category: "Fuel" })], order);
+    const r = resolve(
+      tx,
+      [
+        cat({ setId: "built-in", category: "Groceries" }),
+        cat({ setId: "household", category: "Fuel" }),
+      ],
+      order,
+    );
     expect(r.effective?.setId).toBe("household");
     expect(r.effective?.category).toBe("Fuel");
   });
@@ -55,56 +62,94 @@ describe("resolving a transaction", () => {
   it("keeps what the other sets said", () => {
     // The audit question is "what did each source say", so nothing is discarded
     // — and disagreement between sources is a defect signal, not noise.
-    const r = resolve(tx, [cat({ setId: "built-in", category: "Groceries" }), cat({ setId: "household", category: "Fuel" })], order);
-    expect(r.bySet.map((c) => c.setId)).toEqual(["household", "built-in", "provider"]);
-    expect(r.disagreeing.map((c) => c.category)).toEqual(["Groceries", "PURCHASE"]);
+    const r = resolve(
+      tx,
+      [
+        cat({ setId: "built-in", category: "Groceries" }),
+        cat({ setId: "household", category: "Fuel" }),
+      ],
+      order,
+    );
+    expect(r.bySet.map((c) => c.setId)).toEqual([
+      "household",
+      "built-in",
+      "provider",
+    ]);
+    expect(r.disagreeing.map((c) => c.category)).toEqual([
+      "Groceries",
+      "PURCHASE",
+    ]);
   });
 
   it("takes the newest version within a set", () => {
-    const r = resolve({ ...tx, providerCategory: undefined }, [
-      cat({ version: 1, category: "Groceries", status: "superseded" }),
-      cat({ version: 2, category: "Fuel" }),
-    ], order);
+    const r = resolve(
+      { ...tx, providerCategory: undefined },
+      [
+        cat({ version: 1, category: "Groceries", status: "superseded" }),
+        cat({ version: 2, category: "Fuel" }),
+      ],
+      order,
+    );
     expect(r.effective?.category).toBe("Fuel");
     expect(r.effective?.version).toBe(2);
   });
 
   it("orders versions numerically, so version 10 follows version 9", () => {
-    const r = resolve({ ...tx, providerCategory: undefined }, [
-      cat({ version: 9, category: "Groceries", status: "superseded" }),
-      cat({ version: 10, category: "Fuel" }),
-    ], order);
+    const r = resolve(
+      { ...tx, providerCategory: undefined },
+      [
+        cat({ version: 9, category: "Groceries", status: "superseded" }),
+        cat({ version: 10, category: "Fuel" }),
+      ],
+      order,
+    );
     expect(r.effective?.version).toBe(10);
   });
 
   it("never lets a proposal become effective", () => {
     // A pending proposal must not change what is displayed, or approving it is
     // decoration. It stays visible in history.
-    const r = resolve({ ...tx, providerCategory: undefined }, [
-      cat({ version: 1, category: "Groceries" }),
-      cat({ version: 2, category: "Fuel", status: "proposed" }),
-    ], order);
+    const r = resolve(
+      { ...tx, providerCategory: undefined },
+      [
+        cat({ version: 1, category: "Groceries" }),
+        cat({ version: 2, category: "Fuel", status: "proposed" }),
+      ],
+      order,
+    );
     expect(r.effective?.category).toBe("Groceries");
     expect(r.history.map((c) => c.status)).toEqual(["effective", "proposed"]);
   });
 
   it("returns the effective set's history oldest first", () => {
-    const r = resolve({ ...tx, providerCategory: undefined }, [
-      cat({ version: 2, category: "Fuel" }),
-      cat({ version: 1, category: "Groceries", status: "superseded" }),
-    ], order);
+    const r = resolve(
+      { ...tx, providerCategory: undefined },
+      [
+        cat({ version: 2, category: "Fuel" }),
+        cat({ version: 1, category: "Groceries", status: "superseded" }),
+      ],
+      order,
+    );
     expect(r.history.map((c) => c.version)).toEqual([1, 2]);
   });
 
   it("ranks an unranked set last rather than dropping it", () => {
     // Dropping it would hide a categorisation because somebody forgot to rank
     // its set — a silent failure. Last is merely unhelpful.
-    const r = resolve({ ...tx, providerCategory: undefined }, [cat({ setId: "mystery", category: "Fuel" })], order);
+    const r = resolve(
+      { ...tx, providerCategory: undefined },
+      [cat({ setId: "mystery", category: "Fuel" })],
+      order,
+    );
     expect(r.effective?.setId).toBe("mystery");
-    const both = resolve({ ...tx, providerCategory: undefined }, [
-      cat({ setId: "mystery", category: "Fuel" }),
-      cat({ setId: "household", category: "Groceries" }),
-    ], order);
+    const both = resolve(
+      { ...tx, providerCategory: undefined },
+      [
+        cat({ setId: "mystery", category: "Fuel" }),
+        cat({ setId: "household", category: "Groceries" }),
+      ],
+      order,
+    );
     expect(both.effective?.setId).toBe("household");
   });
 
@@ -116,9 +161,16 @@ describe("resolving a transaction", () => {
       { setId: "alpha", order: 100 },
       { setId: "beta", order: 100 },
     ];
-    const rows = [cat({ setId: "beta", category: "Fuel" }), cat({ setId: "alpha", category: "Groceries" })];
+    const rows = [
+      cat({ setId: "beta", category: "Fuel" }),
+      cat({ setId: "alpha", category: "Groceries" }),
+    ];
     const a = resolve({ ...tx, providerCategory: undefined }, rows, tied);
-    const b = resolve({ ...tx, providerCategory: undefined }, [...rows].reverse(), tied);
+    const b = resolve(
+      { ...tx, providerCategory: undefined },
+      [...rows].reverse(),
+      tied,
+    );
     expect(a.effective?.setId).toBe("alpha");
     expect(b.effective?.setId).toBe("alpha");
   });
