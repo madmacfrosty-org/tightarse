@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { AwsSecrets } from "../src/secrets";
+import { AwsSecrets } from "../src/secrets.js";
 
 const notFound = () => Object.assign(new Error("nope"), { name: "ResourceNotFoundException" });
 const client = (send: (cmd: any) => Promise<unknown>) => ({ send: vi.fn(send) }) as any;

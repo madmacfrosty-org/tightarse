@@ -10,7 +10,11 @@ import type { Identity } from "./data-stack.js";
 import { CATEGORISATION_ROUTES, CONNECT_PATHS, ROUTES, pathFor } from "@tightarse/api-contract";
 import { Construct } from "constructs";
 import * as path from "node:path";
-import { config, type EnvSettings } from "./config";
+import { config, type EnvSettings } from "./config.js";
+import { fileURLToPath } from "node:url";
+
+/** ESM has no `__dirname`; this is it. */
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 export interface ApiStackProps extends cdk.StackProps {
   readonly settings: EnvSettings;
@@ -48,7 +52,7 @@ export class ApiStack extends cdk.Stack {
     const { settings, table, identity } = props;
 
     const handler = new NodejsFunction(this, "ApiHandler", {
-      entry: path.join(__dirname, "../../../packages/adapters/http/src/handler.ts"),
+      entry: path.join(here, "../../../packages/adapters/http/src/handler.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
       architecture: lambda.Architecture.ARM_64,
@@ -151,7 +155,7 @@ export class ApiStack extends cdk.Stack {
     //
     // Separate for the reason that survives: this one writes.
     const categorisation = new NodejsFunction(this, "CategorisationHandler", {
-      entry: path.join(__dirname, "../../../packages/adapters/http/src/categorisation.ts"),
+      entry: path.join(here, "../../../packages/adapters/http/src/categorisation.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
       architecture: lambda.Architecture.ARM_64,

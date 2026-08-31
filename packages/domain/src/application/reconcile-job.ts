@@ -16,8 +16,8 @@
  */
 
 import { emit } from "@tightarse/metrics";
-import { rowKind, scanAll, type Row } from "@tightarse/domain";
-import { reconcile } from "@tightarse/domain";
+import { rowKind, scanAll, type Row } from "../index.js";
+import { reconcile } from "../index.js";
 import type {
   AccountId,
   ReconciliationMovement,
@@ -26,7 +26,7 @@ import type {
   ReconciliationMarks,
   ReconciliationReport,
   TableRows,
-} from "@tightarse/domain";
+} from "../index.js";
 
 export interface ReconcileConfig {
   readonly tableName: string;

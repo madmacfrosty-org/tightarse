@@ -93,3 +93,4 @@ export {
   rowKind,
   scanAll,
 } from "./application/compare.js";
+export * from "./application/reconcile-job.js";

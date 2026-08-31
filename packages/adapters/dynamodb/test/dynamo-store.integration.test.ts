@@ -6,11 +6,11 @@ import {
   QueryCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { type Transaction } from "@tightarse/domain";
-import { DynamoStore } from "../src/dynamo-store";
-import { DynamoTransactions } from "../src/transactions";
-import { DynamoBalances } from "../src/balances";
-import { resolveTestTarget } from "../src/test-table";
-import { keys } from "../src/keys";
+import { DynamoStore } from "../src/dynamo-store.js";
+import { DynamoTransactions } from "../src/transactions.js";
+import { DynamoBalances } from "../src/balances.js";
+import { resolveTestTarget } from "../src/test-table.js";
+import { keys } from "../src/keys.js";
 
 /**
  * Integration tests against a real DynamoDB.

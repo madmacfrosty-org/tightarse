@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import path from "node:path";
 import { existsSync } from "node:fs";
@@ -28,12 +29,15 @@ import { ESLint } from "eslint";
  * broken test rather than as a broken lookup.
  */
 function repoRoot(): string {
-  let dir = path.resolve(__dirname);
+  let dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
   for (let i = 0; i < 8; i += 1) {
     if (existsSync(path.join(dir, "eslint.config.mjs"))) return dir;
     dir = path.dirname(dir);
   }
-  throw new Error("Could not locate eslint.config.mjs above " + __dirname);
+  throw new Error(
+    "Could not locate eslint.config.mjs above " +
+      path.dirname(fileURLToPath(import.meta.url)),
+  );
 }
 
 const ROOT = repoRoot();

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   type Transaction,
 } from "@tightarse/domain";
-import { categorisationItems, ruleSetItems, transactionItem, pendingItem } from "../src/items";
+import { categorisationItems, ruleSetItems, transactionItem, pendingItem } from "../src/items.js";
 
 const txn = (over: Partial<Transaction> = {}): Transaction => ({
   tenantId: "frost",

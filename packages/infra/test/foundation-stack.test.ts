@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Match } from "aws-cdk-lib/assertions";
-import { templates, policyStatements } from "./harness";
-import { config } from "../lib/config";
+import { templates, policyStatements } from "./harness.js";
+import { config } from "../lib/config.js";
 
 const { foundation } = templates();
 const prodFoundation = templates({ env: "prod" }).foundation;

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { SnsNotifications } from "../src/notifications";
+import { SnsNotifications } from "../src/notifications.js";
 
 describe("publishing", () => {
   it("sends to the topic it was constructed with", async () => {

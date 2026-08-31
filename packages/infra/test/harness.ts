@@ -3,12 +3,12 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
-import { envSettings, config, type EnvSettings } from "../lib/config";
-import { FoundationStack } from "../lib/foundation-stack";
-import { DataStack } from "../lib/data-stack";
-import { ApiStack } from "../lib/api-stack";
-import { IngestStack } from "../lib/ingest-stack";
-import { WebStack } from "../lib/web-stack";
+import { envSettings, config, type EnvSettings } from "../lib/config.js";
+import { FoundationStack } from "../lib/foundation-stack.js";
+import { DataStack } from "../lib/data-stack.js";
+import { ApiStack } from "../lib/api-stack.js";
+import { IngestStack } from "../lib/ingest-stack.js";
+import { WebStack } from "../lib/web-stack.js";
 
 /**
  * Synthesise the real application, exactly as bin/tightarse.ts wires it.

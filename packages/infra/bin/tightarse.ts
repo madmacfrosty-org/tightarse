@@ -4,12 +4,12 @@
 // undefined, so the flag rejects code the library intends. Only this project
 // relaxes it; everything that touches ledger data keeps it on.
 import * as cdk from "aws-cdk-lib";
-import { config, envSettings } from "../lib/config";
-import { FoundationStack } from "../lib/foundation-stack";
-import { DataStack } from "../lib/data-stack";
-import { ApiStack } from "../lib/api-stack";
-import { WebStack } from "../lib/web-stack";
-import { IngestStack } from "../lib/ingest-stack";
+import { config, envSettings } from "../lib/config.js";
+import { FoundationStack } from "../lib/foundation-stack.js";
+import { DataStack } from "../lib/data-stack.js";
+import { ApiStack } from "../lib/api-stack.js";
+import { WebStack } from "../lib/web-stack.js";
+import { IngestStack } from "../lib/ingest-stack.js";
 
 const app = new cdk.App();
 const settings = envSettings(app);

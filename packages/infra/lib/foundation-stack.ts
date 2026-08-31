@@ -3,7 +3,7 @@ import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as kms from "aws-cdk-lib/aws-kms";
 import * as iam from "aws-cdk-lib/aws-iam";
 import { Construct } from "constructs";
-import { config, secretPrefix, type EnvSettings } from "./config";
+import { config, secretPrefix, type EnvSettings } from "./config.js";
 
 export interface FoundationStackProps extends cdk.StackProps {
   readonly settings: EnvSettings;

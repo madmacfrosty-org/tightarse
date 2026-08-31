@@ -1,5 +1,5 @@
 import { DynamoStore, DynamoTableRows } from "@tightarse/dynamodb";
-import { reconcileConfig, reconcileFrom } from "./reconcile-job.js";
+import { reconcileConfig, reconcileFrom } from "@tightarse/domain";
 import type { ReconciliationMarks, TableRows } from "@tightarse/domain";
 
 /**

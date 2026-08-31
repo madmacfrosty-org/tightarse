@@ -18,7 +18,11 @@ import type * as kms from "aws-cdk-lib/aws-kms";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import * as path from "node:path";
-import { config, connectRedirectUri, secretPrefix, type EnvSettings } from "./config";
+import { config, connectRedirectUri, secretPrefix, type EnvSettings } from "./config.js";
+import { fileURLToPath } from "node:url";
+
+/** ESM has no `__dirname`; this is it. */
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 export interface IngestStackProps extends cdk.StackProps {
   readonly settings: EnvSettings;
@@ -147,7 +151,7 @@ export class IngestStack extends cdk.Stack {
 
     const steps = new NodejsFunction(this, "SyncSteps", {
       ...common,
-      entry: path.join(__dirname, "../../../packages/adapters/steps/src/steps-handler.ts"),
+      entry: path.join(here, "../../../packages/adapters/steps/src/steps-handler.ts"),
       handler: "handler",
       memorySize: 512,
       // A 9,000-transaction history takes ~14s on its own; this covers one
@@ -287,7 +291,7 @@ export class IngestStack extends cdk.Stack {
 
     const transform = new NodejsFunction(this, "Transform", {
       ...common,
-      entry: path.join(__dirname, "../../../packages/adapters/events/src/transform-handler.ts"),
+      entry: path.join(here, "../../../packages/adapters/events/src/transform-handler.ts"),
       handler: "handler",
       // The account default, unraised. Ample: the largest raw object is about
       // 6MB decompressed.
@@ -378,7 +382,7 @@ export class IngestStack extends cdk.Stack {
     // whether or not anyone is looking.
     const categorise = new NodejsFunction(this, "Categorise", {
       ...common,
-      entry: path.join(__dirname, "../../../packages/adapters/schedule/src/categorise-handler.ts"),
+      entry: path.join(here, "../../../packages/adapters/schedule/src/categorise-handler.ts"),
       handler: "handler",
       memorySize: 512,
       // The backlog is derived by diffing transactions against enrichments, so
@@ -414,7 +418,7 @@ export class IngestStack extends cdk.Stack {
     // events. Checking at write time would compare against whatever had landed.
     const reconcile = new NodejsFunction(this, "Reconcile", {
       ...common,
-      entry: path.join(__dirname, "../../../packages/adapters/schedule/src/reconcile-handler.ts"),
+      entry: path.join(here, "../../../packages/adapters/schedule/src/reconcile-handler.ts"),
       handler: "handler",
       memorySize: 512,
       // Scans the table and groups in memory. Small at this size, and a single
@@ -662,7 +666,7 @@ export class IngestStack extends cdk.Stack {
     const connect = new NodejsFunction(this, "Connect", {
       ...common,
       functionName: props.connectFunctionName,
-      entry: path.join(__dirname, "../../../packages/adapters/steps/src/connect.ts"),
+      entry: path.join(here, "../../../packages/adapters/steps/src/connect.ts"),
       handler: "handler",
       memorySize: 256,
       timeout: cdk.Duration.seconds(30),

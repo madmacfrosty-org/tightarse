@@ -69,8 +69,7 @@ what the other adapters own. The alternative was to push each command back
 beside the adapter it drives, which is the layout this decision exists to leave
 behind.
 
-The domain is CommonJS and `metrics` is ESM, so the domain cannot import it.
-That decided where `reconcile-job` lives: it is a use case, but it emits
-telemetry, so it sits with the schedule handler that drives it rather than in
-the domain. A packaging fact, not a design one, and it will keep deciding this
-until the module systems agree.
+The domain being CommonJS while `metrics` was ESM briefly decided where
+`reconcile-job` lived — a packaging accident placing a piece of the model. That
+is settled in ADR 2: the domain is ESM and the use case is back where it
+belongs.

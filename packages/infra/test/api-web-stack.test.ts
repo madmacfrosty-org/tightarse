@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Match } from "aws-cdk-lib/assertions";
-import { templates } from "./harness";
+import { templates } from "./harness.js";
 
 const { api, web, stacks } = templates();
 

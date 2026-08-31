@@ -8,7 +8,11 @@ import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as path from "node:path";
 import { Construct } from "constructs";
-import { config, type EnvSettings } from "./config";
+import { config, type EnvSettings } from "./config.js";
+import { fileURLToPath } from "node:url";
+
+/** ESM has no `__dirname`; this is it. */
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * A pool, the client that talks to it, and the hosted UI it signs in through.
@@ -192,7 +196,7 @@ export class DataStack extends cdk.Stack {
      * nothing about which pool asked.
      */
     const preToken = new NodejsFunction(this, "PreTokenGeneration", {
-      entry: path.join(__dirname, "../../../packages/adapters/cognito/src/pre-token.ts"),
+      entry: path.join(here, "../../../packages/adapters/cognito/src/pre-token.ts"),
       handler: "handler",
       runtime: lambda.Runtime.NODEJS_22_X,
       architecture: lambda.Architecture.ARM_64,

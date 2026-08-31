@@ -9,10 +9,11 @@
  */
 
 import { writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { renderOpenApiDocument } from "./openapi.js";
 
-// __dirname rather than import.meta.url: this package builds to CommonJS.
-const out = join(__dirname, "..", "openapi.json");
+// import.meta.url, because every package but the CDK app is ESM (ADR 2).
+const out = join(dirname(fileURLToPath(import.meta.url)), "..", "openapi.json");
 writeFileSync(out, renderOpenApiDocument());
 console.log(`wrote ${out}`);

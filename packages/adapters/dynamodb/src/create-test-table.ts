@@ -30,7 +30,7 @@ import {
   waitUntilTableExists,
   waitUntilTableNotExists,
 } from "@aws-sdk/client-dynamodb";
-import { resolveTestTarget } from "./test-table";
+import { resolveTestTarget } from "./test-table.js";
 
 /**
  * A refusal here is the guard working, so it prints the reason and nothing

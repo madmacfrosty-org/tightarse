@@ -19,10 +19,11 @@
   "thresholds": {
     "high": 90,
     "low": 70,
-    "break": 72.4
+    "break": 64.7
   },
   "tempDirName": ".stryker-tmp",
   "vitest": {
     "related": false
-  }
+  },
+  "_note": "Lowered when `reconcile-job` moved to the domain (ADR 2), taking its tests with it and leaving this package as handlers alone. The old floor described code that is no longer here. Raise it again as coverage lands; do not lower it to pass a build."
 }

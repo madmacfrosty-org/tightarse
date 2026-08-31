@@ -7,7 +7,11 @@ import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import type { Identity } from "./data-stack.js";
 import { Construct } from "constructs";
 import * as path from "node:path";
-import { config, type EnvSettings } from "./config";
+import { config, type EnvSettings } from "./config.js";
+import { fileURLToPath } from "node:url";
+
+/** ESM has no `__dirname`; this is it. */
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 export interface WebStackProps extends cdk.StackProps {
   readonly settings: EnvSettings;
@@ -116,7 +120,7 @@ export class WebStack extends cdk.Stack {
     });
 
     const sources = [
-      s3deploy.Source.asset(path.join(__dirname, "../../web/dist")),
+      s3deploy.Source.asset(path.join(here, "../../web/dist")),
       // Written by CDK, so it always matches the stack that deployed it.
       s3deploy.Source.jsonData("config.json", {
         userPoolId: identity.pool.userPoolId,

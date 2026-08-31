@@ -6,8 +6,8 @@ import {
   reconcileFrom,
   reconciliationLines,
   reconciliationMetrics,
-} from "../src/reconcile-job";
-import { reconcile } from "@tightarse/domain";
+} from "../src/application/reconcile-job.js";
+import { reconcile } from "../src/index.js";
 
 /**
  * The adapter half: turning stored rows into what the use case reads, and the

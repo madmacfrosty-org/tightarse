@@ -8,7 +8,7 @@ import {
   Summary,
   TransactionView,
   TransactionsResponse,
-} from "../src/index";
+} from "../src/index.js";
 
 /**
  * These are about what the contract promises, not about Zod working.

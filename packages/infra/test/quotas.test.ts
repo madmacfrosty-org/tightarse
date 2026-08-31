@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { templates } from "./harness";
+import { templates } from "./harness.js";
 
 /**
  * Account limits, checked across every stack at once.

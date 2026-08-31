@@ -20,9 +20,10 @@
   },
   "devDependencies": {
     "aws-cdk": "^2.170.0",
-    "ts-node": "^10.9.2",
     "vitest": "^2.1.0",
     "@vitest/coverage-v8": "^2.1.0",
-    "@tightarse/vitest-config": "*"
-  }
+    "@tightarse/vitest-config": "*",
+    "tsx": "^4.19.0"
+  },
+  "type": "module"
 }

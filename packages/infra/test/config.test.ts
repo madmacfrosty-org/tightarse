@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import * as cdk from "aws-cdk-lib";
-import { connectRedirectUri, envSettings, secretPrefix } from "../lib/config";
-import { templates } from "./harness";
+import { connectRedirectUri, envSettings, secretPrefix } from "../lib/config.js";
+import { templates } from "./harness.js";
 
 /**
  * Which environment a deploy is for.

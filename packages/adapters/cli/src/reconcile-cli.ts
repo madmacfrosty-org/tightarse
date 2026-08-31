@@ -13,7 +13,7 @@ import { DynamoTableRows, DynamoStore } from "@tightarse/dynamodb";
 import { emit } from "@tightarse/metrics";
 import { reconcile } from "@tightarse/domain";
 import { scanAll, type Row } from "@tightarse/domain";
-import { dataFrom, groupForReconciliation, reconciliationLines, reconciliationMetrics } from "@tightarse/schedule";
+import { dataFrom, groupForReconciliation, reconciliationLines, reconciliationMetrics } from "@tightarse/domain";
 
 function requireEnv(name: string): string {
   const v = process.env[name];

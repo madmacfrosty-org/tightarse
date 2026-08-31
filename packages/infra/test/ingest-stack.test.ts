@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Match } from "aws-cdk-lib/assertions";
-import { templates, policyStatements } from "./harness";
-import { connectRedirectUri, envSettings } from "../lib/config";
+import { templates, policyStatements } from "./harness.js";
+import { connectRedirectUri, envSettings } from "../lib/config.js";
 import * as cdk from "aws-cdk-lib";
 
 const { ingest } = templates();

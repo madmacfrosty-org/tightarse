@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { DynamoTableRows } from "../src/rows";
+import { DynamoTableRows } from "../src/rows.js";
 
 /**
  * Pagination, tested where it now lives. It used to sit in the transform's

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { startExecution } from "../src/workflows";
+import { startExecution } from "../src/workflows.js";
 
 const client = (send: (cmd: any) => Promise<unknown>) => ({ send: vi.fn(send) }) as any;
 

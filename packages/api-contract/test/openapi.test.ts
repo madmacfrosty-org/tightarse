@@ -1,9 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { buildOpenApiDocument, renderOpenApiDocument, schemasFrom } from "../src/openapi";
-import { API_VERSION, CATEGORISATION_ROUTES, CONNECT_PATHS, ROUTES, pathFor } from "../src/routes";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { buildOpenApiDocument, renderOpenApiDocument, schemasFrom } from "../src/openapi.js";
+import { API_VERSION, CATEGORISATION_ROUTES, CONNECT_PATHS, ROUTES, pathFor } from "../src/routes.js";
 
 const doc = buildOpenApiDocument();
 const text = JSON.stringify(doc);
@@ -18,7 +19,7 @@ const text = JSON.stringify(doc);
  */
 describe("the checked-in document", () => {
   it("is what the generator produces", () => {
-    const onDisk = readFileSync(join(__dirname, "..", "openapi.json"), "utf8");
+    const onDisk = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "openapi.json"), "utf8");
     expect(onDisk).toBe(renderOpenApiDocument());
   });
 });

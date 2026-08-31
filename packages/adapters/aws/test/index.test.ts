@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import * as aws from "../src/index";
+import * as aws from "../src/index.js";
 
 describe("what the package exports", () => {
   it("exposes one capability per export, and nothing else", () => {

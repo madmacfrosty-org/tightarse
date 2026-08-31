@@ -4,6 +4,15 @@ import { coverageBase, autoUpdate } from "@tightarse/vitest-config";
 // Thresholds are literal here so `autoUpdate` can raise them as coverage lands;
 // it rewrites this file and can only find them written out. Raise them, never
 // lower them.
+// Lowered when this package became handlers alone. `reconcile-job` is a use
+// case and moved to the domain once the domain could import metrics (ADR 2),
+// taking its tests with it.
+//
+// What is left uncovered is the memoised Lambda entry in each handler, which
+// constructs AWS clients. Not exempt under the "no decision" rule — the
+// memoisation is a decision, made because these were built at module scope and
+// a warm container reused them — so it is a real gap, recorded rather than
+// hidden.
 export default defineConfig({
   test: {
     coverage: {
@@ -21,10 +30,10 @@ export default defineConfig({
         //
         // What is left uncovered is handler.ts's Lambda `handler` body, which
         // constructs real AWS clients and cannot run in a unit test.
-        lines: 95.65,
-        functions: 80,
+        lines: 92.47,
+        functions: 71.42,
         branches: 100,
-        statements: 95.65,
+        statements: 92.47,
         autoUpdate,
       },
     },

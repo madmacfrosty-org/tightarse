@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { S3RawObjects } from "../src/raw-objects";
+import { S3RawObjects } from "../src/raw-objects.js";
 
 /**
  * The adapter, against a fake S3 client. What is being checked is the

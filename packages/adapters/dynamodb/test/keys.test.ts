@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { BalanceReading } from "@tightarse/domain";
-import { keys } from "../src/keys";
+import { keys } from "../src/keys.js";
 
 /**
  * Key construction, tested where it now lives.

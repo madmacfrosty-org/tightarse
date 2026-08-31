@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveTestTarget, CITEST_REGION, CITEST_TABLE_PREFIX } from "../src/test-table";
+import { resolveTestTarget, CITEST_REGION, CITEST_TABLE_PREFIX } from "../src/test-table.js";
 
 /**
  * These are about one outcome: an integration run must be incapable of reaching
