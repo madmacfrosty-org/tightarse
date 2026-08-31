@@ -6,7 +6,7 @@
  * domain rather than separate modules to import:
  *
  *   money            integer minor units, one currency at a time
- *   ledger/          transactions, accounts, balances
+ *   ledger/          transactions, accounts, balances, books
  *   categorisation/  rules as values, and what applying one produces
  *   household/       members, settings, bank consents
  *   reporting/       what the household spent, and what it is worth
@@ -25,6 +25,7 @@ export * from "./ledger/transaction.js";
 export * from "./ledger/account.js";
 export * from "./ledger/balance.js";
 export * from "./ledger/reconciliation.js";
+export * from "./ledger/books.js";
 export * from "./categorisation/rules.js";
 export * from "./categorisation/evaluate.js";
 export * from "./categorisation/overrides.js";

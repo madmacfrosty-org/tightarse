@@ -43,12 +43,25 @@ import type { DateRange } from "../index.js";
 export type Row = Record<string, unknown>;
 
 /**
- * The transaction record and its categorisations.
+ * The one read the write port and the read API both need.
  *
- * `listRange` returns three kinds from one query because they share a partition
- * — that adjacency is deliberate and is what makes a batch read one call.
+ * Extracted rather than inherited. `Transactions extends LedgerReads` would have
+ * been shorter and inverts the dependency — the store would be defined by what
+ * one consumer needs, and widening `LedgerReads` for the read API's convenience
+ * would silently widen the write port too, which is the hazard the note at the
+ * top of this file exists to avoid.
+ *
+ * Only `listRange`. The other twice-declared methods are one-liners whose two
+ * declarations carry different reasons for existing, and extracting them would
+ * lose the reason or push it somewhere generic. This one is complex enough for
+ * drift to be plausible, and it was edited by hand in both places during #113
+ * with nothing to catch a mismatch.
+ *
+ * Note that structural typing only partly protects this: an adapter satisfies
+ * both ports whether or not the declarations agree, so drift fails to compile
+ * only when the two become incompatible rather than merely different.
  */
-export interface Transactions {
+export interface TransactionReads {
   listRange(
     tenantId: string,
     range: DateRange,
@@ -56,6 +69,15 @@ export interface Transactions {
     transactions: RecordedTransaction[];
     categorisations: Categorisation[];
   }>;
+}
+
+/**
+ * The transaction record and its categorisations.
+ *
+ * `listRange` returns three kinds from one query because they share a partition
+ * — that adjacency is deliberate and is what makes a batch read one call.
+ */
+export interface Transactions extends TransactionReads {
   listAccountRange(
     tenantId: string,
     accountId: string,
@@ -398,14 +420,7 @@ export interface MemberLookup {
  * and never writes. Handed the full ports it could put a transaction, which is
  * not a capability an HTTP read path should hold.
  */
-export interface LedgerReads {
-  listRange(
-    tenantId: string,
-    range: DateRange,
-  ): Promise<{
-    transactions: RecordedTransaction[];
-    categorisations: Categorisation[];
-  }>;
+export interface LedgerReads extends TransactionReads {
   listAccounts(tenantId: string): Promise<Row[]>;
   /**
    * The rule sets, for their rules.

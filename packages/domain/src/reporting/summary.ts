@@ -8,6 +8,7 @@ import type {
 import { PROVIDER_SET } from "../categorisation/provider.js";
 import type { Categorisation } from "../categorisation/categorisation.js";
 import type { RecordedTransaction } from "../ledger/transaction.js";
+import { bookFor, categoryLeg, tradeFor } from "../ledger/books.js";
 import { assertSingleCurrency } from "../index.js";
 import { detectTransfers, type TransferOptions } from "./transfers.js";
 
@@ -55,11 +56,9 @@ function categoryOf(
   assigned: Map<string, Categorisation>,
 ): { category: string; setId: string } {
   const a = assigned.get(row.dedupKey);
-  if (a) return { category: a.category, setId: a.setId };
-  return {
-    category: row.providerCategory ?? "UNCATEGORISED",
-    setId: PROVIDER_SET,
-  };
+  // `bookFor` decides the category, so the fallback to the provider's own value
+  // is stated once rather than here and in the books model separately.
+  return { category: bookFor(row, a), setId: a?.setId ?? PROVIDER_SET };
 }
 
 export function summarise(
@@ -99,7 +98,12 @@ export function summarise(
     if (row.amount >= 0) income += row.amount;
     else spend += row.amount;
 
-    const { category, setId } = categoryOf(row, assigned);
+    // The transaction's two sides, named. The second leg is what categorising
+    // records, and grouping by the book it lands in is what `byCategory` has
+    // always been — see #108, of which this is step 1.
+    const leg = categoryLeg(tradeFor(row, assigned.get(row.dedupKey)));
+    const category = leg.book;
+    const { setId } = categoryOf(row, assigned);
     const fromProvider = setId === PROVIDER_SET;
     const c = categories.get(category) ?? {
       category,
@@ -107,7 +111,11 @@ export function summarise(
       count: 0,
       provisional: fromProvider,
     };
-    c.total += row.amount;
+    // Negated: the Groceries book *rises* by what leaves the current account, so
+    // its position is positive. The summary reports spending from the
+    // household's side of the trade, which is the reporting boundary's job and
+    // not the model's. Same number as before, arrived at through the leg.
+    c.total += -leg.amount;
     c.count += 1;
     // Still a boolean on the aggregate, because "which set" is not single-valued
     // across a group. It now means every row here came from the provider's own
