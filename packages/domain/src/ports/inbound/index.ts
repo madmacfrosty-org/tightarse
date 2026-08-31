@@ -18,6 +18,10 @@ import type { DateRange } from "../index.js";
 import type { AccountId } from "../../ledger/account.js";
 import type { DescriptionSummary, Recurrence } from "../../categorisation/corpus.js";
 import type { Conflict, Gap } from "../../categorisation/evidence.js";
+import type {
+  DayCheck,
+  RunningBalanceVerdict,
+} from "../../ledger/running-balance.js";
 
 /** A category and what it came to over a range. */
 export interface CategoryTotal {
@@ -267,6 +271,8 @@ export interface Reporting {
   /** The categories a household may file something under. */
   categories(tenantId: string): Promise<CategoriesResult>;
   balances(tenantId: string, range: DateRange): Promise<BalancesResult>;
+  /** What `running_balance` means, judged from this household's own chain. */
+  runningBalanceCheck(tenantId: string): Promise<RunningBalanceReport>;
 }
 
 /**
@@ -321,4 +327,46 @@ export interface ReconciliationReport {
 export interface Reconciliation {
   /** Check every account this household holds, and record what was found. */
   run(tenantId: string): Promise<ReconciliationReport>;
+}
+
+/**
+ * One account's verdict on what `running_balance` means.
+ *
+ * A diagnostic rather than a report: it answers a question about the provider's
+ * data, not about the household's money. See `ledger/running-balance.ts` for why
+ * the question is open and why nothing else would catch a wrong answer.
+ *
+ * **Unlike `AccountReconciliation`, this carries amounts**, and deliberately: a
+ * day's arithmetic cannot be checked by eye without them. That is safe only
+ * because this answer goes to the authenticated browser and nowhere else, on the
+ * same channel that already serves transactions and balances. It must never be
+ * emitted as a metric or logged — `AccountReconciliation` is counts-only
+ * precisely because it reaches CloudWatch, and this one would leak what that one
+ * is careful not to.
+ */
+export interface AccountBalanceCheck {
+  readonly accountId: string;
+  readonly isCard: boolean;
+  readonly verdict: RunningBalanceVerdict;
+  readonly pairs: number;
+  readonly discriminating: number;
+  readonly closingMatches: number;
+  readonly openingMatches: number;
+  /** Days compared. The first day of an account has nothing to compare against. */
+  readonly daysChecked: number;
+  /** Only the days that disagree. A clean account contributes none. */
+  readonly disagreeing: readonly DayCheck[];
+}
+
+/**
+ * Every account's verdict, and the ledger's answer taken as a whole.
+ *
+ * One answer rather than a list, because the question is about the provider's
+ * field and not about any one account: they either all agree or something is
+ * wrong. `accounts` is what shows the working.
+ */
+export interface RunningBalanceReport {
+  /** The whole ledger's answer, or why there isn't one. */
+  readonly verdict: RunningBalanceVerdict;
+  readonly accounts: readonly AccountBalanceCheck[];
 }

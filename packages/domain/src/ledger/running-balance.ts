@@ -162,7 +162,10 @@ export function dailyPositionChecks(
     byDay.set(date, day);
   }
 
-  const dates = [...byDay.keys()].sort();
+  // Already ascending: `withBalance` is sorted by timestamp above and a Map
+  // keeps insertion order, so the keys arrive in date order. Sorting again
+  // would be a no-op that no test could distinguish from its absence.
+  const dates = [...byDay.keys()];
   const out: DayCheck[] = [];
   for (let i = 1; i < dates.length; i++) {
     const date = dates[i]!;

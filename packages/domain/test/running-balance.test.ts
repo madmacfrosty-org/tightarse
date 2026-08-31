@@ -57,7 +57,15 @@ describe("checkRunningBalanceChain", () => {
     const result = checkRunningBalanceChain(closingChain(100_000, [-1299, -450, 2500]));
 
     expect(result.verdict).toBe("closing");
-    expect(result.closingMatches).toBe(result.pairs);
+    // Counted exactly, not just "all of them": how many pairs there are and how
+    // many can tell the readings apart is the evidence behind the verdict, and a
+    // verdict whose evidence is unchecked is a verdict on trust.
+    expect(result).toMatchObject({
+      pairs: 2,
+      discriminating: 2,
+      closingMatches: 2,
+      openingMatches: 0,
+    });
   });
 
   it("says opening when each balance is the position before its transaction", () => {
@@ -118,6 +126,26 @@ describe("checkRunningBalanceChain", () => {
     const ordered = closingChain(100_000, [-1299, -450, 2500]);
 
     expect(checkRunningBalanceChain([...ordered].reverse()).verdict).toBe("closing");
+  });
+
+  it("orders by timestamp first, not by the dedup key", () => {
+    // The keys here sort opposite to the timestamps. Comparing keys first would
+    // reverse the ledger and break a chain that is in fact sound — and every
+    // other test uses keys that happen to agree with the dates, so nothing else
+    // would notice.
+    let balance = 100_000;
+    const rows: Movement[] = [-1299, -450, 2500].map((amount, i) => {
+      balance += amount;
+      return {
+        accountId: "acc1",
+        timestamp: `2026-03-0${i + 1}T00:00:00Z`,
+        amount,
+        dedupKey: ["n:c", "n:b", "n:a"][i]!,
+        runningBalance: balance,
+      };
+    });
+
+    expect(checkRunningBalanceChain(rows).verdict).toBe("closing");
   });
 
   it("breaks ties on the dedup key, because a day's rows share a timestamp", () => {
@@ -206,6 +234,86 @@ describe("dailyPositionChecks", () => {
 
     expect(checks.map((c) => c.date)).toEqual(["2026-03-02", "2026-03-03"]);
     expect(checks.map((c) => c.difference)).toEqual([0, 0]);
+  });
+
+  it("takes the day's close by timestamp order, not by dedup key", () => {
+    // Two rows on one day whose keys sort opposite to the order they occurred.
+    // The later row is the close; comparing keys first would take the earlier
+    // one and invent a discrepancy out of correct data.
+    const rows: Movement[] = [
+      {
+        accountId: "acc1",
+        timestamp: "2026-03-01T00:00:00Z",
+        amount: -1_000,
+        dedupKey: "n:z",
+        runningBalance: 99_000,
+      },
+      {
+        accountId: "acc1",
+        timestamp: "2026-03-02T00:00:00Z",
+        amount: -500,
+        dedupKey: "n:b",
+        runningBalance: 98_500,
+      },
+      {
+        accountId: "acc1",
+        timestamp: "2026-03-02T12:00:00Z",
+        amount: -250,
+        dedupKey: "n:a",
+        runningBalance: 98_250,
+      },
+    ];
+
+    const [day] = dailyPositionChecks(rows);
+
+    expect(day).toMatchObject({
+      date: "2026-03-02",
+      previousClosing: 99_000,
+      closing: 98_250,
+      movement: -750,
+      difference: 0,
+    });
+  });
+
+  it("ignores rows carrying no running balance rather than reading them as zero", () => {
+    // The provider marks the field optional on every row, not just on cards, so
+    // an account can carry it on some rows and not others. Treating an absent
+    // balance as a close would invent a plunge to zero and back.
+    const rows: Movement[] = [
+      {
+        accountId: "acc1",
+        timestamp: "2026-03-01T00:00:00Z",
+        amount: -1_000,
+        dedupKey: "n:1",
+        runningBalance: 99_000,
+      },
+      {
+        accountId: "acc1",
+        timestamp: "2026-03-02T00:00:00Z",
+        amount: -500,
+        dedupKey: "n:2",
+      },
+      {
+        accountId: "acc1",
+        timestamp: "2026-03-02T12:00:00Z",
+        amount: -250,
+        dedupKey: "n:3",
+        runningBalance: 98_250,
+      },
+    ];
+
+    const [day] = dailyPositionChecks(rows);
+
+    // The unbalanced row contributes neither a close nor a movement, so the day
+    // is short by exactly it — which is the shape of a real gap, reported
+    // rather than smoothed over.
+    expect(day).toMatchObject({
+      date: "2026-03-02",
+      previousClosing: 99_000,
+      closing: 98_250,
+      movement: -250,
+      difference: -500,
+    });
   });
 
   it("has nothing to say about an account with no running balances", () => {

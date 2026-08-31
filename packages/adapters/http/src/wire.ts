@@ -31,6 +31,7 @@ import type {
   PredictionView,
   ProposalResponse,
   BalancesResponse,
+  RunningBalanceResponse,
   SummaryResponse,
   TransactionsResponse,
 } from "@tightarse/api-contract";
@@ -42,6 +43,7 @@ import type {
   CategoriseReport,
   Preview,
   Proposed,
+  RunningBalanceReport,
   Summary,
   TransactionsResult,
 } from "@tightarse/domain";
@@ -75,6 +77,37 @@ export const asAccounts = (a: AccountsResult): AccountsResponse => ({
 export const asBalances = (b: BalancesResult): BalancesResponse => ({
   range: b.range,
   points: [...b.points],
+});
+
+/**
+ * The running-balance diagnostic, as the wire spells it.
+ *
+ * Projected field by field rather than spread. The domain result is free to grow
+ * a field the contract never promised, and a spread would serve it — which is
+ * the mistake `mergeCategories` made for months, sending the table's partition
+ * keys and the raw object's location to a browser.
+ */
+export const asRunningBalance = (
+  r: RunningBalanceReport,
+): RunningBalanceResponse => ({
+  verdict: r.verdict,
+  accounts: r.accounts.map((a) => ({
+    accountId: a.accountId,
+    isCard: a.isCard,
+    verdict: a.verdict,
+    pairs: a.pairs,
+    discriminating: a.discriminating,
+    closingMatches: a.closingMatches,
+    openingMatches: a.openingMatches,
+    daysChecked: a.daysChecked,
+    disagreeing: a.disagreeing.map((d) => ({
+      date: d.date,
+      closing: d.closing,
+      previousClosing: d.previousClosing,
+      movement: d.movement,
+      difference: d.difference,
+    })),
+  })),
 });
 
 /**

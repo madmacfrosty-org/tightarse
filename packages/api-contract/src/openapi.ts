@@ -20,6 +20,11 @@ import {
   BacklogResponse,
   BalancePoint,
   BalancesResponse,
+  // The leaf types too, for the same reason the helpers above are named.
+  RunningBalanceVerdict,
+  DayCheck,
+  AccountBalanceCheck,
+  RunningBalanceResponse,
   Cadence,
   CategoriesResponse,
   NewCategoryRequest,
@@ -95,6 +100,12 @@ const NAMED = {
   AccountsResponse,
   BalancePoint,
   BalancesResponse,
+  // Leaf types named for the same reason the helpers above are: unnamed they
+  // become a $ref into another schema's properties, which generators reject.
+  RunningBalanceVerdict,
+  DayCheck,
+  AccountBalanceCheck,
+  RunningBalanceResponse,
   CategoryChoiceView,
   CategoriesResponse,
   NewCategoryRequest,
@@ -198,7 +209,17 @@ function parametersFor(route: Route): unknown[] {
  * names — and the document snapshot — stay exactly as they were.
  */
 function operationIdFor(route: Route): string {
-  const [first, ...rest] = route.path.replace(/^\//, "").split("/");
+  // Hyphens are folded away before the segments are joined. A path segment may
+  // contain one — `running-balance` does — and a hyphen is not legal in an
+  // identifier, so leaving it produced `diagnosticsRunning-balance`: a name no
+  // generated client can declare. That failed here rather than in the iOS build
+  // only because the operation ids are pinned by a test.
+  const camel = (s: string): string =>
+    s
+      .split("-")
+      .map((part, i) => (i === 0 ? part : part.charAt(0).toUpperCase() + part.slice(1)))
+      .join("");
+  const [first, ...rest] = route.path.replace(/^\//, "").split("/").map(camel);
   const fromPath = [first, ...rest.map((s) => s.charAt(0).toUpperCase() + s.slice(1))].join("");
 
   // A GET keeps the bare name, because those are already published and a

@@ -207,7 +207,7 @@ describe("routes that take a body", () => {
       .filter(([method]) => method === "get")
       .map(([, op]) => op.operationId);
 
-    expect(ids.sort()).toEqual(["accounts", "balances", "categories", "categorisationGaps", "summary", "transactions"]);
+    expect(ids.sort()).toEqual(["accounts", "balances", "categories", "categorisationGaps", "diagnosticsRunningBalance", "summary", "transactions"]);
   });
 
   it("gives every operation in the document a distinct id", () => {
@@ -243,6 +243,7 @@ describe("the published routes themselves", () => {
     ["get", "/summary", "Summary", ["from", "to"]],
     ["get", "/transactions", "TransactionsResponse", ["from", "to", "q", "type", "min", "max"]],
     ["get", "/balances", "BalancesResponse", ["from", "to"]],
+    ["get", "/diagnostics/running-balance", "RunningBalanceResponse", []],
     ["get", "/categories", "CategoriesResponse", []],
     ["get", "/accounts", "AccountsResponse", []],
   ] as const;

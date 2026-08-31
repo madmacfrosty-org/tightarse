@@ -133,6 +133,7 @@ describe("api", () => {
       "GET /v1/categorisation/gaps",
       "GET /v1/connect/callback",
       "GET /v1/connect/start",
+      "GET /v1/diagnostics/running-balance",
       "GET /v1/summary",
       "GET /v1/transactions",
       "POST /v1/categories",
