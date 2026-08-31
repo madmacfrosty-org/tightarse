@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import path from "node:path";
 import { existsSync } from "node:fs";
@@ -28,12 +29,15 @@ import { ESLint } from "eslint";
  * broken test rather than as a broken lookup.
  */
 function repoRoot(): string {
-  let dir = path.resolve(__dirname);
+  let dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
   for (let i = 0; i < 8; i += 1) {
     if (existsSync(path.join(dir, "eslint.config.mjs"))) return dir;
     dir = path.dirname(dir);
   }
-  throw new Error("Could not locate eslint.config.mjs above " + __dirname);
+  throw new Error(
+    "Could not locate eslint.config.mjs above " +
+      path.dirname(fileURLToPath(import.meta.url)),
+  );
 }
 
 const ROOT = repoRoot();
@@ -75,7 +79,7 @@ describe("the domain cannot reach infrastructure", () => {
   it("refuses a package importing a service, because dependencies point inward", async () => {
     const firing = await rulesFiring(
       "packages/domain/src/leak.ts",
-      'import { route } from "@tightarse/api";\nexport const r = route;\n',
+      'import { route } from "@tightarse/http";\nexport const r = route;\n',
     );
     expect(firing).toContain("no-restricted-imports");
   });
@@ -117,16 +121,16 @@ describe("the domain model is ports and schema", () => {
   it("refuses test fixtures inside the domain", async () => {
     const firing = await rulesFiring(
       "packages/domain/src/leak.ts",
-      'import { generateHousehold } from "@tightarse/fixtures";\nexport const g = generateHousehold;\n',
+      'import { generateHousehold } from "@tightarse/truelayer";\nexport const g = generateHousehold;\n',
     );
     expect(firing).toContain("no-restricted-imports");
   });
 
   it("allows the HTTP adapter to hold both, because that is whose promise it is", async () => {
-    // services/api/src/wire.ts is the one place the domain result and the wire
+    // the http adapter's wire.ts is the one place the domain result and the wire
     // shape meet. Banning it there would mean the contract had no consumer.
     const firing = await rulesFiring(
-      "services/api/src/wire.ts",
+      "packages/adapters/http/src/wire.ts",
       'import type { SummaryResponse } from "@tightarse/api-contract";\nexport type S = SummaryResponse;\n',
     );
     expect(firing).toEqual([]);
@@ -143,41 +147,41 @@ describe("the domain model is ports and schema", () => {
 
 describe("driving adapters cannot import each other", () => {
   it("refuses the dependency that actually happened", async () => {
-    // services/ingest depended on services/transform because a Lambda entry point
+    // the steps adapter depended on the events adapter because a Lambda entry point
     // had been filed there. Nothing failed. This is that build turning red.
     const firing = await rulesFiring(
-      "services/ingest/src/steps.ts",
-      'import { transformObject } from "@tightarse/transform";\nexport const t = transformObject;\n',
+      "packages/adapters/steps/src/steps.ts",
+      'import { transformObject } from "@tightarse/events";\nexport const t = transformObject;\n',
     );
     expect(firing).toContain("no-restricted-imports");
   });
 
-  it("refuses an agent reaching into a service", async () => {
+  it("refuses one inbound adapter reaching into another", async () => {
     const firing = await rulesFiring(
-      "agents/categoriser/src/thing.ts",
-      'import { route } from "@tightarse/api";\nexport const r = route;\n',
+      "packages/adapters/schedule/src/thing.ts",
+      'import { route } from "@tightarse/http";\nexport const r = route;\n',
     );
     expect(firing).toContain("no-restricted-imports");
   });
 
   it("allows a driver to import a package, which is the direction that is fine", async () => {
     const firing = await rulesFiring(
-      "services/ingest/src/thing.ts",
+      "packages/adapters/steps/src/thing.ts",
       'import type { Secrets } from "@tightarse/domain";\nexport type S = Secrets;\n',
     );
     expect(firing).toEqual([]);
   });
 
   it("allows the one test that crosses the boundary on purpose", async () => {
-    // services/api's sign regression drives real mapTransaction output through the
+    // the http adapter's sign regression drives real mapTransaction output through the
     // API's own aggregation. A fake would not have caught the inverted card sign,
     // and nothing here is deployed.
     //
     // The exemption is the test directory, not the filename: a helper sitting
     // beside the tests is no more shipped than the tests are.
     const firing = await rulesFiring(
-      "services/api/test/sign-regression.test.ts",
-      'import { mapTransaction } from "@tightarse/transform";\nexport const m = mapTransaction;\n',
+      "packages/adapters/http/test/sign-regression.test.ts",
+      'import { mapTransaction } from "@tightarse/events";\nexport const m = mapTransaction;\n',
     );
     expect(firing).toEqual([]);
   });
@@ -188,7 +192,7 @@ describe("undeclared dependencies", () => {
     // Two CLIs did exactly this with @aws-sdk/client-dynamodb and typechecked for
     // as long as nobody ran npm ci under a non-hoisting installer.
     const firing = await rulesFiring(
-      "services/ingest/src/thing.ts",
+      "packages/adapters/steps/src/thing.ts",
       'import { DynamoDBClient } from "@aws-sdk/client-dynamodb";\nexport const c = DynamoDBClient;\n',
     );
     expect(firing).toContain("import-x/no-extraneous-dependencies");
@@ -198,16 +202,16 @@ describe("undeclared dependencies", () => {
     // A Lambda bundle is built from dependencies. Importing a devDependency from
     // src works locally and fails at runtime in the deployed function.
     const firing = await rulesFiring(
-      "services/api/src/thing.ts",
-      'import { generateHousehold } from "@tightarse/fixtures";\nexport const g = generateHousehold;\n',
+      "packages/adapters/http/src/thing.ts",
+      'import { generateHousehold } from "@tightarse/truelayer";\nexport const g = generateHousehold;\n',
     );
     expect(firing).toContain("import-x/no-extraneous-dependencies");
   });
 
   it("allows that same devDependency from a test", async () => {
     const firing = await rulesFiring(
-      "services/api/test/thing.test.ts",
-      'import { generateHousehold } from "@tightarse/fixtures";\nexport const g = generateHousehold;\n',
+      "packages/adapters/http/test/thing.test.ts",
+      'import { generateHousehold } from "@tightarse/truelayer";\nexport const g = generateHousehold;\n',
     );
     expect(firing).toEqual([]);
   });

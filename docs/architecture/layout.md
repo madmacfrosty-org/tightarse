@@ -1,8 +1,8 @@
 # Layout
 
-**This describes a layout we intend, not the one on disk. None of it is true yet.
-Where the tree contradicts this document, the tree is right about today. See
-#128.**
+**This is the layout on disk.** It was written before the move and is now true;
+where the tree and this document disagree, that is a defect in one of them. See
+#128.
 
 The architecture is [hexagonal](https://alistair.cockburn.us/hexagonal-architecture/)
 — ports and adapters. Dependencies point inward: adapters know the domain, the

@@ -16,7 +16,7 @@ import {
   ProposalResponse,
   ProposedRuleSetView,
   RuleView,
-} from "../src/index";
+} from "../src/index.js";
 
 /**
  * What the proposals endpoint promises.

@@ -6,22 +6,19 @@
   "license": "MIT",
   "workspaces": [
     "packages/*",
-    "services/*",
-    "agents/*",
-    "spike/*",
-    "infra",
-    "web"
+    "packages/adapters/*",
+    "spike/*"
   ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "typecheck": "tsc --build && tsc -p tsconfig.tests.json && tsc -p infra/tsconfig.tests.json && tsc -p web/tsconfig.json",
+    "typecheck": "tsc --build && tsc -p tsconfig.tests.json && tsc -p packages/infra/tsconfig.tests.json && tsc -p packages/web/tsconfig.json",
     "test": "npm run test --workspaces --if-present",
     "lint": "eslint . --max-warnings 0",
-    "synth": "npm run synth -w infra",
-    "deploy": "npm run deploy -w infra",
+    "synth": "npm run synth -w packages/infra",
+    "deploy": "npm run deploy -w packages/infra",
     "prepare": "git config core.hooksPath .githooks",
     "test:coverage": "npm run test:coverage --workspaces --if-present",
     "test:mutation": "npm run test:mutation --workspaces --if-present",

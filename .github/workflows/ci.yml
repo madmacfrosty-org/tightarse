@@ -91,7 +91,7 @@ jobs:
         if: always()
         run: npm run create-test-table -w @tightarse/dynamodb -- --delete
 
-      # The web stack deploys web/dist as an asset, so synth cannot run without
+      # The web stack deploys packages/web/dist as an asset, so synth cannot run without
       # it. CI never built it, and every push since "Add the dashboard hosting
       # stack" failed here — twenty commits of red that nobody looked at.
       - name: Build the web app
@@ -280,7 +280,7 @@ jobs:
       - name: Build the workspaces
         run: npm run typecheck
 
-      # cdk synth deploys web/dist as an asset and fails without it.
+      # cdk synth deploys packages/web/dist as an asset and fails without it.
       - name: Build the web app
         run: npm run build -w @tightarse/web
 
@@ -308,7 +308,7 @@ jobs:
       # redirect to localhost, breaking the deployed site with nothing in the
       # diff to explain it.
       - name: Deploy
-        working-directory: infra
+        working-directory: packages/infra
         run: |
           npx cdk deploy \
             TightarseFoundation-dev \
@@ -375,7 +375,7 @@ jobs:
       - name: Build the workspaces
         run: npm run typecheck
 
-      # cdk synth deploys web/dist as an asset and fails without it.
+      # cdk synth deploys packages/web/dist as an asset and fails without it.
       - name: Build the web app
         run: npm run build -w @tightarse/web
 
@@ -392,7 +392,7 @@ jobs:
       # target the wrong account — the naming in bin/tightarse.ts is what makes
       # that true, and it is why the names carry the environment.
       - name: Deploy
-        working-directory: infra
+        working-directory: packages/infra
         run: |
           npx cdk deploy \
             -c env=prod \

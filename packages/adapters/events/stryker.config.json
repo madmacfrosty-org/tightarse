@@ -1,0 +1,29 @@
+{
+  "$schema": "../../node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "coverageAnalysis": "perTest",
+  "mutate": [
+    "src/**/*.ts",
+    "!src/**/*-cli.ts",
+    "!src/run.ts"
+  ],
+  "reporters": [
+    "clear-text",
+    "json"
+  ],
+  "jsonReporter": {
+    "fileName": ".stryker/mutation.json"
+  },
+  "incremental": true,
+  "incrementalFile": ".stryker/incremental.json",
+  "thresholds": {
+    "high": 90,
+    "low": 70,
+    "break": 72.7
+  },
+  "tempDirName": ".stryker-tmp",
+  "vitest": {
+    "related": false
+  },
+  "_note": "Lowered when this package became the S3 entry point alone (#128). The transform, the mapper, the comparison and the backfill moved to the domain and the TrueLayer adapter, and the old floor described them. Raise it again as coverage lands; do not lower it to pass a build."
+}

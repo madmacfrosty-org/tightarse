@@ -1,0 +1,29 @@
+{
+  "name": "@tightarse/infra",
+  "version": "0.0.0",
+  "private": true,
+  "bin": {
+    "tightarse": "bin/tightarse.js"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "synth": "cdk synth",
+    "diff": "cdk diff",
+    "deploy": "cdk deploy --all",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.170.0",
+    "constructs": "^10.4.0",
+    "@tightarse/api-contract": "*"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2.170.0",
+    "vitest": "^2.1.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "@tightarse/vitest-config": "*",
+    "tsx": "^4.19.0"
+  },
+  "type": "module"
+}

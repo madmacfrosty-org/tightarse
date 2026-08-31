@@ -9,5 +9,10 @@
   ],
   "exclude": [
     "src/**/*.test.ts"
+  ],
+  "references": [
+    {
+      "path": "../metrics"
+    }
   ]
 }

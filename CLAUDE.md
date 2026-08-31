@@ -22,7 +22,7 @@ Read before writing code:
 
 **This repo is public and the data is real.** No transaction, description,
 merchant, family name, account number or token goes in a file. Test data comes
-from `@tightarse/fixtures`. A household's own categorisation rules live in
+from `@tightarse/truelayer`. A household's own categorisation rules live in
 DynamoDB precisely so they never land here.
 
 **One sign convention: negative left the household, positive arrived.** The
@@ -33,7 +33,7 @@ not re-derive direction from an amount anywhere else.
 
 **Deep history is one-shot per consent.** Roughly an hour after a bank
 authorisation, only 90 days remain available, for ever. Anything touching the
-connect flow or `services/ingest/src/steps.ts` can cost five years of history
+connect flow or `packages/adapters/steps/src/steps.ts` can cost five years of history
 that no amount of retrying gets back. Raw responses land in S3 first so the
 ledger can always be rebuilt; that property is worth protecting.
 

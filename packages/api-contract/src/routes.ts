@@ -22,7 +22,7 @@ import {
   IsoDate,
   SummaryResponse,
   TransactionsResponse,
-} from "./index.js";
+} from "./schemas.js";
 
 /**
  * The version prefix every path carries.

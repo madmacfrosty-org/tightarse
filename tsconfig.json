@@ -5,40 +5,40 @@
       "path": "packages/api-contract"
     },
     {
-      "path": "packages/dynamodb"
+      "path": "packages/adapters/aws"
+    },
+    {
+      "path": "packages/adapters/cli"
+    },
+    {
+      "path": "packages/adapters/cognito"
     },
     {
       "path": "packages/domain"
     },
     {
-      "path": "packages/aws"
+      "path": "packages/adapters/dynamodb"
     },
     {
-      "path": "packages/truelayer"
+      "path": "packages/adapters/events"
     },
     {
-      "path": "packages/fixtures"
+      "path": "packages/adapters/http"
+    },
+    {
+      "path": "packages/infra"
     },
     {
       "path": "packages/metrics"
     },
     {
-      "path": "services/transform"
+      "path": "packages/adapters/schedule"
     },
     {
-      "path": "services/api"
+      "path": "packages/adapters/steps"
     },
     {
-      "path": "services/ingest"
-    },
-    {
-      "path": "services/auth"
-    },
-    {
-      "path": "agents/categoriser"
-    },
-    {
-      "path": "infra"
+      "path": "packages/adapters/truelayer"
     },
     {
       "path": "spike/truelayer-probe"

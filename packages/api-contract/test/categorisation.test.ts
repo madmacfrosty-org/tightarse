@@ -12,7 +12,7 @@ import {
   RecurrenceView,
   pathFor,
   ROUTES,
-} from "../src/index";
+} from "../src/index.js";
 
 /**
  * What the categorisation routes promise.

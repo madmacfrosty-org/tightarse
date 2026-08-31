@@ -19,10 +19,10 @@ git history. Fixtures are synthetic — generate them, do not capture them. If a
 real capture is ever genuinely needed for debugging, it goes in a separate
 private repo, never here.
 
-`@tightarse/fixtures` is the only acceptable source of test data:
+`@tightarse/truelayer` is the only acceptable source of test data:
 
 ```ts
-import { generateHousehold, generatePending } from "@tightarse/fixtures";
+import { generateHousehold, generatePending } from "@tightarse/truelayer";
 
 const { currentAccountTransactions, cardTransactions, expectedTransferPairs } =
   generateHousehold({ seed: 99, from: "2025-01-01", to: "2025-07-01" });
@@ -58,9 +58,9 @@ Access is one row per person, and there is a command:
 
 ```
 export LEDGER_TABLE=<the ledger table>
-npm run access -w @tightarse/dynamodb -- list
-npm run access -w @tightarse/dynamodb -- grant someone@example.com frost
-npm run access -w @tightarse/dynamodb -- revoke someone@example.com
+npm run access -w @tightarse/cli -- list
+npm run access -w @tightarse/cli -- grant someone@example.com frost
+npm run access -w @tightarse/cli -- revoke someone@example.com
 ```
 
 Grant **before** their first sign-in. The pre-token trigger reads the member row
@@ -112,18 +112,18 @@ wire spelling of a result, the URL that serves it, and the OpenAPI generated fro
 both. It is a promise to clients already installed, and it changes for different
 reasons than the application's own vocabulary — a browser reloads, an iOS build
 on somebody's phone does not. The two meet in exactly one file,
-`services/api/src/wire.ts`, which is annotated on both sides so that a divergence
+`packages/adapters/http/src/wire.ts`, which is annotated on both sides so that a divergence
 fails the build rather than reaching a client. `fixtures` is test data; nothing it
 produces ships.
 
 **Driven adapters** — `packages/aws`, `packages/dynamodb`. Each implements a port
 and holds the SDK that does it. That is the job; the ban above does not apply.
 
-**Driving adapters** — everything in `services/`, `agents/`, `spike/`, plus
+**Driving adapters** — everything in `packages/adapters/` that an outside event drives, `spike/`, plus
 `infra` and `web`. Things the outside world starts: a Lambda entry point, a CLI, a
 CDK app, a browser bundle. **None may import another.** They are siblings at the
 edge; shared code goes in a package. Tests are exempt, and one uses that
-deliberately: `services/api`'s sign regression drives real `mapTransaction` output
+deliberately: the http adapter's sign regression drives real `mapTransaction` output
 through the API's own aggregation, because a fake would not have caught the
 inverted card sign.
 
@@ -140,7 +140,7 @@ glob matching nothing gives the same clean run as a clean codebase.
 
 ## The ledger is deterministic
 
-`services/ingest` is the only writer of `Transaction` items. Agents write
+the steps adapter is the only writer of `Transaction` items. Agents write
 `TransactionEnrichment` items and nothing else. This means categorisation can be
 re-run, corrected or thrown away without ever putting source financial data at
 risk.

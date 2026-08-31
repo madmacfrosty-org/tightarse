@@ -1,0 +1,38 @@
+{
+  "name": "@tightarse/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run --passWithNoTests",
+    "access": "tsx src/access.ts",
+    "report": "tsx src/report-cli.ts",
+    "backfill": "tsx src/backfill-cli.ts",
+    "compare": "tsx src/compare-cli.ts",
+    "reconcile": "tsx src/reconcile-cli.ts",
+    "categorise": "tsx src/categorise-cli.ts",
+    "optimise": "tsx src/optimise-cli.ts",
+    "rules": "tsx src/rules-cli.ts",
+    "seed": "tsx src/seed-cli.ts"
+  },
+  "dependencies": {
+    "@tightarse/domain": "*",
+    "@tightarse/dynamodb": "*",
+    "@tightarse/aws": "*",
+    "@tightarse/truelayer": "*",
+    "@tightarse/events": "*",
+    "@tightarse/metrics": "*",
+    "zod": "^3.24.0",
+    "@aws-sdk/client-dynamodb": "^3.658.0",
+    "@aws-sdk/lib-dynamodb": "^3.658.0",
+    "@tightarse/schedule": "*"
+  },
+  "devDependencies": {
+    "@tightarse/vitest-config": "*",
+    "tsx": "^4.19.0",
+    "vitest": "^2.1.0"
+  }
+}

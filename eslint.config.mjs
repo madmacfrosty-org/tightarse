@@ -33,15 +33,12 @@ const ROOT = import.meta.dirname;
 /** Workspace directories, scanned rather than listed, so a new package is covered. */
 function workspaceDirs() {
   const out = [];
-  for (const group of ["packages", "services", "agents", "spike"]) {
+  for (const group of ["packages", "packages/adapters", "spike"]) {
     const dir = path.join(ROOT, group);
     if (!existsSync(dir)) continue;
     for (const name of readdirSync(dir).sort()) {
       if (existsSync(path.join(dir, name, "package.json"))) out.push(`${group}/${name}`);
     }
-  }
-  for (const solo of ["infra", "web"]) {
-    if (existsSync(path.join(ROOT, solo, "package.json"))) out.push(solo);
   }
   return out;
 }
@@ -57,7 +54,14 @@ const nameOf = (dir) => JSON.parse(readFileSync(path.join(ROOT, dir, "package.js
  * reaching into another is how `services/ingest` came to depend on
  * `services/transform`. Sharing between them belongs in a package.
  */
-const DRIVERS = DIRS.filter((d) => /^(services|agents|spike)\//.test(d) || d === "infra" || d === "web");
+const INBOUND = ["http", "cognito", "events", "steps", "schedule", "cli"];
+const DRIVERS = DIRS.filter(
+  (d) =>
+    INBOUND.some((a) => d === `packages/adapters/${a}`) ||
+    /^spike\//.test(d) ||
+    d === "packages/infra" ||
+    d === "packages/web",
+);
 
 /**
  * The domain model.
@@ -107,7 +111,7 @@ const DOMAIN = ["packages/domain", "packages/metrics"];
  * Both are still barred from infrastructure below: neither has any business
  * holding an SDK.
  */
-const TOOLING = ["packages/api-contract", "packages/fixtures"];
+const TOOLING = ["packages/api-contract"];
 
 const INFRASTRUCTURE = [
   "@aws-sdk/*",
@@ -154,7 +158,7 @@ export default [
       "**/cdk.out/**",
       "**/.stryker/**",
       "**/reports/**",
-      "web/dist/**",
+      "packages/web/dist/**",
     ],
   },
 
@@ -234,7 +238,7 @@ export default [
             {
               group: TOOLING.map(nameOf),
               message:
-                "The domain model is ports and schema. @tightarse/api-contract is a promise to installed clients and @tightarse/fixtures is test data — both belong to adapters, not to the vocabulary they describe. The wire contract meets the domain in services/api/src/wire.ts and nowhere else.",
+                "The domain model is ports and schema. @tightarse/api-contract is a promise to installed clients and @tightarse/truelayer is test data — both belong to adapters, not to the vocabulary they describe. The wire contract meets the domain in services/api/src/wire.ts and nowhere else.",
             },
           ],
         },
@@ -243,7 +247,12 @@ export default [
   },
 
   // 3. No driving adapter may import another driving adapter.
-  ...DRIVERS.map((dir) => ({
+  // `cli` is the exception, and deliberately. A command line is a composition
+  // root: it builds dependencies and calls something, exactly as a Lambda entry
+  // does, and the things a person runs by hand are spread across what the other
+  // adapters own. Barring it from them would push every command back beside the
+  // adapter it drives, which is the layout this refactor exists to leave behind.
+  ...DRIVERS.filter((d) => d !== "packages/adapters/cli").map((dir) => ({
     files: [`${dir}/**/*.{ts,tsx}`],
     ignores: [`${dir}/**/*.test.ts`, `${dir}/**/*.test.tsx`],
     rules: {
@@ -267,7 +276,7 @@ export default [
   // excluded from a dependency array; without the plugin that directive names a
   // rule nothing runs, which is worse than not having written it.
   {
-    files: ["web/src/**/*.{ts,tsx}"],
+    files: ["packages/web/src/**/*.{ts,tsx}"],
     plugins: { "react-hooks": reactHooks },
     rules: {
       "react-hooks/rules-of-hooks": "error",
@@ -276,7 +285,7 @@ export default [
   },
 
   // Tests may cross the driver boundary, and one does: services/api's sign
-  // regression drives real mapTransaction output from @tightarse/transform
+  // regression drives real mapTransaction output from @tightarse/events
   // through the API's own aggregation, which is the point of the test — a fake
   // would not have caught the inverted card sign. Nothing here is deployed.
   // The ports are the surface every other package consumes, so a type with no

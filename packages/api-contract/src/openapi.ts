@@ -56,7 +56,7 @@ import {
   Summary,
   TransactionView,
   TransactionsResponse,
-} from "./index.js";
+} from "./schemas.js";
 import {
   API_VERSION,
   CATEGORISATION_ROUTES,
