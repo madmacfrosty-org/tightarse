@@ -116,3 +116,65 @@ function verdictOf(counts: {
   if (opening) return "opening";
   return "inconsistent";
 }
+
+/**
+ * One day's arithmetic, which is the form a person can check by eye.
+ *
+ * If a running balance is a closing position then a day's closing less the
+ * previous day's closing is exactly that day's movement. Same claim as
+ * `checkRunningBalanceChain` aggregated to days — weaker, because offsetting
+ * errors within a day cancel — but it is the version worth showing, since a
+ * reader can verify one row against a statement.
+ */
+export interface DayCheck {
+  readonly date: string;
+  /** The last running balance on this day. */
+  readonly closing: number;
+  /** The last running balance on the most recent earlier day that had one. */
+  readonly previousClosing: number;
+  /** The sum of this day's amounts. */
+  readonly movement: number;
+  /** `(closing - previousClosing) - movement`. Zero when the day agrees. */
+  readonly difference: number;
+}
+
+/** Day-level checks for one account, oldest first. The first day has nothing to compare against. */
+export function dailyPositionChecks(
+  movements: readonly Movement[],
+): DayCheck[] {
+  const withBalance = [...movements]
+    .filter((m) => m.runningBalance !== undefined)
+    .sort((a, b) =>
+      a.timestamp === b.timestamp
+        ? a.dedupKey.localeCompare(b.dedupKey)
+        : a.timestamp < b.timestamp
+          ? -1
+          : 1,
+    );
+
+  const byDay = new Map<string, { closing: number; movement: number }>();
+  for (const m of withBalance) {
+    const date = m.timestamp.slice(0, 10);
+    const day = byDay.get(date) ?? { closing: 0, movement: 0 };
+    // Last wins: the rows are in ledger order, so the final one is the close.
+    day.closing = m.runningBalance!;
+    day.movement += m.amount;
+    byDay.set(date, day);
+  }
+
+  const dates = [...byDay.keys()].sort();
+  const out: DayCheck[] = [];
+  for (let i = 1; i < dates.length; i++) {
+    const date = dates[i]!;
+    const day = byDay.get(date)!;
+    const previousClosing = byDay.get(dates[i - 1]!)!.closing;
+    out.push({
+      date,
+      closing: day.closing,
+      previousClosing,
+      movement: day.movement,
+      difference: day.closing - previousClosing - day.movement,
+    });
+  }
+  return out;
+}
