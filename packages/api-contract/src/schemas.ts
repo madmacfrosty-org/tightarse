@@ -142,7 +142,9 @@ export type TransactionView = z.infer<typeof TransactionView>;
  * keys, the tenant id and the provider's account id, none of which a client has
  * any use for, and all of which become a promise the moment they are served.
  *
- * `currentBalance` is what the provider reports, unchanged. For a card that is
+ * `currentBalance` is what the provider reports, unchanged; `derivedBalance` is
+ * what our own rows add up to. Both are served because they answer different
+ * questions and a household should be able to see them disagree. For a card that is
  * what is OWED, expressed positive — `isCard` is what tells a client to present
  * it as a debt. It is recorded from the endpoint the data came from and never
  * inferred from the balances: "available exceeds current" is true of a credit
@@ -186,6 +188,24 @@ export const AccountView = z.object({
   accountType: z.string().optional(),
   /** Absent when the balance has never been fetched, which is not the same as zero. */
   currentBalance: minorUnits("Balance as the provider reports it; for a card, what is owed").optional(),
+  /**
+   * What this account's own transactions add up to.
+   *
+   * The ledger's answer where `currentBalance` is the bank's. Same units and
+   * same convention, so the two are directly comparable and a difference
+   * between them is a real disagreement rather than a units problem.
+   *
+   * A separate field rather than a redefinition: a client reading
+   * `currentBalance` as "what the bank says" must keep receiving that. For a
+   * card the two are always equal — a card carries no running balance, so the
+   * only figure to derive from is the bank's own.
+   *
+   * Absent when there is nothing to derive from: no transactions, or a current
+   * account whose rows carry no running balance yet.
+   */
+  derivedBalance: minorUnits(
+    "What this account's transactions add up to; same convention as currentBalance",
+  ).optional(),
   availableBalance: minorUnits("Funds available to spend").optional(),
   lastSyncedAt: z.string().optional().describe("ISO 8601 instant of the last successful fetch"),
   /** Earliest date this account has any data for. Absent when it has none. */

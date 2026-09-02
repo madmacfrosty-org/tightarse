@@ -16,6 +16,7 @@ import { sampleLedger, ACCOUNTS } from "./ledger-sample.js";
 import {
   accountSeries,
   openingPosition,
+  derivedPosition,
   daysBetween,
   inLedgerOrder,
   type Movement,
@@ -117,6 +118,58 @@ describe("a position derived from legs", () => {
         },
       ]),
     ).toBeUndefined();
+  });
+});
+
+describe("the position an account reports now", () => {
+  const m = (
+    amount: number,
+    runningBalance?: number,
+    status?: string,
+  ): Movement => ({
+    accountId: "a",
+    timestamp: "2026-03-01T00:00:00Z",
+    amount,
+    dedupKey: `d${amount}${status ?? ""}`,
+    ...(runningBalance === undefined ? {} : { runningBalance }),
+    ...(status === undefined ? {} : { status }),
+  });
+
+  it("says what the legs add up to, not what the provider last stated", () => {
+    // The bank says 900; one transaction of 500 is all the ledger holds. The
+    // position is 500, and the 400 gap is the disagreement step 2 exists to
+    // put on screen rather than paper over.
+    expect(
+      derivedPosition(
+        { accountId: "a", isCard: false, currentBalance: 900_00 },
+        [m(500_00, 500_00)],
+      ),
+    ).toBe(500_00);
+  });
+
+  it("gives a card back the provider's own figure, having nothing else to go on", () => {
+    // A card carries no running balance, so its opening is what is owed walked
+    // back and walking forward returns it. This is not a coincidence to be
+    // tested around: it means the change cannot move a card's tile.
+    expect(
+      derivedPosition(
+        { accountId: "a", isCard: true, currentBalance: 100_00 },
+        [m(-100_00), m(-25_00)],
+      ),
+    ).toBe(100_00);
+  });
+
+  it("leaves a pending row out, because it is not in the provider's chain either", () => {
+    expect(
+      derivedPosition({ accountId: "a", isCard: false }, [
+        m(500_00, 500_00),
+        m(-10_00, undefined, "pending"),
+      ]),
+    ).toBe(500_00);
+  });
+
+  it("has nothing to say about an account it cannot open", () => {
+    expect(derivedPosition({ accountId: "a", isCard: false }, [])).toBeUndefined();
   });
 });
 

@@ -160,6 +160,32 @@ export function openingPosition(
   return rows[first]!.runningBalance! - total(first + 1);
 }
 
+/**
+ * A book's position after every leg it holds — the ledger's answer to "what is
+ * in this account now".
+ *
+ * Returned in the convention the wire already uses, so a card comes back as
+ * what is OWED carried positive, exactly as `currentBalance` does. That keeps
+ * this a like-for-like alternative to the provider's figure rather than one
+ * that also needs its sign reading differently.
+ *
+ * A card's answer is definitionally the provider's own: it has no running
+ * balance to derive from, so its opening is that figure walked back and walking
+ * forward returns it unchanged. **This differs from `currentBalance` for current
+ * accounts only**, and exactly where the ledger and the bank disagree.
+ */
+export function derivedPosition(
+  account: AccountFacts,
+  movements: readonly Movement[],
+): number | undefined {
+  const opening = openingPosition(account, movements);
+  if (opening === undefined) return undefined;
+  const total = movements
+    .filter(isSettled)
+    .reduce((sum, m) => sum + m.amount, 0);
+  return (account.isCard === true ? -1 : 1) * (opening + total);
+}
+
 export function accountSeries(
   account: AccountFacts,
   movements: readonly Movement[],
