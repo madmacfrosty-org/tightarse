@@ -76,25 +76,79 @@ export function daysBetween(from: string, to: string): string[] {
  * which is a real balance. The caller decides what to do with the difference,
  * and the whole point of the coverage rule is that it never has to guess.
  */
-export function accountSeries(
-  account: AccountFacts,
-  movements: readonly Movement[],
-  days: readonly string[],
-): Array<number | undefined> {
-  // Ascending, mirroring the ledger's own sort key. The dedup tiebreak is not
-  // decoration: within an account every timestamp is midnight, so without it
-  // the order is whatever the rows arrived in and the same request can produce
-  // two different charts.
-  // localeCompare rather than nested ternaries: the equal case cannot happen —
-  // two rows with the same dedup key are the same row — so a branch for it
-  // would be untestable except by constructing a state the ledger cannot hold.
-  const rows = [...movements].sort((a, b) =>
+/**
+ * The ledger's own order for an account's rows.
+ *
+ * Ascending, mirroring the ledger's sort key. The dedup tiebreak is not
+ * decoration: within an account every timestamp is midnight, so without it the
+ * order is whatever the rows arrived in and the same request can produce two
+ * different charts.
+ *
+ * localeCompare rather than nested ternaries: the equal case cannot happen —
+ * two rows with the same dedup key are the same row — so a branch for it would
+ * be untestable except by constructing a state the ledger cannot hold.
+ */
+export function inLedgerOrder(movements: readonly Movement[]): Movement[] {
+  return [...movements].sort((a, b) =>
     a.timestamp === b.timestamp
       ? a.dedupKey.localeCompare(b.dedupKey)
       : a.timestamp < b.timestamp
         ? -1
         : 1,
   );
+}
+
+/**
+ * The position a book that is an account held before the ledger begins.
+ *
+ * A derived position is the sum of a book's legs, so an account needs the
+ * figure those legs start from or it reads as however much history we happen to
+ * hold. Neither figure here is stored: both are recovered from what the
+ * provider already told us.
+ *
+ * For a current account that is the first stated running balance less
+ * everything up to and including the transaction carrying it — which is only
+ * correct because the running balance is the position *after* its transaction.
+ * That was measured against the household's own ledger rather than assumed; see
+ * `checkRunningBalanceChain`.
+ *
+ * For a card there is no running balance at all, so the only stated figure is
+ * what is owed now, walked back over every amount.
+ *
+ * **Both are returned in leg convention** — negative left the book, positive
+ * arrived — which for a card is the negation of how `accountSeries` reports it.
+ * A card's stated balance is what is *owed*, carried positive, while spending on
+ * it is a negative amount; the two conventions are mirror images and today the
+ * flip is buried inside `accountSeries`. Naming it here is not a fix: it is the
+ * asset/liability distinction that #108 step 3 introduces as `nature`, surfaced
+ * where the arithmetic first trips over it.
+ */
+export function openingPosition(
+  account: AccountFacts,
+  movements: readonly Movement[],
+): number | undefined {
+  const rows = inLedgerOrder(movements);
+  if (rows.length === 0) return undefined;
+  const total = (upTo: number): number =>
+    rows.slice(0, upTo).reduce((sum, r) => sum + r.amount, 0);
+
+  if (account.isCard === true) {
+    if (account.currentBalance === undefined) return undefined;
+    // Negated: `currentBalance` is what is owed, carried positive.
+    return -account.currentBalance - total(rows.length);
+  }
+
+  const first = rows.findIndex((r) => r.runningBalance !== undefined);
+  if (first === -1) return undefined;
+  return rows[first]!.runningBalance! - total(first + 1);
+}
+
+export function accountSeries(
+  account: AccountFacts,
+  movements: readonly Movement[],
+  days: readonly string[],
+): Array<number | undefined> {
+  const rows = inLedgerOrder(movements);
   if (rows.length === 0) return days.map(() => undefined);
 
   const firstDay = rows[0]!.timestamp.slice(0, 10);

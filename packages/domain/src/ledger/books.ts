@@ -170,3 +170,47 @@ export function tradesFrom(
     tradeFor(t, categorisations.get(t.dedupKey)),
   );
 }
+
+/**
+ * A book's position on each of a series of days.
+ *
+ * The running sum of the book's legs, and nothing else. One rule for every
+ * book: a bank account, a category, a loan. Where the position of an account
+ * has until now been *observed* — carried forward from the provider's own
+ * running balance — this derives it, which is #108 step 2 and the point at
+ * which the ledger starts stating a figure rather than relaying one.
+ *
+ * Legs are placed by `appliesAt`, so a rule that recategorises March moves
+ * March. `recordedAt` is deliberately not consulted here; asking what a
+ * position looked like at a past moment is step 4, and answering it means
+ * filtering the legs before they arrive rather than complicating this.
+ *
+ * `days` must be ascending. `opening` is the position before the first of them:
+ * zero for a book that began empty, which is every category, and bootstrapped
+ * from the provider for an account that did not.
+ */
+export function positionsFor(
+  legs: readonly Leg[],
+  days: readonly string[],
+  opening = 0,
+): number[] {
+  if (days.length === 0) return [];
+
+  const byDay = new Map<string, number>();
+  for (const leg of legs) {
+    const day = leg.appliesAt.slice(0, 10);
+    byDay.set(day, (byDay.get(day) ?? 0) + leg.amount);
+  }
+
+  // Everything effective before the window is part of the position on its first
+  // day, not absent from it. A window that began after a book did would
+  // otherwise open at its opening figure and jump.
+  const first = days[0]!;
+  let running = opening;
+  for (const [day, amount] of byDay) if (day < first) running += amount;
+
+  return days.map((day) => {
+    running += byDay.get(day) ?? 0;
+    return running;
+  });
+}
