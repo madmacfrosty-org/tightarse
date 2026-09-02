@@ -12,8 +12,11 @@ import { describe, it, expect } from "vitest";
 import {
   checkRunningBalanceChain,
   dailyPositionChecks,
+  displacements,
 } from "../src/ledger/running-balance.js";
+import type { DayCheck } from "../src/ledger/running-balance.js";
 import type { Movement } from "../src/reporting/balances.js";
+import type { RecordedTransaction } from "../src/ledger/transaction.js";
 
 /** A movement whose running balance is the position *after* it — the closing reading. */
 const closingChain = (
@@ -322,5 +325,227 @@ describe("dailyPositionChecks", () => {
         { accountId: "card", timestamp: "2026-03-01T00:00:00Z", amount: -1299, dedupKey: "n:1" },
       ]),
     ).toEqual([]);
+  });
+});
+
+/**
+ * Pairing the days that cancel, and naming the transaction between them.
+ *
+ * The distinction under test is the one that matters operationally: a
+ * transaction absent from the ledger breaks one day, a transaction filed under
+ * the wrong date breaks two by equal and opposite amounts. Only the second can
+ * be shown to a reader as a row to go and look at.
+ *
+ * Every figure, description and merchant here is invented.
+ */
+describe("displaced transactions", () => {
+  const txn = (
+    date: string,
+    amount: number,
+    description: string,
+    extra: Partial<RecordedTransaction> = {},
+  ): RecordedTransaction =>
+    ({
+      tenantId: "t1",
+      accountId: "acc1",
+      transactionId: `${date}:${amount}`,
+      dedupKey: `${date}:${amount}:${description}`,
+      timestamp: `${date}T00:00:00Z`,
+      amount,
+      currency: "GBP",
+      description,
+      status: "settled",
+      transactionType: "DEBIT",
+      ingestedAt: "2026-03-01T00:00:00Z",
+      ...extra,
+    }) as RecordedTransaction;
+
+  const day = (date: string, difference: number): DayCheck => ({
+    date,
+    closing: 0,
+    previousClosing: 0,
+    movement: -difference,
+    difference,
+  });
+
+  it("pairs two days that cancel, and names the transaction we hold", () => {
+    const out = displacements(
+      [day("2026-03-06", 50_00), day("2026-03-13", -50_00)],
+      [txn("2026-03-13", 50_00, "SOMEMART 118")],
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]!.bankDate).toBe("2026-03-06");
+    expect(out[0]!.ledgerDate).toBe("2026-03-13");
+    expect(out[0]!.amount).toBe(50_00);
+    expect(out[0]!.displacedBy).toBe(7);
+    expect(out[0]!.candidates).toEqual([
+      {
+        dedupKey: "2026-03-13:5000:SOMEMART 118",
+        timestamp: "2026-03-13T00:00:00Z",
+        description: "SOMEMART 118",
+        amount: 50_00,
+        status: "settled",
+      },
+    ]);
+  });
+
+  it("says so when we dated it earlier than the bank applied it", () => {
+    // The mirror image. The sign of `displacedBy` is the only thing that says
+    // which way round it went, so it has to survive the swap.
+    const out = displacements(
+      [day("2026-03-06", -50_00), day("2026-03-13", 50_00)],
+      [txn("2026-03-06", 50_00, "SOMEMART 118")],
+    );
+    expect(out[0]!.bankDate).toBe("2026-03-13");
+    expect(out[0]!.ledgerDate).toBe("2026-03-06");
+    expect(out[0]!.displacedBy).toBe(-7);
+  });
+
+  it("carries the merchant where there is one, and omits it where there is not", () => {
+    const withMerchant = displacements(
+      [day("2026-03-06", 50_00), day("2026-03-13", -50_00)],
+      [txn("2026-03-13", 50_00, "CARD PAYMENT", { merchantName: "Some Shop" })],
+    );
+    expect(withMerchant[0]!.candidates[0]!.merchantName).toBe("Some Shop");
+    const without = displacements(
+      [day("2026-03-06", 50_00), day("2026-03-13", -50_00)],
+      [txn("2026-03-13", 50_00, "CARD PAYMENT")],
+    );
+    expect(without[0]!.candidates[0]).not.toHaveProperty("merchantName");
+  });
+
+  it("leaves a lone unexplained day unpaired, because that is a different fault", () => {
+    // One day wrong and nothing to cancel it is what an absent transaction
+    // looks like. Inventing a partner for it would hide exactly that.
+    expect(
+      displacements([day("2026-03-06", 50_00)], [txn("2026-03-06", 50_00, "X")]),
+    ).toEqual([]);
+  });
+
+  it("pairs the days but names nothing when we hold no matching row", () => {
+    // The honest middle case: the arithmetic cancels, so something moved twice,
+    // but no single transaction of ours accounts for it.
+    const out = displacements(
+      [day("2026-03-06", 50_00), day("2026-03-13", -50_00)],
+      [txn("2026-03-13", 25_00, "HALF OF IT")],
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]!.candidates).toEqual([]);
+  });
+
+  it("offers both when the amount cannot pick between them", () => {
+    const out = displacements(
+      [day("2026-03-06", 50_00), day("2026-03-13", -50_00)],
+      [
+        txn("2026-03-13", 50_00, "ONE OF TWO"),
+        txn("2026-03-13", 50_00, "TWO OF TWO"),
+      ],
+    );
+    expect(out[0]!.candidates.map((c) => c.description)).toEqual([
+      "ONE OF TWO",
+      "TWO OF TWO",
+    ]);
+  });
+
+  it("pairs the nearest day, not the first one it comes across", () => {
+    // Three days disagree by the same amount and two of them cancel. Pairing
+    // 03-01 with 03-20 would leave a displacement of nineteen days next to one
+    // of two, when the reverse is the obvious reading.
+    const out = displacements(
+      [
+        day("2026-03-01", 50_00),
+        day("2026-03-20", -50_00),
+        day("2026-03-22", 50_00),
+      ],
+      [],
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]!.bankDate).toBe("2026-03-22");
+    expect(out[0]!.ledgerDate).toBe("2026-03-20");
+    expect(out[0]!.displacedBy).toBe(-2);
+  });
+
+  it("gives each displacement its own transaction", () => {
+    // Two independent misdatings a fortnight apart. Each names the row on its
+    // own ledger day and neither reaches for the other's.
+    const out = displacements(
+      [
+        day("2026-03-06", 50_00),
+        day("2026-03-13", -50_00),
+        day("2026-03-20", 50_00),
+        day("2026-03-27", -50_00),
+      ],
+      [
+        txn("2026-03-13", 50_00, "FIRST ONE"),
+        txn("2026-03-27", 50_00, "SECOND ONE"),
+      ],
+    );
+    expect(out.map((d) => d.candidates.map((c) => c.description))).toEqual([
+      ["FIRST ONE"],
+      ["SECOND ONE"],
+    ]);
+  });
+
+  it("reports oldest first, whichever side the bank's date falls", () => {
+    // Pairing works closest-first, so the output arrives in distance order and
+    // has to be put back into time order before anyone reads it. The two
+    // displacements here are deliberately opposite ways round: one where the
+    // bank moved first, one where our ledger did.
+    const out = displacements(
+      [
+        day("2026-03-05", 50_00),
+        day("2026-03-12", -50_00),
+        day("2026-03-18", -30_00),
+        day("2026-03-20", 30_00),
+      ],
+      [],
+    );
+    expect(out.map((d) => [d.bankDate, d.ledgerDate])).toEqual([
+      ["2026-03-05", "2026-03-12"],
+      ["2026-03-20", "2026-03-18"],
+    ]);
+  });
+
+  it("leaves days that do not cancel alone", () => {
+    // Two days wrong in the same direction are not one transaction in the wrong
+    // place — they are two separate faults. Pairing them would invent a
+    // displacement whose amount matches neither.
+    expect(
+      displacements([day("2026-03-06", 50_00), day("2026-03-13", 30_00)], []),
+    ).toEqual([]);
+  });
+
+  it("orders by where the fault begins, not by either date alone", () => {
+    // Three displacements, deliberately interleaved. Sorting on the bank's date
+    // or on ours gives a different order from sorting on the earlier of the
+    // two, so this pins which one the panel actually reads.
+    const out = displacements(
+      [
+        day("2026-03-02", 10_00),
+        day("2026-03-05", -20_00),
+        day("2026-03-10", 30_00),
+        day("2026-03-12", -30_00),
+        day("2026-03-20", -10_00),
+        day("2026-03-25", 20_00),
+      ],
+      [],
+    );
+    expect(out.map((d) => [d.bankDate, d.ledgerDate])).toEqual([
+      ["2026-03-02", "2026-03-20"],
+      ["2026-03-25", "2026-03-05"],
+      ["2026-03-10", "2026-03-12"],
+    ]);
+  });
+
+  it("invents nothing for an account whose days all agree", () => {
+    // Two of them, not one. A day that agrees has a difference of zero, and in
+    // JavaScript `0 === -0`, so a pair of clean days looks like a pair that
+    // cancels unless they are filtered out first. On a real account almost
+    // every day is clean, so the failure would not be subtle.
+    const out = displacements(
+      [day("2026-03-06", 0), day("2026-03-07", 0), day("2026-03-08", 0)],
+      [txn("2026-03-07", 0, "NIL")],
+    );
+    expect(out).toEqual([]);
   });
 });

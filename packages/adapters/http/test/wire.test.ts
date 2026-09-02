@@ -356,6 +356,24 @@ describe("the running-balance check on the wire", () => {
             difference: 34_56,
           },
         ],
+        displacements: [
+          {
+            ledgerDate: "2026-04-07",
+            bankDate: "2026-03-31",
+            displacedBy: 7,
+            amount: 34_56,
+            candidates: [
+              {
+                dedupKey: "d1",
+                timestamp: "2026-04-07T00:00:00Z",
+                description: "SOMEMART 118",
+                amount: 34_56,
+                status: "settled",
+                merchantName: "Somemart",
+              },
+            ],
+          },
+        ],
       },
     ],
   };
@@ -382,9 +400,82 @@ describe("the running-balance check on the wire", () => {
               difference: 34_56,
             },
           ],
+          displacements: [
+            {
+              ledgerDate: "2026-04-07",
+              bankDate: "2026-03-31",
+              displacedBy: 7,
+              amount: 34_56,
+              candidates: [
+                {
+                  dedupKey: "d1",
+                  timestamp: "2026-04-07T00:00:00Z",
+                  description: "SOMEMART 118",
+                  amount: 34_56,
+                  status: "settled",
+                  merchantName: "Somemart",
+                },
+              ],
+            },
+          ],
         },
       ],
     });
+  });
+
+  it("drops an unpromised field from a suspect, three levels down", () => {
+    // The nesting is the point. A leak guard that only holds at the top level
+    // would let the provider's own identifiers through inside a candidate,
+    // which is where the personal detail actually is.
+    const grown = {
+      verdict: "closing",
+      accounts: [
+        {
+          ...report.accounts[0]!,
+          displacements: [
+            {
+              ...report.accounts[0]!.displacements[0]!,
+              candidates: [
+                {
+                  ...report.accounts[0]!.displacements[0]!.candidates[0]!,
+                  providerTransactionId: "leaked",
+                  accountNumber: "leaked",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    } as unknown as RunningBalanceReport;
+    const suspect = asRunningBalance(grown).accounts[0]!.displacements[0]!
+      .candidates[0]!;
+    expect(suspect).not.toHaveProperty("providerTransactionId");
+    expect(suspect).not.toHaveProperty("accountNumber");
+    expect(suspect.description).toBe("SOMEMART 118");
+  });
+
+  it("omits a merchant the ledger does not have, rather than sending null", () => {
+    const noMerchant = {
+      verdict: "closing",
+      accounts: [
+        {
+          ...report.accounts[0]!,
+          displacements: [
+            {
+              ...report.accounts[0]!.displacements[0]!,
+              candidates: [
+                (({ merchantName: _drop, ...rest }) => rest)(
+                  report.accounts[0]!.displacements[0]!.candidates[0]!,
+                ),
+              ],
+            },
+          ],
+        },
+      ],
+    } as unknown as RunningBalanceReport;
+    expect(
+      asRunningBalance(noMerchant).accounts[0]!.displacements[0]!.candidates[0],
+    ).not.toHaveProperty("merchantName");
   });
 
   it("drops a field the domain grew that the contract never promised", () => {
@@ -411,7 +502,7 @@ describe("the running-balance check on the wire", () => {
   it("says a clean account disagreed on nothing, rather than leaving it out", () => {
     const clean: RunningBalanceReport = {
       verdict: "closing",
-      accounts: [{ ...report.accounts[0]!, disagreeing: [] }],
+      accounts: [{ ...report.accounts[0]!, disagreeing: [], displacements: [] }],
     };
     expect(asRunningBalance(clean).accounts[0]!.disagreeing).toEqual([]);
   });

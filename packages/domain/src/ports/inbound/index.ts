@@ -20,6 +20,7 @@ import type { DescriptionSummary, Recurrence } from "../../categorisation/corpus
 import type { Conflict, Gap } from "../../categorisation/evidence.js";
 import type {
   DayCheck,
+  Displacement,
   RunningBalanceVerdict,
 } from "../../ledger/running-balance.js";
 
@@ -356,6 +357,14 @@ export interface AccountBalanceCheck {
   readonly daysChecked: number;
   /** Only the days that disagree. A clean account contributes none. */
   readonly disagreeing: readonly DayCheck[];
+  /**
+   * Disagreeing days paired up, where two cancel each other exactly.
+   *
+   * The interpretation, next to the arithmetic rather than instead of it: a
+   * displacement says which transaction is misfiled and where the bank put it,
+   * and `disagreeing` still shows every day so the pairing can be checked.
+   */
+  readonly displacements: readonly Displacement[];
 }
 
 /**

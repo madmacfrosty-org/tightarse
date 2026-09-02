@@ -21,6 +21,7 @@
  */
 
 import type { Movement } from "../reporting/balances.js";
+import type { RecordedTransaction } from "./transaction.js";
 
 /**
  * Which reading of `running_balance` the data supports.
@@ -180,4 +181,147 @@ export function dailyPositionChecks(
     });
   }
   return out;
+}
+
+/**
+ * A transaction the check believes is dated wrongly, in enough detail to check.
+ *
+ * Carries the description and the merchant, which is the most personal thing in
+ * the ledger. It is here because a reader has to recognise the row in their own
+ * banking app to confirm it — a date and an amount are not enough to identify a
+ * transaction by eye. This must never be logged, emitted as a metric, or put in
+ * any output that is not the authenticated browser.
+ */
+export interface SuspectTransaction {
+  readonly dedupKey: string;
+  /** The date our ledger holds. Midnight, so effectively a date. */
+  readonly timestamp: string;
+  readonly description: string;
+  readonly amount: number;
+  readonly status: string;
+  readonly merchantName?: string;
+}
+
+/**
+ * Two days that disagree by equal and opposite amounts.
+ *
+ * A transaction absent from the ledger breaks exactly one day: the day check
+ * compares the provider's own closing balances on both sides, so from the next
+ * day on the error is present in both and cancels. Two days that are wrong by
+ * the same amount in opposite directions are a different fault — a transaction
+ * we do hold, counted once, filed under the wrong date. The bank moved on one
+ * day; our ledger moved on the other.
+ *
+ * That distinction is the whole value of pairing them: one shape means data is
+ * missing, the other means data is misplaced, and only the second can be shown
+ * to a reader as a row they can go and look at.
+ */
+export interface Displacement {
+  /** The day our ledger dates the transaction. */
+  readonly ledgerDate: string;
+  /** The day the provider's balance actually moved by this amount. */
+  readonly bankDate: string;
+  /** Whole days from the bank's date to ours. Negative when we date it earlier. */
+  readonly displacedBy: number;
+  /** The amount that moved on one day and not the other. */
+  readonly amount: number;
+  /**
+   * Transactions on the ledger day whose amount is exactly this.
+   *
+   * Empty is a real answer and not a failure: it says the arithmetic pairs up
+   * but we hold no single transaction that accounts for it, which points at
+   * something absent rather than misdated. More than one means the amount alone
+   * cannot pick between them, and guessing would be worse than showing both.
+   */
+  readonly candidates: readonly SuspectTransaction[];
+}
+
+/** Whole days since the epoch, for a `YYYY-MM-DD` date. */
+function dayNumber(date: string): number {
+  return Math.floor(Date.parse(`${date}T00:00:00Z`) / 86_400_000);
+}
+
+function asSuspect(t: RecordedTransaction): SuspectTransaction {
+  return {
+    dedupKey: t.dedupKey,
+    timestamp: t.timestamp,
+    description: t.description,
+    amount: t.amount,
+    status: t.status,
+    ...(t.merchantName === undefined ? {} : { merchantName: t.merchantName }),
+  };
+}
+
+/**
+ * Pair up days that cancel each other out, and name the transaction between them.
+ *
+ * Nearest first. Where several days disagree by the same amount the pairing is
+ * a choice rather than a deduction, and the nearest is the only defensible one
+ * to make — a displacement of days is ordinary, one of years is not.
+ *
+ * A day is paired at most once, and a transaction can only match its own date,
+ * so no two displacements can name the same row.
+ */
+export function displacements(
+  days: readonly DayCheck[],
+  transactions: readonly RecordedTransaction[],
+): Displacement[] {
+  const unexplained = days.filter((d) => d.difference !== 0);
+
+  // Every pairing that cancels, closest first. Taking each day in turn and
+  // giving it *its* nearest partner is not the same thing: with days nineteen
+  // apart and two apart competing for the same partner, going in date order
+  // hands it to the nineteen and leaves the obvious pair unmatched.
+  const options: { a: DayCheck; b: DayCheck; apart: number }[] = [];
+  for (let i = 0; i < unexplained.length; i++)
+    for (let j = i + 1; j < unexplained.length; j++) {
+      const a = unexplained[i]!;
+      const b = unexplained[j]!;
+      if (a.difference !== -b.difference) continue;
+      options.push({
+        a,
+        b,
+        apart: Math.abs(dayNumber(b.date) - dayNumber(a.date)),
+      });
+    }
+  // No tiebreak: `unexplained` is in date order, so the pairs are generated in
+  // date order too, and `sort` is stable. Comparing dates as well would be a
+  // no-op that no test could distinguish from its absence.
+  options.sort((x, y) => x.apart - y.apart);
+
+  const paired = new Set<string>();
+  const out: Displacement[] = [];
+
+  for (const { a, b } of options) {
+    if (paired.has(a.date) || paired.has(b.date)) continue;
+    paired.add(a.date);
+    paired.add(b.date);
+
+    // The bank moved on whichever day gained value our transactions do not
+    // account for. The other day is where our ledger put it.
+    const bank = a.difference > 0 ? a : b;
+    const ledger = a.difference > 0 ? b : a;
+    const amount = bank.difference;
+    const candidates = transactions
+      .filter(
+        (t) => t.timestamp.slice(0, 10) === ledger.date && t.amount === amount,
+      )
+      .map(asSuspect);
+
+    out.push({
+      ledgerDate: ledger.date,
+      bankDate: bank.date,
+      displacedBy: dayNumber(ledger.date) - dayNumber(bank.date),
+      amount,
+      candidates,
+    });
+  }
+  // Oldest first, matching the day rows they explain. Pairing runs
+  // closest-first, so `out` arrives in distance order rather than time order.
+  return out.sort((x, y) => startOf(x).localeCompare(startOf(y)));
+}
+
+/** The earlier of a displacement's two days: where the fault begins. */
+function startOf(d: Displacement): string {
+  return d.bankDate < d.ledgerDate ? d.bankDate : d.ledgerDate;
 }

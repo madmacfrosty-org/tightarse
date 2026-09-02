@@ -23,6 +23,8 @@ import {
   // The leaf types too, for the same reason the helpers above are named.
   RunningBalanceVerdict,
   DayCheck,
+  SuspectTransaction,
+  Displacement,
   AccountBalanceCheck,
   RunningBalanceResponse,
   Cadence,
@@ -104,6 +106,8 @@ const NAMED = {
   // become a $ref into another schema's properties, which generators reject.
   RunningBalanceVerdict,
   DayCheck,
+  SuspectTransaction,
+  Displacement,
   AccountBalanceCheck,
   RunningBalanceResponse,
   CategoryChoiceView,

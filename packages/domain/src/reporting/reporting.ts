@@ -45,6 +45,7 @@ import {
 import {
   checkRunningBalanceChain,
   dailyPositionChecks,
+  displacements,
 } from "../ledger/running-balance.js";
 import type { RunningBalanceVerdict } from "../ledger/running-balance.js";
 import {
@@ -396,10 +397,20 @@ export async function runningBalanceCheck(
   for (const m of movements)
     byAccount.set(m.accountId, [...(byAccount.get(m.accountId) ?? []), m]);
 
+  // The rows themselves, so a displacement can name the transaction rather than
+  // only the amount. `Movement` deliberately carries no description.
+  const rowsByAccount = new Map<string, RecordedTransaction[]>();
+  for (const t of all)
+    rowsByAccount.set(t.accountId, [
+      ...(rowsByAccount.get(t.accountId) ?? []),
+      t,
+    ]);
+
   const accounts = rows.map(toAccountFacts).map((facts) => {
     const mine = byAccount.get(facts.accountId) ?? [];
     const chain = checkRunningBalanceChain(mine);
     const days = dailyPositionChecks(mine);
+    const displaced = displacements(days, rowsByAccount.get(facts.accountId) ?? []);
     return {
       accountId: facts.accountId,
       isCard: facts.isCard === true,
@@ -410,6 +421,7 @@ export async function runningBalanceCheck(
       openingMatches: chain.openingMatches,
       daysChecked: days.length,
       disagreeing: days.filter((d) => d.difference !== 0),
+      displacements: displaced,
     };
   });
 

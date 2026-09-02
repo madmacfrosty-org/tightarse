@@ -406,6 +406,73 @@
         ],
         "additionalProperties": false
       },
+      "SuspectTransaction": {
+        "type": "object",
+        "properties": {
+          "dedupKey": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "integer",
+            "description": "The amount as the ledger holds it, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "status": {
+            "type": "string"
+          },
+          "merchantName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "dedupKey",
+          "timestamp",
+          "description",
+          "amount",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "Displacement": {
+        "type": "object",
+        "properties": {
+          "ledgerDate": {
+            "$ref": "#/components/schemas/IsoDate"
+          },
+          "bankDate": {
+            "$ref": "#/components/schemas/IsoDate"
+          },
+          "displacedBy": {
+            "type": "integer",
+            "description": "Whole days from the bank's date to ours. Negative when we date it earlier"
+          },
+          "amount": {
+            "type": "integer",
+            "description": "The amount that moved on one day and not the other, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SuspectTransaction"
+            },
+            "description": "Transactions on the ledger day matching this amount exactly. Empty means the days cancel but we hold nothing that accounts for it, which points at an absence rather than a misdating. More than one means the amount alone cannot pick between them"
+          }
+        },
+        "required": [
+          "ledgerDate",
+          "bankDate",
+          "displacedBy",
+          "amount",
+          "candidates"
+        ],
+        "additionalProperties": false,
+        "description": "Two disagreeing days that cancel exactly: one transaction, counted once, filed under the wrong date. A transaction genuinely absent from the ledger breaks a single day and never pairs"
+      },
       "AccountBalanceCheck": {
         "type": "object",
         "properties": {
@@ -438,6 +505,12 @@
             "items": {
               "$ref": "#/components/schemas/DayCheck"
             }
+          },
+          "displacements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Displacement"
+            }
           }
         },
         "required": [
@@ -449,7 +522,8 @@
           "closingMatches",
           "openingMatches",
           "daysChecked",
-          "disagreeing"
+          "disagreeing",
+          "displacements"
         ],
         "additionalProperties": false
       },
