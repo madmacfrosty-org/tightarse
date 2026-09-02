@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { asBacklog, asCategories, asProposalResponse } from "../src/wire.js";
-import type { Backlog } from "@tightarse/domain";
+import {
+  asBacklog,
+  asCategories,
+  asProposalResponse,
+  asRunningBalance,
+} from "../src/wire.js";
+import type { Backlog, RunningBalanceReport } from "@tightarse/domain";
 
 /**
  * Where a domain answer becomes an HTTP response.
@@ -317,5 +322,103 @@ describe("what applying did", () => {
         { setId: "household", version: 4, rules: 1 },
       ]).applied,
     ).toBeUndefined();
+  });
+});
+
+/**
+ * The running-balance diagnostic on the wire.
+ *
+ * This projection is the one place that decides what a browser is shown about a
+ * household's balances, so an empty report proves nothing about it. Every test
+ * here pushes a populated account through.
+ *
+ * Account ids and amounts are invented.
+ */
+describe("the running-balance check on the wire", () => {
+  const report: RunningBalanceReport = {
+    verdict: "closing",
+    accounts: [
+      {
+        accountId: "acc-1",
+        isCard: false,
+        verdict: "closing",
+        pairs: 41,
+        discriminating: 38,
+        closingMatches: 41,
+        openingMatches: 2,
+        daysChecked: 17,
+        disagreeing: [
+          {
+            date: "2026-04-07",
+            closing: 1_234_56,
+            previousClosing: 1_000_00,
+            movement: 200_00,
+            difference: 34_56,
+          },
+        ],
+      },
+    ],
+  };
+
+  it("carries every field across, and no others", () => {
+    expect(asRunningBalance(report)).toEqual({
+      verdict: "closing",
+      accounts: [
+        {
+          accountId: "acc-1",
+          isCard: false,
+          verdict: "closing",
+          pairs: 41,
+          discriminating: 38,
+          closingMatches: 41,
+          openingMatches: 2,
+          daysChecked: 17,
+          disagreeing: [
+            {
+              date: "2026-04-07",
+              closing: 1_234_56,
+              previousClosing: 1_000_00,
+              movement: 200_00,
+              difference: 34_56,
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("drops a field the domain grew that the contract never promised", () => {
+    // The reason this projection is written out field by field. A spread would
+    // serve whatever the domain happens to carry, which is how `mergeCategories`
+    // sent partition keys and object locations to a browser for months.
+    const grown = {
+      verdict: "closing",
+      accounts: [
+        { ...report.accounts[0], providerAccountId: "leaked", raw: { s3: "k" } },
+      ],
+    } as unknown as RunningBalanceReport;
+    const account = asRunningBalance(grown).accounts[0]!;
+    expect(account).not.toHaveProperty("providerAccountId");
+    expect(account).not.toHaveProperty("raw");
+  });
+
+  it("copies the arrays rather than handing out the domain's own", () => {
+    const out = asRunningBalance(report);
+    expect(out.accounts).not.toBe(report.accounts);
+    expect(out.accounts[0]!.disagreeing).not.toBe(report.accounts[0]!.disagreeing);
+  });
+
+  it("says a clean account disagreed on nothing, rather than leaving it out", () => {
+    const clean: RunningBalanceReport = {
+      verdict: "closing",
+      accounts: [{ ...report.accounts[0]!, disagreeing: [] }],
+    };
+    expect(asRunningBalance(clean).accounts[0]!.disagreeing).toEqual([]);
+  });
+
+  it("has nothing to show when no account could be checked", () => {
+    expect(
+      asRunningBalance({ verdict: "insufficient", accounts: [] }),
+    ).toEqual({ verdict: "insufficient", accounts: [] });
   });
 });
