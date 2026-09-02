@@ -4,6 +4,7 @@ import { reporting } from "@tightarse/domain";
 import {
   asAccounts,
   asBalances,
+  asRunningBalance,
   asCategories,
   asSummary,
   asTransactions,
@@ -196,6 +197,11 @@ export async function route(deps: ApiDeps, event: HttpEvent) {
       return json(200, asCategories(await deps.reporting.categories(tenantId)));
     if (path.endsWith("/accounts"))
       return json(200, asAccounts(await deps.reporting.accounts(tenantId)));
+    if (path.endsWith("/diagnostics/running-balance"))
+      return json(
+        200,
+        asRunningBalance(await deps.reporting.runningBalanceCheck(tenantId)),
+      );
     if (path.endsWith("/balances"))
       return json(
         200,

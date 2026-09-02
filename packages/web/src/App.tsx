@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Api, Identity, Session } from "./ports";
 import { Categorise } from "./Categorise";
+import { Diagnostics } from "./Diagnostics";
 import { ConnectBank, Connected } from "./Connect";
 import { BalanceLine, CategoryBars, MonthlyFlow, money } from "./charts";
 import { netPosition, rangeFor, tileBalance } from "./positions";
@@ -302,6 +303,7 @@ export function App({ session, api }: { session: Session; api: Api }) {
         and a rule made here still reaches them.
       */}
       <Categorise api={api} from={completeFrom ?? rangeFor(365, new Date()).from} to={rangeFor(0, new Date()).to} />
+      <Diagnostics api={api} />
 
       <div className="card">
         <h2>Recent transactions</h2>

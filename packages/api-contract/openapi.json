@@ -363,6 +363,115 @@
         ],
         "additionalProperties": false
       },
+      "RunningBalanceVerdict": {
+        "type": "string",
+        "enum": [
+          "closing",
+          "opening",
+          "ambiguous",
+          "inconsistent",
+          "insufficient"
+        ],
+        "description": "closing: the balance is the position after its transaction, which is what the ledger assumes. opening: it is the position before, and every derived balance is out by one transaction. ambiguous: the data cannot tell, because consecutive amounts are equal. inconsistent: the chain does not hold either way, which means a transaction is missing. insufficient: nothing to compare, which is every card."
+      },
+      "DayCheck": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "$ref": "#/components/schemas/IsoDate"
+          },
+          "closing": {
+            "type": "integer",
+            "description": "The last running balance on this day, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "previousClosing": {
+            "type": "integer",
+            "description": "The last running balance on the previous day that had one, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "movement": {
+            "type": "integer",
+            "description": "The sum of this day's amounts, in integer minor units (pence). Divide by 100 for pounds."
+          },
+          "difference": {
+            "type": "integer",
+            "description": "closing - previousClosing - movement. Zero when the day's arithmetic agrees, in integer minor units (pence). Divide by 100 for pounds."
+          }
+        },
+        "required": [
+          "date",
+          "closing",
+          "previousClosing",
+          "movement",
+          "difference"
+        ],
+        "additionalProperties": false
+      },
+      "AccountBalanceCheck": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "isCard": {
+            "type": "boolean"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/RunningBalanceVerdict"
+          },
+          "pairs": {
+            "type": "integer"
+          },
+          "discriminating": {
+            "type": "integer"
+          },
+          "closingMatches": {
+            "type": "integer"
+          },
+          "openingMatches": {
+            "type": "integer"
+          },
+          "daysChecked": {
+            "type": "integer"
+          },
+          "disagreeing": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DayCheck"
+            }
+          }
+        },
+        "required": [
+          "accountId",
+          "isCard",
+          "verdict",
+          "pairs",
+          "discriminating",
+          "closingMatches",
+          "openingMatches",
+          "daysChecked",
+          "disagreeing"
+        ],
+        "additionalProperties": false
+      },
+      "RunningBalanceResponse": {
+        "type": "object",
+        "properties": {
+          "verdict": {
+            "$ref": "#/components/schemas/RunningBalanceVerdict"
+          },
+          "accounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AccountBalanceCheck"
+            }
+          }
+        },
+        "required": [
+          "verdict",
+          "accounts"
+        ],
+        "additionalProperties": false
+      },
       "CategoryChoiceView": {
         "type": "object",
         "properties": {
@@ -1379,6 +1488,35 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BalancesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The range is missing, malformed, or `from` is after `to`"
+          },
+          "401": {
+            "description": "No bearer token, or one this API does not trust"
+          },
+          "403": {
+            "description": "A valid token carrying no household claim"
+          }
+        }
+      }
+    },
+    "/v1/diagnostics/running-balance": {
+      "get": {
+        "operationId": "diagnosticsRunningBalance",
+        "summary": "What the provider's running balance actually means",
+        "description": "A diagnostic, not a report of the household's money. The provider documents that a transaction may carry a running balance and never what it means; the ledger assumes it is the position after the transaction and derives every account's balance from that. This tests both readings against the household's own chain and shows the day-level arithmetic behind the verdict. See issue 108, which makes every balance depend on the answer.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "What the provider's running balance actually means",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunningBalanceResponse"
                 }
               }
             }

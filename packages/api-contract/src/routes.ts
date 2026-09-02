@@ -22,6 +22,7 @@ import {
   IsoDate,
   SummaryResponse,
   TransactionsResponse,
+  RunningBalanceResponse,
 } from "./schemas.js";
 
 /**
@@ -181,6 +182,19 @@ export const ROUTES: readonly Route[] = [
       "that means missing debt, so the figure reads high. The response states the range actually served.",
     query: range,
     response: { name: "BalancesResponse", schema: BalancesResponse },
+  },
+  {
+    method: "get",
+    path: "/diagnostics/running-balance",
+    summary: "What the provider's running balance actually means",
+    description:
+      "A diagnostic, not a report of the household's money. The provider documents that a transaction " +
+      "may carry a running balance and never what it means; the ledger assumes it is the position after " +
+      "the transaction and derives every account's balance from that. This tests both readings against " +
+      "the household's own chain and shows the day-level arithmetic behind the verdict. " +
+      "See issue 108, which makes every balance depend on the answer.",
+    query: [],
+    response: { name: "RunningBalanceResponse", schema: RunningBalanceResponse },
   },
   {
     method: "get",

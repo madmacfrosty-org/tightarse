@@ -24,6 +24,8 @@ import type {
   SummaryOptions,
   Summary,
   TransactionsResult,
+  RunningBalanceReport,
+  AccountBalanceCheck,
 } from "../index.js";
 import { Category } from "../categorisation/category.js";
 import { parseRuleSets, type RuleSet } from "../categorisation/rules.js";
@@ -40,6 +42,11 @@ import {
   type AccountFacts,
   type Movement,
 } from "./balances.js";
+import {
+  checkRunningBalanceChain,
+  dailyPositionChecks,
+} from "../ledger/running-balance.js";
+import type { RunningBalanceVerdict } from "../ledger/running-balance.js";
 import {
   clampToCoverage,
   completeFrom,
@@ -360,5 +367,75 @@ export function reporting(deps: Deps): Reporting {
     categories: (tenantId) => categories(deps, tenantId),
     accounts: (tenantId) => accounts(deps, tenantId),
     balances: (tenantId, range) => balances(deps, tenantId, range),
+    runningBalanceCheck: (tenantId) => runningBalanceCheck(deps, tenantId),
   };
+}
+
+/**
+ * What `running_balance` means, answered from the household's own ledger.
+ *
+ * A diagnostic, and the only way the question can be settled: the provider does
+ * not document whether the figure is the position before or after its
+ * transaction, three places here assume "after", and nothing we run would catch
+ * the assumption being wrong. #108 step 2 makes every balance depend on it.
+ *
+ * Whole history rather than a range, for the same reason `balances` uses it: a
+ * chain judged on a window says only that the window is self-consistent.
+ */
+export async function runningBalanceCheck(
+  deps: Deps,
+  tenantId: string,
+): Promise<RunningBalanceReport> {
+  const [rows, all] = await Promise.all([
+    deps.ledger.listAccounts(tenantId),
+    allHistory(deps, tenantId),
+  ]);
+
+  const movements = toMovements(all);
+  const byAccount = new Map<string, Movement[]>();
+  for (const m of movements)
+    byAccount.set(m.accountId, [...(byAccount.get(m.accountId) ?? []), m]);
+
+  const accounts = rows.map(toAccountFacts).map((facts) => {
+    const mine = byAccount.get(facts.accountId) ?? [];
+    const chain = checkRunningBalanceChain(mine);
+    const days = dailyPositionChecks(mine);
+    return {
+      accountId: facts.accountId,
+      isCard: facts.isCard === true,
+      verdict: chain.verdict,
+      pairs: chain.pairs,
+      discriminating: chain.discriminating,
+      closingMatches: chain.closingMatches,
+      openingMatches: chain.openingMatches,
+      daysChecked: days.length,
+      disagreeing: days.filter((d) => d.difference !== 0),
+    };
+  });
+
+  return { verdict: overallVerdict(accounts), accounts };
+}
+
+/**
+ * One answer for the whole ledger.
+ *
+ * Accounts with nothing to compare are ignored rather than counted against the
+ * result — every card is one, and letting them outvote the accounts that do
+ * carry a chain would turn a clear answer into no answer. A single inconsistent
+ * account is decisive though: it means the chain is broken somewhere, and no
+ * reading of the field repairs that.
+ */
+function overallVerdict(
+  accounts: readonly AccountBalanceCheck[],
+): RunningBalanceVerdict {
+  const informative = accounts.filter((a) => a.verdict !== "insufficient");
+  if (informative.length === 0) return "insufficient";
+  if (informative.some((a) => a.verdict === "inconsistent")) return "inconsistent";
+  const distinct = new Set(informative.map((a) => a.verdict));
+  if (distinct.size === 1) return [...distinct][0]!;
+  // Some accounts discriminate and others do not: the ones that do decide it.
+  const decided = new Set(
+    informative.filter((a) => a.verdict !== "ambiguous").map((a) => a.verdict),
+  );
+  return decided.size === 1 ? [...decided][0]! : "inconsistent";
 }

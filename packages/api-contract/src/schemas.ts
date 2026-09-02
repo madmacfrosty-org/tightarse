@@ -237,6 +237,57 @@ export const BalancesResponse = z.object({
 });
 export type BalancesResponse = z.infer<typeof BalancesResponse>;
 
+/**
+ * What the provider's `running_balance` turns out to mean.
+ *
+ * A diagnostic, not a report of the household's money. The provider documents
+ * the field's existence and not its meaning, three places in the ledger assume
+ * it is the position *after* a transaction, and nothing else we run would catch
+ * that being wrong — so this asks the data.
+ */
+export const RunningBalanceVerdict = z
+  .enum(["closing", "opening", "ambiguous", "inconsistent", "insufficient"])
+  .describe(
+    "closing: the balance is the position after its transaction, which is what the ledger assumes. " +
+      "opening: it is the position before, and every derived balance is out by one transaction. " +
+      "ambiguous: the data cannot tell, because consecutive amounts are equal. " +
+      "inconsistent: the chain does not hold either way, which means a transaction is missing. " +
+      "insufficient: nothing to compare, which is every card.",
+  );
+
+export const DayCheck = z.object({
+  date: IsoDate,
+  closing: minorUnits("The last running balance on this day"),
+  previousClosing: minorUnits("The last running balance on the previous day that had one"),
+  movement: minorUnits("The sum of this day's amounts"),
+  difference: minorUnits(
+    "closing - previousClosing - movement. Zero when the day's arithmetic agrees",
+  ),
+});
+export type DayCheck = z.infer<typeof DayCheck>;
+
+export const AccountBalanceCheck = z.object({
+  accountId: z.string(),
+  isCard: z.boolean(),
+  verdict: RunningBalanceVerdict,
+  /** Consecutive pairs where both rows carried a running balance. */
+  pairs: z.number().int(),
+  /** Pairs the two readings disagree about. Only these carry information. */
+  discriminating: z.number().int(),
+  closingMatches: z.number().int(),
+  openingMatches: z.number().int(),
+  daysChecked: z.number().int(),
+  /** Only the days that disagree. A clean account contributes none. */
+  disagreeing: z.array(DayCheck),
+});
+export type AccountBalanceCheck = z.infer<typeof AccountBalanceCheck>;
+
+export const RunningBalanceResponse = z.object({
+  verdict: RunningBalanceVerdict,
+  accounts: z.array(AccountBalanceCheck),
+});
+export type RunningBalanceResponse = z.infer<typeof RunningBalanceResponse>;
+
 export const AccountsResponse = z.object({
   accounts: z.array(AccountView),
   /**

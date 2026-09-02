@@ -10,6 +10,7 @@ import {
   toAccountFacts,
   toMovements,
   transactions,
+  runningBalanceCheck,
 } from "../src/reporting/reporting.js";
 
 /**
@@ -268,6 +269,7 @@ describe("binding the use cases to the inbound port", () => {
       "accounts",
       "balances",
       "categories",
+      "runningBalanceCheck",
       "summary",
       "transactions",
     ]);
@@ -296,6 +298,9 @@ describe("binding the use cases to the inbound port", () => {
       "points",
     );
     await expect(app.categories("frost")).resolves.toHaveProperty("categories");
+    await expect(app.runningBalanceCheck("frost")).resolves.toHaveProperty(
+      "verdict",
+    );
   });
 
   it("passes the household through to the use case, not a default", () => {
@@ -610,5 +615,173 @@ describe("searching transactions", () => {
     );
 
     expect(r.transactions).toEqual([]);
+  });
+});
+
+describe("what running_balance means, judged from the ledger", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getAdoptions.mockResolvedValue([]);
+    listRuleSets.mockResolvedValue([]);
+    listCategories.mockResolvedValue([]);
+  });
+
+  /** A chained account: each running balance is the position after its row. */
+  const chained = (accountId: string, amounts: readonly number[]) => {
+    let balance = 100_00;
+    return amounts.map((amount, i) => {
+      balance += amount;
+      return txn({
+        accountId,
+        dedupKey: `${accountId}-${i}`,
+        timestamp: `2026-03-0${i + 1}T00:00:00Z`,
+        amount,
+        runningBalance: balance,
+      });
+    });
+  };
+
+  it("answers closing when the household's own chain says so", async () => {
+    listAccounts.mockResolvedValue([{ accountId: "cur", isCard: false }]);
+    listRange.mockResolvedValue({
+      transactions: chained("cur", [-10_00, -25_50, 40_00]),
+      categorisations: [],
+    });
+
+    const report = await runningBalanceCheck(deps, "t1");
+
+    expect(report.verdict).toBe("closing");
+    expect(report.accounts[0]).toMatchObject({
+      accountId: "cur",
+      verdict: "closing",
+      disagreeing: [],
+    });
+  });
+
+  it("ignores a card rather than letting it outvote the accounts that can answer", async () => {
+    // Every card is `insufficient`, and there are more cards than accounts in
+    // some households. Counting them would turn a clear answer into no answer.
+    listAccounts.mockResolvedValue([
+      { accountId: "cur", isCard: false },
+      { accountId: "card", isCard: true },
+    ]);
+    listRange.mockResolvedValue({
+      transactions: [
+        ...chained("cur", [-10_00, -25_50, 40_00]),
+        txn({ accountId: "card", dedupKey: "c1", runningBalance: undefined }),
+      ],
+      categorisations: [],
+    });
+
+    const report = await runningBalanceCheck(deps, "t1");
+
+    expect(report.verdict).toBe("closing");
+    expect(
+      report.accounts.find((a) => a.accountId === "card")?.verdict,
+    ).toBe("insufficient");
+  });
+
+  it("is insufficient when nothing in the ledger can answer at all", async () => {
+    listAccounts.mockResolvedValue([{ accountId: "card", isCard: true }]);
+    listRange.mockResolvedValue({
+      transactions: [txn({ accountId: "card", runningBalance: undefined })],
+      categorisations: [],
+    });
+
+    expect((await runningBalanceCheck(deps, "t1")).verdict).toBe("insufficient");
+  });
+
+  it("lets one broken account decide, because a break is not a minority view", async () => {
+    const broken = chained("brk", [-10_00, -25_50, 40_00]);
+    broken[1] = { ...broken[1]!, runningBalance: 1 };
+    listAccounts.mockResolvedValue([
+      { accountId: "cur", isCard: false },
+      { accountId: "brk", isCard: false },
+    ]);
+    listRange.mockResolvedValue({
+      transactions: [...chained("cur", [-10_00, -25_50, 40_00]), ...broken],
+      categorisations: [],
+    });
+
+    const report = await runningBalanceCheck(deps, "t1");
+
+    expect(report.verdict).toBe("inconsistent");
+    expect(
+      report.accounts.find((a) => a.accountId === "brk")?.disagreeing.length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("copes with an account that has no transactions at all", async () => {
+    // A newly connected account, or one whose history has not arrived. It has
+    // nothing to say rather than being an error.
+    listAccounts.mockResolvedValue([
+      { accountId: "cur", isCard: false },
+      { accountId: "empty", isCard: false },
+    ]);
+    listRange.mockResolvedValue({
+      transactions: chained("cur", [-10_00, -25_50, 40_00]),
+      categorisations: [],
+    });
+
+    const report = await runningBalanceCheck(deps, "t1");
+
+    expect(
+      report.accounts.find((a) => a.accountId === "empty"),
+    ).toMatchObject({ verdict: "insufficient", pairs: 0, daysChecked: 0 });
+    expect(report.verdict).toBe("closing");
+  });
+
+  it("is inconsistent when two accounts answer differently", async () => {
+    // Not a tie to be broken: one provider field cannot mean two things, so two
+    // accounts disagreeing means something is wrong beyond the reading.
+    const opening = (accountId: string, amounts: readonly number[]) => {
+      let balance = 100_00;
+      return amounts.map((amount, i) => {
+        const before = balance;
+        balance += amount;
+        return txn({
+          accountId,
+          dedupKey: `${accountId}-${i}`,
+          timestamp: `2026-03-0${i + 1}T00:00:00Z`,
+          amount,
+          runningBalance: before,
+        });
+      });
+    };
+    listAccounts.mockResolvedValue([
+      { accountId: "cur", isCard: false },
+      { accountId: "opp", isCard: false },
+    ]);
+    listRange.mockResolvedValue({
+      transactions: [
+        ...chained("cur", [-10_00, -25_50, 40_00]),
+        ...opening("opp", [-10_00, -25_50, 40_00]),
+      ],
+      categorisations: [],
+    });
+
+    expect((await runningBalanceCheck(deps, "t1")).verdict).toBe("inconsistent");
+  });
+
+  it("lets an account that can discriminate settle it for one that cannot", async () => {
+    // Equal amounts throughout satisfy both readings and say nothing.
+    listAccounts.mockResolvedValue([
+      { accountId: "cur", isCard: false },
+      { accountId: "flat", isCard: false },
+    ]);
+    listRange.mockResolvedValue({
+      transactions: [
+        ...chained("cur", [-10_00, -25_50, 40_00]),
+        ...chained("flat", [-10_00, -10_00, -10_00]),
+      ],
+      categorisations: [],
+    });
+
+    const report = await runningBalanceCheck(deps, "t1");
+
+    expect(
+      report.accounts.find((a) => a.accountId === "flat")?.verdict,
+    ).toBe("ambiguous");
+    expect(report.verdict).toBe("closing");
   });
 });
