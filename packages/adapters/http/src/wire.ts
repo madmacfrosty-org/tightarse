@@ -69,9 +69,40 @@ export const asTransactions = (
   transactions: [...t.transactions],
 });
 
+/**
+ * The accounts, as the wire spells them.
+ *
+ * Projected field by field. This carried `...a` and a shallow copy of the
+ * array, which serves whatever the domain's `AccountState` happens to hold —
+ * the mistake `mergeCategories` made for months. Nothing had leaked through it
+ * yet; adding a field to that type is the moment to stop relying on that.
+ */
 export const asAccounts = (a: AccountsResult): AccountsResponse => ({
-  ...a,
-  accounts: [...a.accounts],
+  ...(a.completeFrom === undefined ? {} : { completeFrom: a.completeFrom }),
+  accounts: a.accounts.map((x) => ({
+    accountId: x.accountId,
+    ...(x.displayName === undefined ? {} : { displayName: x.displayName }),
+    ...(x.institutionName === undefined
+      ? {}
+      : { institutionName: x.institutionName }),
+    ...(x.currency === undefined ? {} : { currency: x.currency }),
+    ...(x.isCard === undefined ? {} : { isCard: x.isCard }),
+    ...(x.accountType === undefined ? {} : { accountType: x.accountType }),
+    ...(x.currentBalance === undefined
+      ? {}
+      : { currentBalance: x.currentBalance }),
+    ...(x.derivedBalance === undefined
+      ? {}
+      : { derivedBalance: x.derivedBalance }),
+    ...(x.availableBalance === undefined
+      ? {}
+      : { availableBalance: x.availableBalance }),
+    ...(x.lastSyncedAt === undefined ? {} : { lastSyncedAt: x.lastSyncedAt }),
+    ...(x.historyFrom === undefined ? {} : { historyFrom: x.historyFrom }),
+    ...(x.historyComplete === undefined
+      ? {}
+      : { historyComplete: x.historyComplete }),
+  })),
 });
 
 export const asBalances = (b: BalancesResult): BalancesResponse => ({

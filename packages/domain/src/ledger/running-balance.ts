@@ -20,6 +20,7 @@
  * by one transaction with reconciliation staying green.
  */
 
+import { inLedgerOrder } from "../reporting/balances.js";
 import type { Movement } from "../reporting/balances.js";
 import type { RecordedTransaction } from "./transaction.js";
 
@@ -143,15 +144,9 @@ export interface DayCheck {
 export function dailyPositionChecks(
   movements: readonly Movement[],
 ): DayCheck[] {
-  const withBalance = [...movements]
-    .filter((m) => m.runningBalance !== undefined)
-    .sort((a, b) =>
-      a.timestamp === b.timestamp
-        ? a.dedupKey.localeCompare(b.dedupKey)
-        : a.timestamp < b.timestamp
-          ? -1
-          : 1,
-    );
+  const withBalance = inLedgerOrder(movements).filter(
+    (m) => m.runningBalance !== undefined,
+  );
 
   const byDay = new Map<string, { closing: number; movement: number }>();
   for (const m of withBalance) {

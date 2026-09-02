@@ -34,6 +34,21 @@ export interface Movement {
   readonly dedupKey: string;
   /** The provider's running total after this transaction. Cards never have one. */
   readonly runningBalance?: number | undefined;
+  /**
+   * Absent means settled.
+   *
+   * A derived position sums settled legs only, so that it stays comparable with
+   * the provider's own chain — which is a settled-only figure. A pending row
+   * carries an amount and no running balance, so counting it would make every
+   * account diverge by whatever happens to be in flight, exactly where a real
+   * disagreement most needs to be visible.
+   */
+  readonly status?: string | undefined;
+}
+
+/** Pending rows are excluded from a position; absent status means settled. */
+export function isSettled(m: Movement): boolean {
+  return m.status !== "pending";
 }
 
 export interface AccountFacts {
@@ -76,78 +91,138 @@ export function daysBetween(from: string, to: string): string[] {
  * which is a real balance. The caller decides what to do with the difference,
  * and the whole point of the coverage rule is that it never has to guess.
  */
-export function accountSeries(
-  account: AccountFacts,
-  movements: readonly Movement[],
-  days: readonly string[],
-): Array<number | undefined> {
-  // Ascending, mirroring the ledger's own sort key. The dedup tiebreak is not
-  // decoration: within an account every timestamp is midnight, so without it
-  // the order is whatever the rows arrived in and the same request can produce
-  // two different charts.
-  // localeCompare rather than nested ternaries: the equal case cannot happen —
-  // two rows with the same dedup key are the same row — so a branch for it
-  // would be untestable except by constructing a state the ledger cannot hold.
-  const rows = [...movements].sort((a, b) =>
+import { positionsFor, type Leg } from "../ledger/books.js";
+
+/**
+ * The ledger's own order for an account's rows.
+ *
+ * Ascending, mirroring the ledger's sort key. The dedup tiebreak is not
+ * decoration: within an account every timestamp is midnight, so without it the
+ * order is whatever the rows arrived in and the same request can produce two
+ * different charts.
+ *
+ * localeCompare rather than nested ternaries: the equal case cannot happen —
+ * two rows with the same dedup key are the same row — so a branch for it would
+ * be untestable except by constructing a state the ledger cannot hold.
+ */
+export function inLedgerOrder(movements: readonly Movement[]): Movement[] {
+  return [...movements].sort((a, b) =>
     a.timestamp === b.timestamp
       ? a.dedupKey.localeCompare(b.dedupKey)
       : a.timestamp < b.timestamp
         ? -1
         : 1,
   );
-  if (rows.length === 0) return days.map(() => undefined);
+}
 
-  const firstDay = rows[0]!.timestamp.slice(0, 10);
+/**
+ * The position a book that is an account held before the ledger begins.
+ *
+ * A derived position is the sum of a book's legs, so an account needs the
+ * figure those legs start from or it reads as however much history we happen to
+ * hold. Neither figure here is stored: both are recovered from what the
+ * provider already told us.
+ *
+ * For a current account that is the first stated running balance less
+ * everything up to and including the transaction carrying it — which is only
+ * correct because the running balance is the position *after* its transaction.
+ * That was measured against the household's own ledger rather than assumed; see
+ * `checkRunningBalanceChain`.
+ *
+ * For a card there is no running balance at all, so the only stated figure is
+ * what is owed now, walked back over every amount.
+ *
+ * **Both are returned in leg convention** — negative left the book, positive
+ * arrived — which for a card is the negation of how `accountSeries` reports it.
+ * A card's stated balance is what is *owed*, carried positive, while spending on
+ * it is a negative amount; the two conventions are mirror images and today the
+ * flip is buried inside `accountSeries`. Naming it here is not a fix: it is the
+ * asset/liability distinction that #108 step 3 introduces as `nature`, surfaced
+ * where the arithmetic first trips over it.
+ */
+export function openingPosition(
+  account: AccountFacts,
+  movements: readonly Movement[],
+): number | undefined {
+  const rows = inLedgerOrder(movements).filter(isSettled);
+  if (rows.length === 0) return undefined;
+  const total = (upTo: number): number =>
+    rows.slice(0, upTo).reduce((sum, r) => sum + r.amount, 0);
 
   if (account.isCard === true) {
-    // Backwards from today. The balance at the end of day D is what is owed now
-    // less everything that has happened since D — which is why a missing
-    // transaction shows up as a wrong shape rather than a missing point, and
-    // why reconciliation matters more here than on a current account.
-    const now = account.currentBalance;
-    if (now === undefined) return days.map(() => undefined);
-    return days.map((day) => {
-      if (day < firstDay) return undefined;
-      const after = rows.filter((r) => r.timestamp.slice(0, 10) > day);
-      return now + after.reduce((s, r) => s + r.amount, 0);
-    });
+    if (account.currentBalance === undefined) return undefined;
+    // Negated: `currentBalance` is what is owed, carried positive.
+    return -account.currentBalance - total(rows.length);
   }
 
-  // Current account: the last figure the provider stated on or before the day.
-  //
-  // Two kinds of statement, merged into one ordered list rather than branched
-  // on: every transaction's running balance, and the live balance read at the
-  // last sync. Whichever is later wins, so a range ending today ends on the
-  // live balance and a range ending last month does not — no special case for
-  // "today", which would be wrong for every other range.
-  const observations: Array<{ day: string; balance: number }> = rows
-    .filter((r) => r.runningBalance !== undefined)
-    .map((r) => ({
-      day: r.timestamp.slice(0, 10),
-      balance: r.runningBalance!,
-    }));
-  if (
-    account.currentBalance !== undefined &&
-    account.balanceAsOf !== undefined
-  ) {
-    observations.push({
-      day: account.balanceAsOf,
-      balance: account.currentBalance,
-    });
-  }
-  // Stable sort keeps the live balance after a transaction on the same day,
-  // because it was read later.
-  observations.sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+  const first = rows.findIndex((r) => r.runningBalance !== undefined);
+  if (first === -1) return undefined;
+  return rows[first]!.runningBalance! - total(first + 1);
+}
 
-  let carried: number | undefined;
-  let i = 0;
-  return days.map((day) => {
-    while (i < observations.length && observations[i]!.day <= day) {
-      carried = observations[i]!.balance;
-      i += 1;
-    }
-    return day < firstDay ? undefined : carried;
-  });
+/**
+ * A book's position after every leg it holds — the ledger's answer to "what is
+ * in this account now".
+ *
+ * Returned in the convention the wire already uses, so a card comes back as
+ * what is OWED carried positive, exactly as `currentBalance` does. That keeps
+ * this a like-for-like alternative to the provider's figure rather than one
+ * that also needs its sign reading differently.
+ *
+ * A card's answer is definitionally the provider's own: it has no running
+ * balance to derive from, so its opening is that figure walked back and walking
+ * forward returns it unchanged. **This differs from `currentBalance` for current
+ * accounts only**, and exactly where the ledger and the bank disagree.
+ */
+export function derivedPosition(
+  account: AccountFacts,
+  movements: readonly Movement[],
+): number | undefined {
+  const opening = openingPosition(account, movements);
+  if (opening === undefined) return undefined;
+  const total = movements
+    .filter(isSettled)
+    .reduce((sum, m) => sum + m.amount, 0);
+  return (account.isCard === true ? -1 : 1) * (opening + total);
+}
+
+export function accountSeries(
+  account: AccountFacts,
+  movements: readonly Movement[],
+  days: readonly string[],
+): Array<number | undefined> {
+  const rows = inLedgerOrder(movements);
+  if (rows.length === 0) return days.map(() => undefined);
+
+  const opening = openingPosition(account, movements);
+  if (opening === undefined) return days.map(() => undefined);
+
+  // A book's position is the running sum of its legs — #108 step 2, one rule
+  // for every book. This replaces carrying the provider's own running balance
+  // forward, which was an observation rather than a derivation and which only
+  // agreed with the legs while the ledger was complete and correctly dated.
+  // Where the two now differ, the ledger and the bank differ; that is the
+  // disagreement this is meant to show rather than a cost of showing it.
+  const legs: Leg[] = rows.filter(isSettled).map((r) => ({
+    book: r.accountId,
+    amount: r.amount,
+    appliesAt: r.timestamp,
+    recordedAt: r.timestamp,
+  }));
+  const derived = positionsFor(legs, days, opening);
+
+  // A card states what is OWED, carried positive, while spending on it is a
+  // negative amount. The model holds one convention and the wire keeps the
+  // other, so the flip happens here, once, with a name on it. #108 step 3
+  // replaces this with `nature` on the book itself.
+  const sign = account.isCard === true ? -1 : 1;
+
+  // Before the account's first row there is no position to state. The opening
+  // is what the legs start from, not a figure the provider ever asserted.
+  const firstDay = rows[0]!.timestamp.slice(0, 10);
+  return days.map((day, i) =>
+    day < firstDay ? undefined : sign * derived[i]!,
+  );
 }
 
 /**

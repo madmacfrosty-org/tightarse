@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  asAccounts,
   asBacklog,
   asCategories,
   asProposalResponse,
@@ -334,6 +335,67 @@ describe("what applying did", () => {
  *
  * Account ids and amounts are invented.
  */
+/**
+ * The accounts on the wire.
+ *
+ * This projection used to be `...a` and a shallow copy, which serves whatever
+ * the domain's account state happens to carry. Adding a field to that type is
+ * what prompted writing it out, so the test that matters is the one that proves
+ * an unpromised field does not travel.
+ *
+ * Every figure and institution here is invented.
+ */
+describe("the accounts on the wire", () => {
+  const state = {
+    accountId: "acc-1",
+    displayName: "Current",
+    institutionName: "Some Bank",
+    currency: "GBP",
+    isCard: false,
+    accountType: "TRANSACTION",
+    currentBalance: 900_00,
+    derivedBalance: 500_00,
+    availableBalance: 880_00,
+    lastSyncedAt: "2026-03-05T05:00:00Z",
+    historyFrom: "2021-01-01",
+    historyComplete: true,
+  };
+
+  it("carries every field across, and no others", () => {
+    expect(
+      asAccounts({ accounts: [state], completeFrom: "2021-01-01" } as never),
+    ).toEqual({ completeFrom: "2021-01-01", accounts: [state] });
+  });
+
+  it("carries both balances, because they answer different questions", () => {
+    const out = asAccounts({ accounts: [state] } as never).accounts[0]!;
+    expect(out.currentBalance).toBe(900_00);
+    expect(out.derivedBalance).toBe(500_00);
+  });
+
+  it("drops a field the domain grew that the contract never promised", () => {
+    const grown = {
+      accounts: [{ ...state, tenantId: "leaked", providerAccountId: "leaked" }],
+    } as never;
+    const out = asAccounts(grown).accounts[0]!;
+    expect(out).not.toHaveProperty("tenantId");
+    expect(out).not.toHaveProperty("providerAccountId");
+  });
+
+  it("omits what the row does not have, rather than sending null", () => {
+    const out = asAccounts({ accounts: [{ accountId: "bare" }] } as never);
+    expect(out.accounts[0]).toEqual({ accountId: "bare" });
+    expect(out).not.toHaveProperty("completeFrom");
+  });
+
+  it("copies rather than serving the domain's own array", () => {
+    const result = { accounts: [state] } as never;
+    expect(asAccounts(result).accounts).not.toBe(
+      (result as { accounts: unknown[] }).accounts,
+    );
+  });
+});
+
 describe("the running-balance check on the wire", () => {
   const report: RunningBalanceReport = {
     verdict: "closing",

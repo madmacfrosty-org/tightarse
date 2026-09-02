@@ -125,6 +125,57 @@ describe("the balance shown on a tile", () => {
   });
 });
 
+/**
+ * #108 step 2: the dashboard states what the ledger works out, not what the
+ * bank last said.
+ *
+ * The two panels have to agree with each other. A tile reading the provider's
+ * figure while the chart sums legs puts two different numbers on one screen
+ * with nothing to explain the gap, which reads as a bug however true both are.
+ */
+describe("the balance the dashboard leads with", () => {
+  it("prefers what the ledger derives over what the bank last stated", () => {
+    expect(
+      tileBalance(
+        account({ currentBalance: 900_00, derivedBalance: 500_00 }),
+        false,
+      ),
+    ).toBe(500_00);
+  });
+
+  it("still shows a card's derived figure as money owed", () => {
+    expect(
+      tileBalance(
+        account({ currentBalance: 100_00, derivedBalance: 100_00, isCard: true }),
+        true,
+      ),
+    ).toBe(-100_00);
+  });
+
+  it("falls back to the bank's figure when there is nothing to derive from", () => {
+    // A newly connected account has a balance before it has transactions.
+    // Showing the provider's number beats showing a dash.
+    expect(
+      tileBalance(account({ currentBalance: 100_00, derivedBalance: undefined }), false),
+    ).toBe(100_00);
+  });
+
+  it("totals the derived figures, so the headline matches the tiles", () => {
+    const net = netPosition([
+      account({ accountId: "cur", currentBalance: 900_00, derivedBalance: 500_00 }),
+      account({
+        accountId: "card",
+        isCard: true,
+        currentBalance: 100_00,
+        derivedBalance: 100_00,
+      }),
+    ]);
+    expect(net.netCash).toBe(500_00);
+    expect(net.owed).toBe(100_00);
+    expect(net.net).toBe(400_00);
+  });
+});
+
 describe("the range a lookback asks for", () => {
   it("ends today and starts the requested number of days earlier", () => {
     expect(rangeFor(90, new Date("2026-08-14T09:00:00Z"))).toEqual({

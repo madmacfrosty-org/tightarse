@@ -58,8 +58,8 @@ export function netPosition(accounts: readonly AccountView[]): NetPosition {
   const inCredit = accounts.filter((a) => a.isCard === false);
   const unknown = accounts.filter((a) => a.isCard === undefined || a.isCard === null);
   const cardIds = new Set(cards.map((c) => c.accountId));
-  const netCash = inCredit.reduce((s, a) => s + (a.currentBalance ?? 0), 0);
-  const owed = cards.reduce((s, a) => s + (a.currentBalance ?? 0), 0);
+  const netCash = inCredit.reduce((s, a) => s + (balanceOf(a) ?? 0), 0);
+  const owed = cards.reduce((s, a) => s + (balanceOf(a) ?? 0), 0);
   return {
     inCredit,
     cards,
@@ -84,9 +84,27 @@ export function netPosition(accounts: readonly AccountView[]): NetPosition {
  * balance" and "this balance is nothing" are different, and the tile renders
  * them differently.
  */
+/**
+ * The balance to show: what the ledger works out, not what the bank last said.
+ *
+ * #108 step 2 makes a position the sum of a book's legs, and the chart is drawn
+ * from those legs. The tiles and the headline have to come from the same place
+ * or two panels state different numbers with nothing explaining why — which is
+ * the £56 discrepancy that reads as a bug even when both figures are true.
+ *
+ * Falls back to the provider's figure when there is nothing to derive from: a
+ * newly connected account has a balance before it has transactions, and showing
+ * the bank's number beats showing nothing. The reconciliation panel is where
+ * the two are compared deliberately.
+ */
+export function balanceOf(account: AccountView): number | undefined {
+  return account.derivedBalance ?? account.currentBalance;
+}
+
 export function tileBalance(account: AccountView, isCard: boolean): number | undefined {
-  if (account.currentBalance === undefined) return undefined;
-  return isCard ? -account.currentBalance : account.currentBalance;
+  const balance = balanceOf(account);
+  if (balance === undefined) return undefined;
+  return isCard ? -balance : balance;
 }
 
 /**

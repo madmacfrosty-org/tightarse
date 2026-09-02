@@ -195,6 +195,10 @@
             "type": "integer",
             "description": "Balance as the provider reports it; for a card, what is owed, in integer minor units (pence). Divide by 100 for pounds."
           },
+          "derivedBalance": {
+            "type": "integer",
+            "description": "What this account's transactions add up to; same convention as currentBalance, in integer minor units (pence). Divide by 100 for pounds."
+          },
           "availableBalance": {
             "type": "integer",
             "description": "Funds available to spend, in integer minor units (pence). Divide by 100 for pounds."
