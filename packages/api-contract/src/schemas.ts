@@ -266,6 +266,43 @@ export const DayCheck = z.object({
 });
 export type DayCheck = z.infer<typeof DayCheck>;
 
+export const SuspectTransaction = z.object({
+  dedupKey: z.string(),
+  timestamp: z.string(),
+  description: z.string(),
+  amount: minorUnits("The amount as the ledger holds it"),
+  status: z.string(),
+  merchantName: z.string().optional(),
+});
+export type SuspectTransaction = z.infer<typeof SuspectTransaction>;
+
+export const Displacement = z
+  .object({
+    ledgerDate: IsoDate,
+    bankDate: IsoDate,
+    displacedBy: z
+      .number()
+      .int()
+      .describe(
+        "Whole days from the bank's date to ours. Negative when we date it earlier",
+      ),
+    amount: minorUnits("The amount that moved on one day and not the other"),
+    candidates: z
+      .array(SuspectTransaction)
+      .describe(
+        "Transactions on the ledger day matching this amount exactly. " +
+          "Empty means the days cancel but we hold nothing that accounts for it, " +
+          "which points at an absence rather than a misdating. " +
+          "More than one means the amount alone cannot pick between them",
+      ),
+  })
+  .describe(
+    "Two disagreeing days that cancel exactly: one transaction, counted once, " +
+      "filed under the wrong date. A transaction genuinely absent from the " +
+      "ledger breaks a single day and never pairs",
+  );
+export type Displacement = z.infer<typeof Displacement>;
+
 export const AccountBalanceCheck = z.object({
   accountId: z.string(),
   isCard: z.boolean(),
@@ -279,6 +316,8 @@ export const AccountBalanceCheck = z.object({
   daysChecked: z.number().int(),
   /** Only the days that disagree. A clean account contributes none. */
   disagreeing: z.array(DayCheck),
+  /** The disagreeing days paired up, where two cancel each other exactly. */
+  displacements: z.array(Displacement),
 });
 export type AccountBalanceCheck = z.infer<typeof AccountBalanceCheck>;
 

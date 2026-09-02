@@ -100,6 +100,22 @@ export const asRunningBalance = (
     closingMatches: a.closingMatches,
     openingMatches: a.openingMatches,
     daysChecked: a.daysChecked,
+    displacements: a.displacements.map((p) => ({
+      ledgerDate: p.ledgerDate,
+      bankDate: p.bankDate,
+      displacedBy: p.displacedBy,
+      amount: p.amount,
+      candidates: p.candidates.map((c) => ({
+        dedupKey: c.dedupKey,
+        timestamp: c.timestamp,
+        description: c.description,
+        amount: c.amount,
+        status: c.status,
+        ...(c.merchantName === undefined
+          ? {}
+          : { merchantName: c.merchantName }),
+      })),
+    })),
     disagreeing: a.disagreeing.map((d) => ({
       date: d.date,
       closing: d.closing,

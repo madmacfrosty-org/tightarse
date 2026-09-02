@@ -35,6 +35,7 @@ const account = (over: Record<string, unknown> = {}) => ({
   openingMatches: 2,
   daysChecked: 90,
   disagreeing: [],
+  displacements: [],
   ...over,
 });
 
@@ -139,5 +140,161 @@ describe("the running-balance diagnostic", () => {
     await run();
 
     expect(await screen.findByText("nope")).toBeTruthy();
+  });
+});
+
+/**
+ * Naming the suspect.
+ *
+ * A day row says money went missing; a displacement says which transaction and
+ * where the bank put it. The distinction the panel has to keep visible is
+ * between a pair that cancels (misfiled, and we hold the row) and a lone day
+ * (absent, and we do not) — they call for completely different work.
+ *
+ * Every description, merchant and figure here is invented.
+ */
+describe("displaced transactions on screen", () => {
+  const suspect = {
+    dedupKey: "d1",
+    timestamp: "2026-04-14T00:00:00Z",
+    description: "SOMEMART 118",
+    amount: -50_00,
+    status: "settled",
+    merchantName: "Somemart",
+  };
+  const displaced = {
+    ledgerDate: "2026-04-14",
+    bankDate: "2026-04-07",
+    displacedBy: 7,
+    amount: -50_00,
+    candidates: [suspect],
+  };
+
+  it("names the transaction and both dates", async () => {
+    const Diagnostics = await load();
+    apiGet.mockResolvedValue({
+      verdict: "inconsistent",
+      accounts: [account({ verdict: "inconsistent", displacements: [displaced] })],
+    });
+    render(<Diagnostics api={api} />);
+    await run();
+    await waitFor(() => screen.getByText("SOMEMART 118"));
+    expect(screen.getByText("Somemart")).toBeTruthy();
+    expect(screen.getByText("−£50.00")).toBeTruthy();
+    const prose = document.body.textContent ?? "";
+    expect(prose).toContain("2026-04-07");
+    expect(prose).toContain("2026-04-14");
+    expect(prose).toContain("7 days later than the bank");
+  });
+
+  it("says the other direction when we date it first", async () => {
+    const Diagnostics = await load();
+    apiGet.mockResolvedValue({
+      verdict: "inconsistent",
+      accounts: [
+        account({
+          displacements: [
+            { ...displaced, displacedBy: -3, bankDate: "2026-04-17" },
+          ],
+        }),
+      ],
+    });
+    render(<Diagnostics api={api} />);
+    await run();
+    await waitFor(() => screen.getByText("SOMEMART 118"));
+    expect(document.body.textContent).toContain("3 days earlier than the bank");
+  });
+
+  it("says plainly when the days cancel but we hold no such transaction", async () => {
+    // The case that means something is absent rather than misfiled. Showing an
+    // empty table here would read as "nothing to see".
+    const Diagnostics = await load();
+    apiGet.mockResolvedValue({
+      verdict: "inconsistent",
+      accounts: [
+        account({ displacements: [{ ...displaced, candidates: [] }] }),
+      ],
+    });
+    render(<Diagnostics api={api} />);
+    await run();
+    await waitFor(() =>
+      expect(document.body.textContent).toContain(
+        "absent rather than something misfiled",
+      ),
+    );
+    expect(screen.queryByText("SOMEMART 118")).toBeNull();
+  });
+
+  it("admits it cannot choose when two transactions match the amount", async () => {
+    const Diagnostics = await load();
+    apiGet.mockResolvedValue({
+      verdict: "inconsistent",
+      accounts: [
+        account({
+          displacements: [
+            {
+              ...displaced,
+              candidates: [
+                suspect,
+                { ...suspect, dedupKey: "d2", description: "SOMEMART 902" },
+              ],
+            },
+          ],
+        }),
+      ],
+    });
+    render(<Diagnostics api={api} />);
+    await run();
+    await waitFor(() => screen.getByText("SOMEMART 902"));
+    expect(document.body.textContent).toContain("cannot say which");
+  });
+
+  it("does not list a day twice when a displacement already explains it", async () => {
+    // The day rows and the displacements describe the same fault. Showing the
+    // paired days in both places would read as four problems instead of two.
+    const Diagnostics = await load();
+    const day = (date: string, difference: number) => ({
+      date,
+      closing: 0,
+      previousClosing: 0,
+      movement: -difference,
+      difference,
+    });
+    apiGet.mockResolvedValue({
+      verdict: "inconsistent",
+      accounts: [
+        account({
+          disagreeing: [
+            day("2026-04-07", 50_00),
+            day("2026-04-14", -50_00),
+            day("2026-05-01", 12_34),
+          ],
+          displacements: [displaced],
+        }),
+      ],
+    });
+    render(<Diagnostics api={api} />);
+    await run();
+    await waitFor(() => screen.getByText("SOMEMART 118"));
+    expect(screen.getAllByRole("row").filter((r) => r.textContent?.includes("2026-05-01"))).toHaveLength(1);
+    expect(document.body.textContent).toContain("1 day where the balance moved");
+    expect(document.body.textContent).not.toContain("3 days where the balance moved");
+  });
+
+  it("points out when nothing informative supports the opening reading", async () => {
+    // The reasoning that settled the question by hand: a pair whose amounts are
+    // equal matches both readings, so it cannot be evidence for either.
+    const Diagnostics = await load();
+    apiGet.mockResolvedValue({
+      verdict: "inconsistent",
+      accounts: [account({ pairs: 236, discriminating: 229, closingMatches: 219, openingMatches: 7 })],
+    });
+    render(<Diagnostics api={api} />);
+    await run();
+    await waitFor(() =>
+      expect(document.body.textContent).toContain(
+        "No pair carrying information supports it",
+      ),
+    );
   });
 });
