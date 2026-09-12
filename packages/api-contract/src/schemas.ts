@@ -106,6 +106,16 @@ export const Summary = z.object({
   internalTransfersNetted: z.boolean(),
   transferCount: z.number().int(),
   transferTotal: minorUnits("Total moved between the household's own accounts"),
+  balanceSheetCount: z
+    .number()
+    .int()
+    .describe(
+      "Transactions filed to a book that holds a position rather than a flow — " +
+        "savings, a loan — and so left out of income and spend",
+    ),
+  balanceSheetTotal: minorUnits(
+    "Absolute value excluded because it moved rather than was spent",
+  ),
   enrichedCount: z.number().int().describe("How many transactions carry a category"),
 });
 export type Summary = z.infer<typeof Summary>;

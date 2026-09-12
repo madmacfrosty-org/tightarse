@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   asAccounts,
+  asSummary,
   asBacklog,
   asCategories,
   asProposalResponse,
@@ -345,6 +346,47 @@ describe("what applying did", () => {
  *
  * Every figure and institution here is invented.
  */
+describe("the summary on the wire", () => {
+  const domain = {
+    currency: "GBP",
+    from: "2026-01-01",
+    to: "2026-01-31",
+    transactionCount: 3,
+    income: 100_00,
+    spend: -40_00,
+    net: 60_00,
+    byCategory: [
+      { category: "groceries", total: 40_00, count: 2, provisional: false },
+    ],
+    byMonth: [
+      { month: "2026-01", income: 100_00, spend: -40_00, net: 60_00, count: 3 },
+    ],
+    internalTransfersNetted: true,
+    transferCount: 2,
+    transferTotal: 500_00,
+    balanceSheetCount: 1,
+    balanceSheetTotal: 200_00,
+    enrichedCount: 3,
+  };
+
+  it("carries every field across, and no others", () => {
+    expect(asSummary(domain as never)).toEqual(domain);
+  });
+
+  it("drops a field the domain grew that the contract never promised", () => {
+    const grown = { ...domain, tenantId: "leaked", rawKeys: ["leaked"] } as never;
+    const out = asSummary(grown);
+    expect(out).not.toHaveProperty("tenantId");
+    expect(out).not.toHaveProperty("rawKeys");
+  });
+
+  it("copies the arrays rather than handing out the domain's own", () => {
+    const out = asSummary(domain as never);
+    expect(out.byCategory).not.toBe(domain.byCategory);
+    expect(out.byMonth).not.toBe(domain.byMonth);
+  });
+});
+
 describe("the accounts on the wire", () => {
   const state = {
     accountId: "acc-1",

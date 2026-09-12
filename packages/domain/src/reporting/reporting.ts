@@ -207,17 +207,26 @@ export async function summary(
   range: Range,
   opts: SummaryOptions = {},
 ): Promise<Summary> {
-  const [{ transactions, categorisations }, adoptions] = await Promise.all([
-    deps.ledger.listRange(tenantId, range),
-    deps.ledger.getAdoptions(tenantId),
-  ]);
+  const [{ transactions, categorisations }, adoptions, rows] =
+    await Promise.all([
+      deps.ledger.listRange(tenantId, range),
+      deps.ledger.getAdoptions(tenantId),
+      deps.ledger.listCategories(tenantId),
+    ]);
   const { precedence } = await setsInForce(deps, tenantId, adoptions);
+  // The catalogue, so a book's `nature` can be read. #109: this argument not
+  // existing is the whole of why `kind` claimed totals depended on it while
+  // nothing branched on it.
+  const catalogue = rows.map((r) => Category.parse(r));
   return summarise(
     transactions,
     effectiveCategories(transactions, categorisations, precedence),
     range,
-    // `transfers: false` disables detection; the default enables it.
-    opts.nettingTransfers === false ? { transfers: false } : {},
+    {
+      // `transfers: false` disables detection; the default enables it.
+      ...(opts.nettingTransfers === false ? { transfers: false } : {}),
+      catalogue,
+    },
   );
 }
 

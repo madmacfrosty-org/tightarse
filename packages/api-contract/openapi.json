@@ -271,6 +271,14 @@
             "type": "integer",
             "description": "Total moved between the household's own accounts, in integer minor units (pence). Divide by 100 for pounds."
           },
+          "balanceSheetCount": {
+            "type": "integer",
+            "description": "Transactions filed to a book that holds a position rather than a flow — savings, a loan — and so left out of income and spend"
+          },
+          "balanceSheetTotal": {
+            "type": "integer",
+            "description": "Absolute value excluded because it moved rather than was spent, in integer minor units (pence). Divide by 100 for pounds."
+          },
           "enrichedCount": {
             "type": "integer",
             "description": "How many transactions carry a category"
@@ -289,6 +297,8 @@
           "internalTransfersNetted",
           "transferCount",
           "transferTotal",
+          "balanceSheetCount",
+          "balanceSheetTotal",
           "enrichedCount"
         ],
         "additionalProperties": false
