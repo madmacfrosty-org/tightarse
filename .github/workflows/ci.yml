@@ -250,6 +250,19 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: dev
+    # One deploy to an environment at a time. CloudFormation refuses a changeset
+    # while another operation is in flight on the same stack, and on 2026-09-12
+    # it did: five merges inside ninety minutes, runs overlapping on a busy
+    # runner pool, and a prod deploy exited 1 the moment it asked for one. The
+    # only reason nobody noticed is that a later merge deployed the same code.
+    #
+    # `cancel-in-progress: false` deliberately. Cancelling a running deploy
+    # leaves CloudFormation mid-update, which is worse than waiting. A pending
+    # run is superseded by a newer one, so a queue of merges deploys the latest
+    # rather than each in turn.
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
 
     permissions:
       contents: read
@@ -348,6 +361,10 @@ jobs:
     needs: [deploy]
     runs-on: ubuntu-latest
     environment: prod
+    # Its own group, not shared with dev: prod waits on prod. See `deploy`.
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
 
     permissions:
       contents: read
