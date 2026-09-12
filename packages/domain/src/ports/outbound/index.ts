@@ -421,6 +421,19 @@ export interface MemberLookup {
  * not a capability an HTTP read path should hold.
  */
 export interface LedgerReads extends TransactionReads {
+  /**
+   * Every version of one transaction's categorisations, oldest first per set.
+   *
+   * Its own partition per transaction, so this never enlarges the batch read.
+   * That shape is what makes an as-at answer affordable: the current row already
+   * carries `appliedAt`, so only a transaction whose categorisation changed
+   * *since* the instant being asked about needs its history read. Asking about
+   * now reads none of them.
+   */
+  listCategorisationHistory(
+    tenantId: string,
+    dedupKey: string,
+  ): Promise<Row[]>;
   listAccounts(tenantId: string): Promise<Row[]>;
   /**
    * The rule sets, for their rules.

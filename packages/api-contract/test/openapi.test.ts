@@ -113,7 +113,7 @@ describe("what must survive generation", () => {
     // a parameter naming a household may not. Counting them meant adding
     // /balances broke a test about tenancy, which is the wrong thing to notice.
     const names = new Set(params.map((p) => p.name));
-    expect([...names].sort()).toEqual(["commit", "from", "max", "min", "q", "to", "type"]);
+    expect([...names].sort()).toEqual(["asAt", "commit", "from", "max", "min", "q", "to", "type"]);
   });
 
   it("documents no limit parameter", () => {
@@ -240,7 +240,7 @@ describe("the published routes themselves", () => {
    * repository rather than in this one.
    */
   const PUBLISHED = [
-    ["get", "/summary", "Summary", ["from", "to"]],
+    ["get", "/summary", "Summary", ["from", "to", "asAt"]],
     ["get", "/transactions", "TransactionsResponse", ["from", "to", "q", "type", "min", "max"]],
     ["get", "/balances", "BalancesResponse", ["from", "to"]],
     ["get", "/books", "BooksResponse", []],
@@ -273,10 +273,15 @@ describe("the published routes themselves", () => {
     // that day, and a client cannot tell a defaulted answer from an answer.
     // Narrowing parameters are a different thing: absent means "do not narrow",
     // which is unambiguous.
-    const NARROWING = new Set(["q", "type", "min", "max", "commit"]);
+    //
+    // `asAt` is optional for the same reason rather than as an exception:
+    // absent means now, which is what every figure has always meant and cannot
+    // be mistaken for anything else. A *required* as-at would make every client
+    // send a timestamp to ask the only question they have ever asked.
+    const OPTIONAL = new Set(["q", "type", "min", "max", "commit", "asAt"]);
     for (const route of [...ROUTES, ...CATEGORISATION_ROUTES]) {
       for (const param of route.query) {
-        expect(param.required, `${route.path} ${param.name}`).toBe(!NARROWING.has(param.name));
+        expect(param.required, `${route.path} ${param.name}`).toBe(!OPTIONAL.has(param.name));
       }
     }
   });

@@ -29,8 +29,10 @@ import type {
   BooksResult,
 } from "../index.js";
 import { Category } from "../categorisation/category.js";
+import { Categorisation } from "../categorisation/categorisation.js";
 import { parseRuleSets, type RuleSet } from "../categorisation/rules.js";
 import type { Adoptions } from "../categorisation/adoption.js";
+import type { Row } from "../ports/outbound/index.js";
 import type { SetOrder } from "../categorisation/resolve.js";
 import { filterMatcher, matchesMatcher } from "../categorisation/evaluate.js";
 import { candidateOf } from "../application/candidate.js";
@@ -148,6 +150,47 @@ export interface Deps {
  * This constraint belongs to the use case. It lived in the HTTP handler, where
  * the next person adding a route would not have seen it.
  */
+/**
+ * The categorisations as they stood at an instant.
+ *
+ * The batch read returns what is current. A row whose `appliedAt` is at or
+ * before the instant was already in force then, and needs nothing further. A
+ * row applied *after* it is something we had not decided yet, so its earlier
+ * versions have to come from the history partition — one read per transaction
+ * that changed, and none at all when the question is about now.
+ *
+ * That is the whole reason history lives in its own partition. The dominant
+ * read stays the size of the ledger rather than the size of its churn, and this
+ * pays for it only where churn actually happened.
+ */
+async function asKnownAt(
+  deps: Deps,
+  tenantId: string,
+  current: readonly Row[],
+  asAt: string | undefined,
+): Promise<Row[]> {
+  if (asAt === undefined) return [...current];
+
+  const changedSince = new Set(
+    current
+      .map((r) => Categorisation.safeParse(r))
+      .flatMap((p) => (p.success ? [p.data] : []))
+      .filter((c) => c.appliedAt > asAt)
+      .map((c) => c.dedupKey),
+  );
+  if (changedSince.size === 0) return [...current];
+
+  const histories = await Promise.all(
+    [...changedSince].map((dedupKey) =>
+      deps.ledger.listCategorisationHistory(tenantId, dedupKey),
+    ),
+  );
+  // Both, and let `effectiveCategories` discard what was not yet known. A row
+  // that changed may still have a current version from before the instant on
+  // another set, and dropping the whole transaction would lose it.
+  return [...current, ...histories.flat()];
+}
+
 async function allHistory(
   deps: Deps,
   tenantId: string,
@@ -229,9 +272,10 @@ export async function summary(
   // existing is the whole of why `kind` claimed totals depended on it while
   // nothing branched on it.
   const catalogue = rows.map((r) => Category.parse(r));
+  const known = await asKnownAt(deps, tenantId, categorisations, opts.asAt);
   return summarise(
     transactions,
-    effectiveCategories(transactions, categorisations, precedence),
+    effectiveCategories(transactions, known, precedence, opts.asAt),
     range,
     {
       // `transfers: false` disables detection; the default enables it.

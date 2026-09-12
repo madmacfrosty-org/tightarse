@@ -27,6 +27,9 @@ const listAccounts = vi.fn();
 // Typed, because an inferred `never[]` makes any set a type error the moment
 // a test needs one — which is exactly what happened.
 const listRuleSets = vi.fn(async (): Promise<Record<string, unknown>[]> => []);
+const listCategorisationHistory = vi.fn(
+  async (): Promise<Record<string, unknown>[]> => [],
+);
 const listCategories = vi.fn(
   async (): Promise<Record<string, unknown>[]> => [],
 );
@@ -43,6 +46,7 @@ const deps = {
     listRuleSets,
     getAdoptions,
     listCategories,
+    listCategorisationHistory,
   } satisfies LedgerReads,
   // Separate: reading another tenant's set is its own capability.
   shared: { getRuleSetVersion } satisfies SharedRuleSets,
@@ -1000,3 +1004,133 @@ function by(r: { books: readonly { book: string }[] }, id: string) {
     nature: string;
   };
 }
+
+/**
+ * #108 step 4: what did March say in April?
+ *
+ * Every figure the dashboard shows is derived from rules, and rules change. So
+ * a total is only ever "as we understand things now" — and until this, that was
+ * the only reading available. The data could always answer the other question;
+ * nothing asked it.
+ *
+ * Two properties matter and they pull against each other. The answer has to be
+ * right, and asking about *now* has to cost nothing, because that is every
+ * existing caller. History lives in its own partition precisely so the second
+ * holds, and these tests pin both.
+ *
+ * Every figure and label is invented.
+ */
+describe("the summary as it stood", () => {
+  const MARCH = "2026-03-01T00:00:00Z";
+  const range = { from: "2026-03-01", to: "2026-03-31" };
+
+  const cat = (over: Record<string, unknown>) => ({
+    dedupKey: "d1",
+    timestamp: MARCH,
+    category: "groceries",
+    setId: "household",
+    setVersion: 1,
+    version: 1,
+    status: "effective",
+    appliedAt: "2026-03-15T00:00:00Z",
+    ...over,
+  });
+
+  beforeEach(() => {
+    // Calls cleared as well as answers set. This file does not reset between
+    // tests, so a call-count assertion otherwise counts the ones before it —
+    // which is how "reads no history at all" passed while only being true
+    // first in the file.
+    listCategorisationHistory.mockClear();
+    listAccounts.mockResolvedValue([]);
+    listRuleSets.mockResolvedValue([]);
+    getAdoptions.mockResolvedValue([]);
+    listCategories.mockResolvedValue([]);
+    listCategorisationHistory.mockResolvedValue([]);
+  });
+
+  const withRows = (categorisations: Record<string, unknown>[]) =>
+    listRange.mockResolvedValue({
+      transactions: [txn({ dedupKey: "d1", amount: -30_00, timestamp: MARCH })],
+      categorisations,
+      enrichments: [],
+    });
+
+  it("reads no history at all when the question is about now", () => {
+    // The cost property. Every caller that has ever existed asks this, and it
+    // must stay one read of the ledger rather than one per transaction.
+    withRows([cat({})]);
+    return summary(deps, "frost", range).then(() => {
+      expect(listCategorisationHistory).not.toHaveBeenCalled();
+    });
+  });
+
+  it("gives the same answer as no as-at when asked about now", async () => {
+    withRows([cat({})]);
+    const now = await summary(deps, "frost", range);
+    const asNow = await summary(deps, "frost", range, {
+      asAt: "2099-01-01T00:00:00Z",
+    });
+    expect(asNow.byCategory).toEqual(now.byCategory);
+  });
+
+  it("does not know a categorisation that had not been made yet", async () => {
+    // Filed on the 15th. Asked about the 10th, the transaction was not yet
+    // filed under anything of ours, so it falls back to the provider's book —
+    // which is what the screen showed on the 10th.
+    withRows([cat({})]);
+    const then = await summary(deps, "frost", range, {
+      asAt: "2026-03-10T00:00:00Z",
+    });
+    expect(then.byCategory.map((c) => c.category)).not.toContain("groceries");
+  });
+
+  it("reads the history only for a transaction that changed since", async () => {
+    withRows([
+      cat({ dedupKey: "d1", appliedAt: "2026-06-01T00:00:00Z", version: 2 }),
+    ]);
+    await summary(deps, "frost", range, { asAt: "2026-04-01T00:00:00Z" });
+    expect(listCategorisationHistory).toHaveBeenCalledTimes(1);
+    expect(listCategorisationHistory).toHaveBeenCalledWith("frost", "d1");
+  });
+
+  it("answers with what the earlier version said, not the current one", async () => {
+    // Filed as groceries in March, moved to fuel in June. Asked about April,
+    // March's answer is the one that stood.
+    withRows([
+      cat({ category: "fuel", version: 2, appliedAt: "2026-06-01T00:00:00Z" }),
+    ]);
+    listCategorisationHistory.mockResolvedValue([
+      cat({ category: "groceries", version: 1, appliedAt: "2026-03-15T00:00:00Z" }),
+      cat({ category: "fuel", version: 2, appliedAt: "2026-06-01T00:00:00Z" }),
+    ]);
+    const april = await summary(deps, "frost", range, {
+      asAt: "2026-04-01T00:00:00Z",
+    });
+    expect(april.byCategory.map((c) => c.category)).toContain("groceries");
+    expect(april.byCategory.map((c) => c.category)).not.toContain("fuel");
+  });
+
+  it("ignores a row it cannot read, rather than failing the whole answer", async () => {
+    // The batch read returns whatever is in the partition. A row that is not a
+    // categorisation cannot say when it was applied, so it cannot be evidence
+    // that anything changed — skipped, exactly as `effectiveCategories` skips
+    // it, rather than throwing an otherwise good answer away.
+    withRows([{ dedupKey: "d1", nonsense: true }, cat({})]);
+    const then = await summary(deps, "frost", range, {
+      asAt: "2026-03-10T00:00:00Z",
+    });
+    expect(then.transactionCount).toBe(1);
+  });
+
+  it("moves nothing about when the money moved", async () => {
+    // Only what we decided is in doubt. A transaction's own date is the bank's
+    // fact and an as-at cannot touch it.
+    withRows([cat({})]);
+    const then = await summary(deps, "frost", range, {
+      asAt: "2026-03-10T00:00:00Z",
+    });
+    expect(then.transactionCount).toBe(1);
+    expect(then.spend).toBe(-30_00);
+  });
+});

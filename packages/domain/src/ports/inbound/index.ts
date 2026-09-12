@@ -214,6 +214,19 @@ export interface SummaryOptions {
    * transfer detection is finding real pairs rather than coincidences.
    */
   readonly nettingTransfers?: boolean;
+  /**
+   * Answer as the ledger stood at this instant, rather than as it stands now.
+   *
+   * #108 step 4. Every figure here is derived from rules, and rules change — so
+   * "what did March say in April" is a question the data can answer and nothing
+   * has ever asked. Absent means now, which is what every existing caller gets
+   * and which cannot differ from today's answer.
+   *
+   * It filters rather than recomputes: a categorisation recorded after the
+   * instant is simply not yet known. Money that moved is unaffected, because
+   * when it moved is not in doubt.
+   */
+  readonly asAt?: string;
 }
 
 /**

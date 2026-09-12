@@ -60,11 +60,21 @@ export function effectiveCategories(
   transactions: readonly RecordedTransaction[],
   categorisations: readonly Row[],
   order: readonly SetOrder[],
+  /**
+   * The moment to answer as of. Rows recorded after it are not yet known.
+   *
+   * Absent means now, which is every existing caller and which reads exactly as
+   * it did before: nothing has been recorded after now. Supplying a past
+   * instant is #108 step 4 — "what did March say in April" — and it works by
+   * discarding what we had not decided yet, not by recomputing anything.
+   */
+  asAt?: string,
 ): Categorisation[] {
   const stored = new Map<string, Categorisation[]>();
   for (const row of categorisations) {
     const parsed = Categorisation.safeParse(row);
     if (!parsed.success) continue;
+    if (asAt !== undefined && parsed.data.appliedAt > asAt) continue;
     const forKey = stored.get(parsed.data.dedupKey) ?? [];
     forKey.push(parsed.data);
     stored.set(parsed.data.dedupKey, forKey);
