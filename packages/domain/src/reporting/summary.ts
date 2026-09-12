@@ -12,7 +12,7 @@ import { bookFor, categoryLeg, tradeFor } from "../ledger/books.js";
 import { assertSingleCurrency } from "../index.js";
 import { detectTransfers, type TransferOptions } from "./transfers.js";
 import { isBalanceSheet } from "../ledger/books.js";
-import { natureOf, type Category } from "../categorisation/category.js";
+import type { Category } from "../categorisation/category.js";
 
 /**
  * The result shapes come from `@tightarse/domain`, not from here and not from the
@@ -107,7 +107,7 @@ export function summarise(
   // argues the same trade and this follows it.
   const balanceSheet = new Set(
     (opts.catalogue ?? [])
-      .filter((c) => isBalanceSheet(natureOf(c)))
+      .filter((c) => isBalanceSheet(c.nature))
       .map((c) => c.id),
   );
   let balanceSheetCount = 0;

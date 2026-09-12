@@ -128,7 +128,7 @@ const deps = (
             {
               id: "groceries",
               label: "Groceries",
-              kind: "spending",
+              nature: "expense",
               retired: false,
             },
           ],

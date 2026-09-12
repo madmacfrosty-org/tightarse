@@ -707,7 +707,7 @@ describe("the category catalogue", () => {
         balances: vi.fn(),
         transactions: vi.fn(),
         categories: vi.fn(async () => ({
-          categories: [{ id: "fuel", label: "Fuel", kind: "spending" }],
+          categories: [{ id: "fuel", label: "Fuel", nature: "expense" }],
         })),
       } as unknown as Reporting,
     };
@@ -716,7 +716,7 @@ describe("the category catalogue", () => {
 
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
-      categories: [{ id: "fuel", label: "Fuel", kind: "spending" }],
+      categories: [{ id: "fuel", label: "Fuel", nature: "expense" }],
     });
   });
 

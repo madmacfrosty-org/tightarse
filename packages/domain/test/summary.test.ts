@@ -6,8 +6,7 @@ import {
 } from "../src/reporting/summary.js";
 import type { Categorisation } from "../src/categorisation/categorisation.js";
 import { recorded, assigned } from "./recorded.js";
-import { Category, natureOf } from "../src/categorisation/category.js";
-import { isBalanceSheet } from "../src/ledger/books.js";
+import { Category } from "../src/categorisation/category.js";
 
 const row = recorded;
 
@@ -216,7 +215,7 @@ describe("projecting a stored account for a client", () => {
 });
 
 /**
- * #108 step 3 / #109: a book that holds a position is not spending.
+ * #109: a category that holds a position is not spending.
  *
  * `CategoryKind` was documented as the thing totals branch on, and for as long
  * as that comment stood nothing branched on it — `summarise` was never given the
@@ -230,12 +229,9 @@ describe("projecting a stored account for a client", () => {
  *
  * Every figure and label is invented.
  */
-describe("books that hold a position rather than a flow", () => {
-  const cat = (
-    id: string,
-    kind: "spending" | "income" | "movement",
-    nature?: "asset" | "liability" | "income" | "expense",
-  ) => Category.parse({ id, label: id, kind, ...(nature ? { nature } : {}) });
+describe("categories that hold a position rather than a flow", () => {
+  const cat = (id: string, nature: "asset" | "liability" | "income" | "expense") =>
+    Category.parse({ id, label: id, nature });
 
   const savings = row({ dedupKey: "s1", amount: -200_00 });
   const food = row({ dedupKey: "f1", amount: -30_00 });
@@ -244,7 +240,7 @@ describe("books that hold a position rather than a flow", () => {
 
   it("leaves money filed to savings out of spending", () => {
     const s = summarise(both, filed, range, {
-      catalogue: [cat("transfer", "movement"), cat("groceries", "spending")],
+      catalogue: [cat("transfer", "asset"), cat("groceries", "expense")],
     });
     expect(s.spend).toBe(-30_00);
     expect(s.byCategory.map((c) => c.category)).toEqual(["groceries"]);
@@ -252,7 +248,7 @@ describe("books that hold a position rather than a flow", () => {
 
   it("says how much it left out, because a total that shrank quietly is indistinguishable from one that was right", () => {
     const s = summarise(both, filed, range, {
-      catalogue: [cat("transfer", "movement"), cat("groceries", "spending")],
+      catalogue: [cat("transfer", "asset"), cat("groceries", "expense")],
     });
     expect(s.balanceSheetCount).toBe(1);
     expect(s.balanceSheetTotal).toBe(200_00);
@@ -260,7 +256,7 @@ describe("books that hold a position rather than a flow", () => {
 
   it("counts it in the transaction total, because it did happen", () => {
     const s = summarise(both, filed, range, {
-      catalogue: [cat("transfer", "movement"), cat("groceries", "spending")],
+      catalogue: [cat("transfer", "asset"), cat("groceries", "expense")],
     });
     expect(s.transactionCount).toBe(2);
   });
@@ -279,20 +275,17 @@ describe("books that hold a position rather than a flow", () => {
     // category, a retired one, a typo in a rule — leaves the total inflated and
     // visible rather than erasing spending nobody can see.
     const s = summarise(both, filed, range, {
-      catalogue: [cat("groceries", "spending")],
+      catalogue: [cat("groceries", "expense")],
     });
     expect(s.spend).toBe(-230_00);
     expect(s.balanceSheetCount).toBe(0);
   });
 
-  it("takes a stated nature over one inferred from kind", () => {
-    // A category the household has called a liability — a loan — while its
-    // `kind` still says spending, because `kind` has no way to say loan.
+  it("keeps a loan out of spending too, not just savings", () => {
+    // `liability` is the value the old three could not express, so it is the
+    // one worth checking actually reaches the total.
     const s = summarise(both, filed, range, {
-      catalogue: [
-        cat("transfer", "movement"),
-        cat("groceries", "spending", "liability"),
-      ],
+      catalogue: [cat("transfer", "asset"), cat("groceries", "liability")],
     });
     expect(s.spend).toBe(0);
     expect(s.balanceSheetCount).toBe(2);
@@ -306,36 +299,5 @@ describe("books that hold a position rather than a flow", () => {
     });
     expect(s.income).toBe(2_000_00);
     expect(s.balanceSheetCount).toBe(0);
-  });
-});
-
-describe("what a book is, for totals", () => {
-  it("reads what the household stated, in preference to the old field", () => {
-    expect(natureOf({ kind: "spending", nature: "liability" })).toBe("liability");
-  });
-
-  it("reads a movement as an asset, which is what it was reaching for", () => {
-    expect(natureOf({ kind: "movement" })).toBe("asset");
-  });
-
-  it("carries income and spending across unchanged", () => {
-    expect(natureOf({ kind: "income" })).toBe("income");
-    expect(natureOf({ kind: "spending" })).toBe("expense");
-  });
-
-  it("cannot infer a liability, which is why nature exists at all", () => {
-    // `kind` has three values and none of them says "owed". A loan book is only
-    // reachable by the household saying so.
-    const inferred = (["spending", "income", "movement"] as const).map((kind) =>
-      natureOf({ kind }),
-    );
-    expect(inferred).not.toContain("liability");
-  });
-
-  it("puts assets and liabilities on the balance sheet, and flows not", () => {
-    expect(isBalanceSheet("asset")).toBe(true);
-    expect(isBalanceSheet("liability")).toBe(true);
-    expect(isBalanceSheet("income")).toBe(false);
-    expect(isBalanceSheet("expense")).toBe(false);
   });
 });

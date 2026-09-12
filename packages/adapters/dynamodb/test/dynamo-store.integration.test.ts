@@ -935,7 +935,7 @@ suite("the category catalogue", () => {
     await store.putCategory(TENANT, {
       id: "groceries",
       label: "Groceries",
-      kind: "spending",
+      nature: "expense",
       taxonomy: "household",
       retired: false,
     });
@@ -945,7 +945,7 @@ suite("the category catalogue", () => {
     const all = await store.listCategories(TENANT);
     expect(all.find((c) => c["id"] === "groceries")).toMatchObject({
       label: "Groceries",
-      kind: "spending",
+      nature: "expense",
     });
   });
 
@@ -954,7 +954,7 @@ suite("the category catalogue", () => {
     // rewrite of every row referencing it.
     const base = {
       id: "renamed",
-      kind: "spending" as const,
+      nature: "expense" as const,
       taxonomy: "household" as const,
       retired: false,
     };
@@ -973,7 +973,7 @@ suite("the category catalogue", () => {
     await store.putCategory(TENANT, {
       id: "unseen",
       label: "Unseen",
-      kind: "spending",
+      nature: "expense",
       taxonomy: "household",
       retired: false,
     });

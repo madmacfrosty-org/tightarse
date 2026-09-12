@@ -149,17 +149,17 @@ describe("the backlog on the wire", () => {
 describe("the catalogue on the wire", () => {
   it("carries every field a picker reads", () => {
     const result = {
-      categories: [{ id: "fuel", label: "Fuel", kind: "spending" }],
+      categories: [{ id: "fuel", label: "Fuel", nature: "expense" as const }],
     };
 
     expect(asCategories(result)).toEqual({
-      categories: [{ id: "fuel", label: "Fuel", kind: "spending" }],
+      categories: [{ id: "fuel", label: "Fuel", nature: "expense" }],
     });
   });
 
   it("copies rather than serving the domain's own array", () => {
     const result = {
-      categories: [{ id: "fuel", label: "Fuel", kind: "spending" }],
+      categories: [{ id: "fuel", label: "Fuel", nature: "expense" as const }],
     };
 
     expect(asCategories(result).categories).not.toBe(result.categories);

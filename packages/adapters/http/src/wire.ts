@@ -89,7 +89,7 @@ export const asCategories = (c: CategoriesResult): CategoriesResponse => ({
   categories: c.categories.map((x) => ({
     id: x.id,
     label: x.label,
-    kind: x.kind,
+    nature: x.nature,
   })),
 });
 

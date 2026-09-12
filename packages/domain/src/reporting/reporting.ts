@@ -27,7 +27,7 @@ import type {
   RunningBalanceReport,
   AccountBalanceCheck,
 } from "../index.js";
-import { Category, natureOf } from "../categorisation/category.js";
+import { Category } from "../categorisation/category.js";
 import { parseRuleSets, type RuleSet } from "../categorisation/rules.js";
 import type { Adoptions } from "../categorisation/adoption.js";
 import type { SetOrder } from "../categorisation/resolve.js";
@@ -296,12 +296,7 @@ export async function categories(
   return {
     categories: catalogue
       .filter((c) => !c.retired)
-      .map((c) => ({
-        id: c.id,
-        label: c.label,
-        kind: c.kind,
-        nature: natureOf(c),
-      }))
+      .map((c) => ({ id: c.id, label: c.label, nature: c.nature }))
       .sort((a, b) => a.label.localeCompare(b.label)),
   };
 }

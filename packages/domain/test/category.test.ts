@@ -3,7 +3,6 @@ import { PROVIDER_SET } from "../src/categorisation/provider.js";
 import {
   Category,
   catalogueOf,
-  kindOf,
   MAX_RESOLUTION_DEPTH,
   resolveCategory,
 } from "../src/categorisation/category.js";
@@ -29,7 +28,7 @@ import { CATEGORIES } from "../src/categorisation/taxonomy.js";
 
 const category = (over: Partial<Category> & { id: string }): Category => ({
   label: over.id,
-  kind: "spending",
+  nature: "expense",
   taxonomy: "household",
   retired: false,
   ...over,
@@ -132,23 +131,6 @@ describe("data that would otherwise hang or lose the answer", () => {
 });
 
 describe("kind, the only thing code may branch on", () => {
-  it("reports the kind of the category a reference resolves to, not the one it names", () => {
-    // A retired spending category merged into a movement one changes what the
-    // totals should do with every old row pointing at it.
-    const c = catalogueOf([
-      category({
-        id: "old-transfer",
-        kind: "spending",
-        mergedInto: "transfer",
-      }),
-      category({ id: "transfer", kind: "movement" }),
-    ]);
-    expect(kindOf("old-transfer", c)).toBe("movement");
-  });
-
-  it("has no kind for a reference that resolves to nothing", () => {
-    expect(kindOf("never-existed", catalogueOf([]))).toBeUndefined();
-  });
 });
 
 describe("seeding the labels in service today", () => {
@@ -178,14 +160,16 @@ describe("seeding the labels in service today", () => {
   });
 
   it("marks income and transfers as what they are, and everything else as spending", () => {
-    // Kind decides whether something counts as spend. Only these two are
+    // Nature decides whether something counts as spend. Only these two are
     // unarguable, so only these two are assigned.
-    const by = new Map(SEED_CATEGORIES.map((c) => [c.id, c.kind]));
+    const by = new Map(SEED_CATEGORIES.map((c) => [c.id, c.nature]));
     expect(by.get("income")).toBe("income");
-    expect(by.get("transfer")).toBe("movement");
-    expect(by.get("groceries")).toBe("spending");
-    expect(by.get("savings-investments")).toBe("spending");
-    expect(by.get("cash-withdrawal")).toBe("spending");
+    expect(by.get("transfer")).toBe("asset");
+    expect(by.get("groceries")).toBe("expense");
+    // Both debatable, both left as spending on purpose — see the seed's own
+    // note. Changing either changes what the household is told it spent.
+    expect(by.get("savings-investments")).toBe("expense");
+    expect(by.get("cash-withdrawal")).toBe("expense");
   });
 
   it("seeds nothing as retired, so every category can still be chosen", () => {

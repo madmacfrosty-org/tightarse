@@ -13,9 +13,6 @@
 
 import {
   Category,
-  kindFor,
-  natureOf,
-  type CategoryKind,
   type CategoryNature,
 } from "../categorisation/category.js";
 import { slugFor } from "../categorisation/seed.js";
@@ -45,21 +42,12 @@ export interface CategoryDeps {
 export interface NewCategory {
   readonly label: string;
   /**
-   * What it does to the household's money.
+   * What the category is.
    *
-   * Offered rather than assumed, and defaulted to spending because that is what
-   * nearly everything filed from a list of debits is. It is not everything: a
-   * debit into savings is a `movement`, and filed as spending it overstates
-   * every spending figure from then on — invisibly, until somebody questions
-   * one. Totals branch on this and nothing else, so it is worth a control.
-   */
-  readonly kind?: CategoryKind | undefined;
-  /**
-   * What the category is. Preferred over `kind`, which it replaces.
-   *
-   * Both are written while rows still carry a `kind`: `kindFor` derives one, so
-   * a category created today is readable by code that has not caught up yet.
-   * When the backfill has run and `kind` goes, so does that.
+   * Defaulted to `expense`, which is what nearly everything filed from a list
+   * of debits is. Offered rather than assumed because totals branch on it and
+   * nothing else: money into savings filed as spending overstates every
+   * spending figure until somebody questions one.
    */
   readonly nature?: CategoryNature | undefined;
 }
@@ -91,15 +79,10 @@ export async function createCategory(
   // Named, so the answer is "use that one" rather than "try again".
   if (clash) throw new CategoryExists(clash);
 
-  // `nature` wins where both are given; `kind` is derived from it so nothing
-  // reading the old field breaks while rows still carry one.
-  const nature: CategoryNature =
-    request.nature ?? natureOf({ kind: request.kind ?? "spending" });
   const category: Category = {
     id,
     label,
-    kind: kindFor(nature),
-    nature,
+    nature: request.nature ?? "expense",
     taxonomy: "household",
     retired: false,
   };

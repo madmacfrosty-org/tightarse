@@ -64,13 +64,13 @@ const deps = (
       return { prediction: EMPTY_PREDICTION };
     }),
     addCategory: vi.fn(
-      async (tenantId: string, request: { label: string; kind?: string }) => {
+      async (tenantId: string, request: { label: string; nature?: string }) => {
         seen.push(tenantId);
         categories.push(request);
         return {
           id: request.label.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
           label: request.label,
-          kind: request.kind ?? "spending",
+          nature: request.nature ?? "expense",
         };
       },
     ),
@@ -641,7 +641,7 @@ describe("adding a category", () => {
     expect(body(res)).toEqual({
       id: "season-ticket",
       label: "Season Ticket",
-      kind: "spending",
+      nature: "expense",
     });
   });
 
@@ -658,25 +658,31 @@ describe("adding a category", () => {
 
     expect(d.categories[0]).toMatchObject({
       label: "Season Ticket",
-      kind: "spending",
+      nature: "expense",
     });
   });
 
-  it.each(["income", "movement"])("takes %s when asked", async (kind) => {
-    const d = deps();
-    await route(d, add({ body: JSON.stringify({ label: "Savings", kind }) }));
+  it.each(["income", "asset", "liability"])(
+    "takes %s when asked",
+    async (nature) => {
+      const d = deps();
+      await route(
+        d,
+        add({ body: JSON.stringify({ label: "Savings", nature }) }),
+      );
 
-    expect(d.categories[0]).toMatchObject({ kind });
-  });
+      expect(d.categories[0]).toMatchObject({ nature });
+    },
+  );
 
-  it("refuses a kind it does not have", async () => {
+  it("refuses a nature it does not have", async () => {
     const res = await route(
       deps(),
-      add({ body: JSON.stringify({ label: "X", kind: "outgoings" }) }),
+      add({ body: JSON.stringify({ label: "X", nature: "outgoings" }) }),
     );
 
     expect(res.statusCode).toBe(400);
-    expect(body(res)["error"]).toContain("kind");
+    expect(body(res)["error"]).toContain("nature");
   });
 
   it("refuses an empty label", async () => {

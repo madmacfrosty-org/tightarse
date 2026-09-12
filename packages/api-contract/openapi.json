@@ -571,10 +571,6 @@
             "type": "string",
             "description": "What a person reads. Freely changeable, including to match a provider's wording."
           },
-          "kind": {
-            "type": "string",
-            "description": "spending, income or movement. Superseded by nature"
-          },
           "nature": {
             "type": "string",
             "enum": [
@@ -583,13 +579,13 @@
               "income",
               "expense"
             ],
-            "description": "What the category is. Absent on rows written before it existed"
+            "description": "What the category is: asset, liability, income or expense"
           }
         },
         "required": [
           "id",
           "label",
-          "kind"
+          "nature"
         ],
         "additionalProperties": false
       },
@@ -617,16 +613,6 @@
             "minLength": 1,
             "description": "What a person reads. The id is derived from it."
           },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "spending",
-              "income",
-              "movement"
-            ],
-            "default": "spending",
-            "description": "What it does to the household's money. Defaults to spending, which is what nearly everything filed from a list of debits is — but a transfer into savings is a movement, and filed as spending it overstates every spending figure until somebody questions one."
-          },
           "nature": {
             "type": "string",
             "enum": [
@@ -635,7 +621,8 @@
               "income",
               "expense"
             ],
-            "description": "What the category is, which replaces `kind`. Wins where both are sent. `liability` is the one it can express and `kind` cannot: a loan is not spending, and its position is what is owed rather than what is held."
+            "default": "expense",
+            "description": "What the category is. Defaults to expense, which is what nearly everything filed from a list of debits is — but money into savings is an asset and money off a loan is a liability, and either filed as spending overstates every spending figure until somebody questions one."
           }
         },
         "required": [

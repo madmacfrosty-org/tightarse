@@ -212,14 +212,14 @@ describe("recording a proposal", () => {
     {
       id: "one",
       label: "One",
-      kind: "spending",
+      nature: "expense",
       taxonomy: "household",
       retired: false,
     },
     {
       id: "gone",
       label: "Gone",
-      kind: "spending",
+      nature: "expense",
       taxonomy: "household",
       retired: true,
     },
