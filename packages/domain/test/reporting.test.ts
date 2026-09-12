@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Adoptions } from "../src/categorisation/adoption.js";
 import type { SharedRuleSets, LedgerReads } from "@tightarse/domain";
 import {
+  books,
   accounts,
   balances,
   categories,
@@ -268,6 +269,7 @@ describe("binding the use cases to the inbound port", () => {
     expect(Object.keys(app).sort()).toEqual([
       "accounts",
       "balances",
+      "books",
       "categories",
       "runningBalanceCheck",
       "summary",
@@ -298,6 +300,9 @@ describe("binding the use cases to the inbound port", () => {
       "points",
     );
     await expect(app.categories("frost")).resolves.toHaveProperty("categories");
+    await expect(app.books("frost")).resolves.toHaveProperty(
+      "householdPosition",
+    );
     await expect(app.runningBalanceCheck("frost")).resolves.toHaveProperty(
       "verdict",
     );
@@ -785,3 +790,175 @@ describe("what running_balance means, judged from the ledger", () => {
     expect(report.verdict).toBe("closing");
   });
 });
+
+/**
+ * Every book, and the household's own position.
+ *
+ * #108 step 3. The property under test is that one computation serves an
+ * account, a category and a loan — and that a loan repayment moves the
+ * household's position by nothing, which is the case the old arithmetic could
+ * not express.
+ *
+ * Every figure and label is invented.
+ */
+describe("books", () => {
+  const ledgerWith = (over: Record<string, unknown>) => ({
+    ledger: {
+      listRange: async () => ({ transactions: [], categorisations: [] }),
+      listAccounts: async () => [],
+      listRuleSets: async () => [],
+      getAdoptions: async () => [],
+      getRuleSetVersion: async () => undefined,
+      listCategories: async () => [],
+      ...over,
+    },
+  });
+
+  const cat = (
+    id: string,
+    nature: string,
+    openingPosition?: number,
+  ): Record<string, unknown> => ({
+    id,
+    label: id,
+    nature,
+    taxonomy: "household",
+    retired: false,
+    ...(openingPosition === undefined ? {} : { openingPosition }),
+  });
+
+  it("gives an account and a category a position from the same arithmetic", async () => {
+    const r = await books(
+      ledgerWith({
+        listAccounts: async () => [{ accountId: "cur", isCard: false }],
+        listCategories: async () => [cat("groceries", "expense")],
+        listRange: async () => ({
+          transactions: [
+            txn({
+              dedupKey: "d1",
+              accountId: "cur",
+              amount: -30_00,
+              runningBalance: 970_00,
+            }),
+          ],
+          categorisations: [
+            { dedupKey: "d1", category: "groceries", setId: "household", appliedAt: "2026-03-01T00:00:00Z" },
+          ],
+        }),
+      }) as never,
+      "frost",
+    );
+
+    const by = new Map(r.books.map((b) => [b.book, b]));
+    // The account fell by 30; the groceries book rose by 30. One movement, two
+    // ends, and the opening is recovered from the running balance.
+    expect(by.get("cur")!.position).toBe(970_00);
+    expect(by.get("groceries")!.position).toBe(30_00);
+  });
+
+  it("counts an account but not what was spent, so the total is what is held", async () => {
+    const r = await books(
+      ledgerWith({
+        listAccounts: async () => [{ accountId: "cur", isCard: false }],
+        listCategories: async () => [cat("groceries", "expense")],
+        listRange: async () => ({
+          transactions: [
+            txn({ dedupKey: "d1", accountId: "cur", amount: -30_00, runningBalance: 970_00 }),
+          ],
+          categorisations: [
+            { dedupKey: "d1", category: "groceries", setId: "household", appliedAt: "2026-03-01T00:00:00Z" },
+          ],
+        }),
+      }) as never,
+      "frost",
+    );
+    expect(r.householdPosition).toBe(970_00);
+    expect(by(r, "groceries").rollsUp).toBe(false);
+  });
+
+  it("opens a loan at what is owed, so its position is debt and not repayments", async () => {
+    // Without the opening this book reads +£500: how much has been paid off.
+    // With it, it reads what is still owed, which is the figure anybody wants.
+    const r = await books(
+      ledgerWith({
+        listAccounts: async () => [{ accountId: "cur", isCard: false }],
+        listCategories: async () => [cat("mortgage", "liability", -180_000_00)],
+        listRange: async () => ({
+          transactions: [
+            txn({ dedupKey: "d1", accountId: "cur", amount: -500_00, runningBalance: 2_500_00 }),
+          ],
+          categorisations: [
+            { dedupKey: "d1", category: "mortgage", setId: "household", appliedAt: "2026-03-01T00:00:00Z" },
+          ],
+        }),
+      }) as never,
+      "frost",
+    );
+    expect(by(r, "mortgage").position).toBe(-179_500_00);
+    expect(by(r, "mortgage").rollsUp).toBe(true);
+    // 2_500_00 held, 179_500_00 owed.
+    expect(r.householdPosition).toBe(2_500_00 - 179_500_00);
+  });
+
+  it("treats a card as a liability, because what it holds is owed", async () => {
+    const r = await books(
+      ledgerWith({
+        listAccounts: async () => [
+          { accountId: "card", isCard: true, currentBalance: 421_50 },
+        ],
+        listRange: async () => ({
+          transactions: [txn({ dedupKey: "d1", accountId: "card", amount: -21_50 })],
+          categorisations: [],
+        }),
+      }) as never,
+      "frost",
+    );
+    expect(by(r, "card").nature).toBe("liability");
+    // Negative in leg convention: the household is down by what it owes.
+    expect(by(r, "card").position).toBe(-421_50);
+    expect(r.householdPosition).toBe(-421_50);
+  });
+
+  it("opens an account with nothing in it at nothing, rather than throwing", async () => {
+    // A newly connected account has a row before it has a transaction, and no
+    // running balance to recover an opening from. Zero is the honest answer
+    // and the panel is what says the history is still arriving.
+    const r = await books(
+      ledgerWith({
+        listAccounts: async () => [{ accountId: "fresh", isCard: false }],
+      }) as never,
+      "frost",
+    );
+    expect(by(r, "fresh").position).toBe(0);
+    expect(r.householdPosition).toBe(0);
+  });
+
+  it("leaves a retired category out, because nothing can be filed there now", async () => {
+    const r = await books(
+      ledgerWith({
+        listCategories: async () => [
+          { ...cat("old", "expense"), retired: true },
+          cat("current", "expense"),
+        ],
+      }) as never,
+      "frost",
+    );
+    expect(r.books.map((b) => b.book)).toEqual(["current"]);
+  });
+
+  it("opens an untransacted book at nothing, which is right for every category", async () => {
+    const r = await books(
+      ledgerWith({ listCategories: async () => [cat("groceries", "expense")] }) as never,
+      "frost",
+    );
+    expect(by(r, "groceries").position).toBe(0);
+  });
+});
+
+function by(r: { books: readonly { book: string }[] }, id: string) {
+  return r.books.find((b) => b.book === id) as never as {
+    position: number;
+    rollsUp: boolean;
+    nature: string;
+  };
+}

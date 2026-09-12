@@ -64,7 +64,17 @@ const balances = {
   ],
 };
 
+const booksResponse = {
+  householdPosition: -1_233_56,
+  books: [
+    { book: "a1", label: "Main Account", nature: "asset", rollsUp: true, position: -1_234_56 },
+    { book: "a2", label: "Savings Account", nature: "asset", rollsUp: true, position: 1_00 },
+    { book: "groceries", label: "Groceries", nature: "expense", rollsUp: false, position: 758_30 },
+  ],
+};
+
 const defaultApiGet = async (path: string): Promise<unknown> => {
+  if (path.startsWith(pathFor("/books"))) return booksResponse;
   if (path.startsWith(pathFor("/summary"))) return summary;
   if (path.startsWith(pathFor("/accounts"))) return { accounts, completeFrom: "2024-01-01" };
   if (path.startsWith(pathFor("/transactions"))) return { transactions };

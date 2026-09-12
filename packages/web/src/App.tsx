@@ -4,6 +4,7 @@ import { Categorise } from "./Categorise";
 import { Diagnostics } from "./Diagnostics";
 import { ConnectBank, Connected } from "./Connect";
 import { BalanceLine, CategoryBars, MonthlyFlow, money } from "./charts";
+import { Books } from "./Books";
 import { netPosition, rangeFor, tileBalance } from "./positions";
 import {
   pathFor,
@@ -318,6 +319,9 @@ export function App({ session, api }: { session: Session; api: Api }) {
         and a rule made here still reaches them.
       */}
       <Categorise api={api} from={completeFrom ?? rangeFor(365, new Date()).from} to={rangeFor(0, new Date()).to} />
+      <div className="card">
+        <Books api={api} />
+      </div>
       <Diagnostics api={api} />
 
       <div className="card">

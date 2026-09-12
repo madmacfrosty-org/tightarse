@@ -15,6 +15,7 @@
  */
 
 import type { CategoryNature } from "../../categorisation/category.js";
+import type { BookPosition } from "../../ledger/books.js";
 import type { DateRange } from "../index.js";
 import type { AccountId } from "../../ledger/account.js";
 import type { DescriptionSummary, Recurrence } from "../../categorisation/corpus.js";
@@ -275,6 +276,18 @@ export interface CategoryChoice {
   readonly nature: CategoryNature;
 }
 
+/**
+ * Every book and what has accumulated in it, with the household's own position.
+ *
+ * Positions are in leg convention — negative means the book owes — so
+ * `householdPosition` is the plain sum of the books that roll up.
+ */
+export interface BooksResult {
+  readonly books: readonly BookPosition[];
+  /** What the household is worth: every rolling-up book added together. */
+  readonly householdPosition: number;
+}
+
 /** The catalogue, as a picker needs it. */
 export interface CategoriesResult {
   /** Live categories only, by label. Retired ones are not offered. */
@@ -297,6 +310,8 @@ export interface Reporting {
   balances(tenantId: string, range: DateRange): Promise<BalancesResult>;
   /** What `running_balance` means, judged from this household's own chain. */
   runningBalanceCheck(tenantId: string): Promise<RunningBalanceReport>;
+  /** Every book and its position, with what the household is worth. */
+  books(tenantId: string): Promise<BooksResult>;
 }
 
 /**

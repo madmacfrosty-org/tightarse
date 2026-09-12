@@ -129,6 +129,7 @@ describe("api", () => {
     expect(keys).toEqual([
       "GET /v1/accounts",
       "GET /v1/balances",
+      "GET /v1/books",
       "GET /v1/categories",
       "GET /v1/categorisation/gaps",
       "GET /v1/connect/callback",

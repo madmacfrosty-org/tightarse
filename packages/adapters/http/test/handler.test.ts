@@ -587,6 +587,10 @@ describe("routing, against the application rather than through it", () => {
       called.push("runningBalanceCheck");
       return { verdict: "insufficient" as const, accounts: [] };
     },
+    books: async () => {
+      called.push("books");
+      return { books: [], householdPosition: 0 };
+    },
   };
   const only: ApiDeps = { reporting: fake };
 
@@ -600,6 +604,7 @@ describe("routing, against the application rather than through it", () => {
     ["/accounts", "accounts"],
     ["/balances", "balances"],
     ["/diagnostics/running-balance", "runningBalanceCheck"],
+    ["/books", "books"],
   ])("dispatches %s to exactly one use case", async (path, expected) => {
     const res = await route(only, event({ rawPath: `/v1${path}` }));
     expect(res.statusCode).toBe(200);

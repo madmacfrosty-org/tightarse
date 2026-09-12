@@ -23,6 +23,7 @@ import {
   SummaryResponse,
   TransactionsResponse,
   RunningBalanceResponse,
+  BooksResponse,
 } from "./schemas.js";
 
 /**
@@ -182,6 +183,19 @@ export const ROUTES: readonly Route[] = [
       "that means missing debt, so the figure reads high. The response states the range actually served.",
     query: range,
     response: { name: "BalancesResponse", schema: BalancesResponse },
+  },
+  {
+    method: "get",
+    path: "/books",
+    summary: "Every book, and what has accumulated in it",
+    description:
+      "An account is a book, a category is a book, a loan is a book, and each of them has a position " +
+      "computed the same way. Positions are in one convention throughout — negative means the book " +
+      "owes — so the household's own position is the plain sum of the books that roll up, rather than " +
+      "cash less cards by name. Whole history: a position is a level, and a level computed over a " +
+      "window is the level of the window rather than of the book.",
+    query: [],
+    response: { name: "BooksResponse", schema: BooksResponse },
   },
   {
     method: "get",

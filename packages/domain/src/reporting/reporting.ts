@@ -26,6 +26,7 @@ import type {
   TransactionsResult,
   RunningBalanceReport,
   AccountBalanceCheck,
+  BooksResult,
 } from "../index.js";
 import { Category } from "../categorisation/category.js";
 import { parseRuleSets, type RuleSet } from "../categorisation/rules.js";
@@ -39,10 +40,20 @@ import type { RecordedTransaction } from "../ledger/transaction.js";
 import {
   daysBetween,
   derivedPosition,
+  isSettled,
   netPositionSeries,
+  openingPosition,
   type AccountFacts,
   type Movement,
 } from "./balances.js";
+import {
+  categoryLeg,
+  householdPosition,
+  isBalanceSheet,
+  tradeFor,
+  type BookPosition,
+  type Nature,
+} from "../ledger/books.js";
 import {
   checkRunningBalanceChain,
   dailyPositionChecks,
@@ -301,6 +312,86 @@ export async function categories(
   };
 }
 
+/**
+ * Every book, and what has accumulated in it.
+ *
+ * #108 step 3. An account is a book, a category is a book, a loan is a book,
+ * and the arithmetic that gives each of them a position is the same arithmetic.
+ * Until now only accounts had one.
+ *
+ * Positions are in leg convention throughout — negative means the book owes —
+ * so the household total is a plain sum of the books that roll up rather than
+ * cash minus cards by name.
+ *
+ * Whole history rather than a range: a position is a level, and a level
+ * computed over a window is the level of the window rather than of the book.
+ */
+export async function books(
+  deps: Deps,
+  tenantId: string,
+): Promise<BooksResult> {
+  const [accountRows, history, categoryRows] = await Promise.all([
+    deps.ledger.listAccounts(tenantId),
+    deps.ledger.listRange(tenantId, {
+      from: "1970-01-01",
+      to: new Date().toISOString().slice(0, 10),
+    }),
+    deps.ledger.listCategories(tenantId),
+  ]);
+  const all = history.transactions;
+  const catalogue = categoryRows.map((r) => Category.parse(r));
+  const movements = toMovements(all);
+
+  const byAccount = new Map<string, Movement[]>();
+  for (const m of movements)
+    byAccount.set(m.accountId, [...(byAccount.get(m.accountId) ?? []), m]);
+
+  const accountBooks: BookPosition[] = accountRows.map(toAccountFacts).map(
+    (facts) => {
+      const mine = byAccount.get(facts.accountId) ?? [];
+      const opening = openingPosition(facts, mine);
+      const total = mine
+        .filter(isSettled)
+        .reduce((sum, m) => sum + m.amount, 0);
+      // A card is a liability: what it holds is owed. Nothing else about an
+      // account says so, and the provider's own flag is the only thing that
+      // does.
+      const nature: Nature = facts.isCard === true ? "liability" : "asset";
+      return {
+        book: facts.accountId,
+        label: facts.accountId,
+        nature,
+        rollsUp: isBalanceSheet(nature),
+        position: (opening ?? 0) + total,
+      };
+    },
+  );
+
+  // A category book accumulates the far side of every trade filed to it, which
+  // is the negation of the account leg — see `tradeFor`. So an expense book's
+  // position is positive: it is what has passed through it.
+  // Free: categorisations arrive in the same read as the transactions.
+  const assigned = new Map(history.categorisations.map((c) => [c.dedupKey, c]));
+  const byBook = new Map<string, number>();
+  for (const row of all) {
+    const leg = categoryLeg(tradeFor(row, assigned.get(row.dedupKey)));
+    byBook.set(leg.book, (byBook.get(leg.book) ?? 0) + leg.amount);
+  }
+
+  const categoryBooks: BookPosition[] = catalogue
+    .filter((c) => !c.retired)
+    .map((c) => ({
+      book: c.id,
+      label: c.label,
+      nature: c.nature,
+      rollsUp: isBalanceSheet(c.nature),
+      position: (c.openingPosition ?? 0) + (byBook.get(c.id) ?? 0),
+    }));
+
+  const books = [...accountBooks, ...categoryBooks];
+  return { books, householdPosition: householdPosition(books) };
+}
+
 export async function accounts(
   deps: Deps,
   tenantId: string,
@@ -391,6 +482,7 @@ export function reporting(deps: Deps): Reporting {
     accounts: (tenantId) => accounts(deps, tenantId),
     balances: (tenantId, range) => balances(deps, tenantId, range),
     runningBalanceCheck: (tenantId) => runningBalanceCheck(deps, tenantId),
+    books: (tenantId) => books(deps, tenantId),
   };
 }
 

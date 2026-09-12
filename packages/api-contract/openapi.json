@@ -377,6 +377,63 @@
         ],
         "additionalProperties": false
       },
+      "BookPositionView": {
+        "type": "object",
+        "properties": {
+          "book": {
+            "type": "string",
+            "description": "The book's id: an account id or a category id"
+          },
+          "label": {
+            "type": "string"
+          },
+          "nature": {
+            "type": "string",
+            "enum": [
+              "asset",
+              "liability",
+              "income",
+              "expense"
+            ]
+          },
+          "rollsUp": {
+            "type": "boolean",
+            "description": "Whether this book's position is part of what the household is worth"
+          },
+          "position": {
+            "type": "integer",
+            "description": "What has accumulated in this book. Negative means owed, for every book alike, in integer minor units (pence). Divide by 100 for pounds."
+          }
+        },
+        "required": [
+          "book",
+          "label",
+          "nature",
+          "rollsUp",
+          "position"
+        ],
+        "additionalProperties": false
+      },
+      "BooksResponse": {
+        "type": "object",
+        "properties": {
+          "books": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BookPositionView"
+            }
+          },
+          "householdPosition": {
+            "type": "integer",
+            "description": "Every book that rolls up, added together. A plain sum: cash is positive, a card and a loan negative, in integer minor units (pence). Divide by 100 for pounds."
+          }
+        },
+        "required": [
+          "books",
+          "householdPosition"
+        ],
+        "additionalProperties": false
+      },
       "RunningBalanceVerdict": {
         "type": "string",
         "enum": [
@@ -1583,6 +1640,35 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BalancesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The range is missing, malformed, or `from` is after `to`"
+          },
+          "401": {
+            "description": "No bearer token, or one this API does not trust"
+          },
+          "403": {
+            "description": "A valid token carrying no household claim"
+          }
+        }
+      }
+    },
+    "/v1/books": {
+      "get": {
+        "operationId": "books",
+        "summary": "Every book, and what has accumulated in it",
+        "description": "An account is a book, a category is a book, a loan is a book, and each of them has a position computed the same way. Positions are in one convention throughout — negative means the book owes — so the household's own position is the plain sum of the books that roll up, rather than cash less cards by name. Whole history: a position is a level, and a level computed over a window is the level of the window rather than of the book.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Every book, and what has accumulated in it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BooksResponse"
                 }
               }
             }
