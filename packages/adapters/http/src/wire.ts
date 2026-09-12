@@ -48,10 +48,41 @@ import type {
   TransactionsResult,
 } from "@tightarse/domain";
 
+/**
+ * The summary, as the wire spells it.
+ *
+ * Projected field by field. This was the last `...` left in this file — the
+ * same shape as `asAccounts` before it, and the same reason for going: a spread
+ * serves whatever the domain result happens to hold, which is how
+ * `mergeCategories` sent partition keys to a browser.
+ */
 export const asSummary = (s: Summary): SummaryResponse => ({
-  ...s,
-  byCategory: [...s.byCategory],
-  byMonth: [...s.byMonth],
+  currency: s.currency,
+  from: s.from,
+  to: s.to,
+  transactionCount: s.transactionCount,
+  income: s.income,
+  spend: s.spend,
+  net: s.net,
+  byCategory: s.byCategory.map((c) => ({
+    category: c.category,
+    total: c.total,
+    count: c.count,
+    provisional: c.provisional,
+  })),
+  byMonth: s.byMonth.map((m) => ({
+    month: m.month,
+    income: m.income,
+    spend: m.spend,
+    net: m.net,
+    count: m.count,
+  })),
+  internalTransfersNetted: s.internalTransfersNetted,
+  transferCount: s.transferCount,
+  transferTotal: s.transferTotal,
+  balanceSheetCount: s.balanceSheetCount,
+  balanceSheetTotal: s.balanceSheetTotal,
+  enrichedCount: s.enrichedCount,
 });
 
 export const asCategories = (c: CategoriesResult): CategoriesResponse => ({

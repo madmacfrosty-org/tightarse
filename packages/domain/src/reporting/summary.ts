@@ -11,6 +11,8 @@ import type { RecordedTransaction } from "../ledger/transaction.js";
 import { bookFor, categoryLeg, tradeFor } from "../ledger/books.js";
 import { assertSingleCurrency } from "../index.js";
 import { detectTransfers, type TransferOptions } from "./transfers.js";
+import { isBalanceSheet } from "../ledger/books.js";
+import { natureOf, type Category } from "../categorisation/category.js";
 
 /**
  * The result shapes come from `@tightarse/domain`, not from here and not from the
@@ -65,7 +67,19 @@ export function summarise(
   transactions: readonly RecordedTransaction[],
   categorised: readonly Categorisation[],
   range: { from: string; to: string },
-  opts: { transfers?: TransferOptions | false } = {},
+  opts: {
+    transfers?: TransferOptions | false;
+    /**
+     * The household's categories, so a book's `nature` can be read.
+     *
+     * Optional, and absent means nothing is excluded on its account. #109
+     * records that this argument not existing is why `kind` claimed totals
+     * depended on it while nothing branched on it; passing none restores
+     * exactly that behaviour, which is what every caller that does not care
+     * about books should get.
+     */
+    catalogue?: readonly Category[];
+  } = {},
 ): Summary {
   const currency = assertSingleCurrency(transactions);
   const assigned = new Map(categorised.map((a) => [a.dedupKey, a]));
@@ -82,6 +96,23 @@ export function summarise(
   // statement about what a caller may do with an answer rather than about how it
   // is built. `-readonly` keeps the two from being separate declarations that can
   // drift.
+  // Books whose position is part of what the household is worth. Money filed
+  // to one of these has moved, not gone: counting it as spending is the same
+  // error as counting a transfer, arrived at from the category side.
+  //
+  // Built only from categories the household actually holds. A book absent from
+  // the catalogue — a provider category, an id no longer in the list — is not
+  // excluded, because the conservative direction is to leave a total inflated
+  // and visible rather than to erase real spending invisibly. `transfers.ts`
+  // argues the same trade and this follows it.
+  const balanceSheet = new Set(
+    (opts.catalogue ?? [])
+      .filter((c) => isBalanceSheet(natureOf(c)))
+      .map((c) => c.id),
+  );
+  let balanceSheetCount = 0;
+  let balanceSheetTotal = 0;
+
   const categories = new Map<string, Mutable<CategoryTotal>>();
   const months = new Map<string, Mutable<MonthTotal>>();
   let income = 0;
@@ -90,6 +121,21 @@ export function summarise(
   for (const row of transactions) {
     if (detection.keys.has(row.dedupKey)) continue;
 
+    // The transaction's two sides, named. The second leg is what categorising
+    // records, and grouping by the book it lands in is what `byCategory` has
+    // always been — see #108, of which this is step 1.
+    const leg = categoryLeg(tradeFor(row, assigned.get(row.dedupKey)));
+    const category = leg.book;
+
+    // Counted and reported, never silently dropped. The money did move, and a
+    // figure that quietly shrank would be indistinguishable from one that was
+    // right — which is the failure mode #109 warns this change can cause.
+    if (balanceSheet.has(category)) {
+      balanceSheetCount += 1;
+      balanceSheetTotal += Math.abs(row.amount);
+      continue;
+    }
+
     // Sign is authoritative: negative left the household, positive arrived.
     // That invariant is not free — the provider reports cards inverted, and
     // this comment asserted the property for months while card rows violated
@@ -97,12 +143,6 @@ export function summarise(
     // transaction_type at the boundary. Nothing here should re-derive it.
     if (row.amount >= 0) income += row.amount;
     else spend += row.amount;
-
-    // The transaction's two sides, named. The second leg is what categorising
-    // records, and grouping by the book it lands in is what `byCategory` has
-    // always been — see #108, of which this is step 1.
-    const leg = categoryLeg(tradeFor(row, assigned.get(row.dedupKey)));
-    const category = leg.book;
     const { setId } = categoryOf(row, assigned);
     const fromProvider = setId === PROVIDER_SET;
     const c = categories.get(category) ?? {
@@ -151,6 +191,8 @@ export function summarise(
     byMonth: [...months.values()].sort((a, b) =>
       a.month.localeCompare(b.month),
     ),
+    balanceSheetCount,
+    balanceSheetTotal,
     internalTransfersNetted: opts.transfers !== false,
     transferCount: detection.keys.size,
     transferTotal: detection.totalMoved,

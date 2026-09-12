@@ -562,6 +562,8 @@ describe("routing, against the application rather than through it", () => {
         internalTransfersNetted: true,
         transferCount: 0,
         transferTotal: 0,
+        balanceSheetCount: 0,
+        balanceSheetTotal: 0,
         enrichedCount: 0,
       };
     },

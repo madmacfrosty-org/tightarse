@@ -71,6 +71,17 @@ export interface Summary {
   readonly internalTransfersNetted: boolean;
   readonly transferCount: number;
   readonly transferTotal: number;
+  /**
+   * Transactions filed to a book that holds a position rather than a flow — a
+   * savings category, a loan — and so left out of income and spend.
+   *
+   * Reported for the same reason transfers are: the money moved, and a total
+   * that quietly shrank would look exactly like one that was right. Zero when no
+   * catalogue was supplied, which is every caller that does not ask for books.
+   */
+  readonly balanceSheetCount: number;
+  /** Absolute value excluded on that account, in minor units. */
+  readonly balanceSheetTotal: number;
   readonly enrichedCount: number;
 }
 

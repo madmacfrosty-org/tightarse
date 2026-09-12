@@ -141,6 +141,8 @@ describe("what a summary promises", () => {
     internalTransfersNetted: true,
     transferCount: 0,
     transferTotal: 0,
+    balanceSheetCount: 0,
+    balanceSheetTotal: 0,
     enrichedCount: 0,
   };
 

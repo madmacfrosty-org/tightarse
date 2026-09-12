@@ -105,6 +105,11 @@ describe("books migration invariance", () => {
       "internalTransfersNetted": true,
       "transferCount": 2,
       "transferTotal": 50000,
+      // #108 step 3 adds these. Zero, and that is the assertion: this call
+      // passes no catalogue, so no book's `nature` is consulted and nothing is
+      // excluded on its account. Every figure above is unchanged.
+      "balanceSheetCount": 0,
+      "balanceSheetTotal": 0,
       "enrichedCount": 84
     });
   });

@@ -214,3 +214,24 @@ export function positionsFor(
     return running;
   });
 }
+
+/**
+ * What a book is, for the purpose of what its position means.
+ *
+ * Four rather than three, and the fourth is the point. `CategoryKind` offered
+ * `spending | income | movement` and `movement` was reaching for two different
+ * things at once: money to your own savings, and money owed on a loan. Both are
+ * positions on a balance sheet rather than flows through it, and they differ
+ * only in sign.
+ *
+ * The division that matters for every total is **balance-sheet or not**: an
+ * `asset` or a `liability` holds a position that is part of what the household
+ * is worth, so money arriving there has not been spent. `income` and `expense`
+ * are flows, and their positions are the sum of what has passed through.
+ */
+export type Nature = "asset" | "liability" | "income" | "expense";
+
+/** Whether a book's position is part of what the household is worth. */
+export function isBalanceSheet(nature: Nature): boolean {
+  return nature === "asset" || nature === "liability";
+}

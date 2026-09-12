@@ -18,6 +18,8 @@ const summary = {
   internalTransfersNetted: true,
   transferCount: 225,
   transferTotal: 616033_18,
+  balanceSheetCount: 0,
+  balanceSheetTotal: 0,
   enrichedCount: 5218,
 };
 
@@ -377,5 +379,46 @@ describe("when nobody is signed in", () => {
     render(<App {...ports} />);
     await waitFor(() => expect(screen.getByRole("button", { name: /sign in/i })).toBeDefined());
     expect(apiGet).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * #109: saying what was left out of spending.
+ *
+ * Excluding a category from the totals is the one change in #108 step 3 that can
+ * make a figure quietly smaller, and a total that shrank silently reads exactly
+ * like one that was right. So the screen has to say it happened.
+ *
+ * Every figure here is invented.
+ */
+describe("money that moved rather than was spent", () => {
+  const withExcluded = (count: number, total: number) => async (path: string) =>
+    path.startsWith(pathFor("/summary"))
+      ? { ...summary, balanceSheetCount: count, balanceSheetTotal: total }
+      : defaultApiGet(path);
+
+  it("says how much was left out, and why", async () => {
+    apiGet.mockImplementation(withExcluded(4, 1_250_00));
+    const { App } = await import("../src/App");
+    render(<App {...ports} />);
+    await screen.findByText(/moved\s+rather than were spent/);
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("A further 4");
+    expect(text).toContain("£1,250.00");
+  });
+
+  it("says nothing at all when nothing was left out", async () => {
+    const { App } = await import("../src/App");
+    render(<App {...ports} />);
+    await screen.findByText(/Money in and out/);
+    expect(document.body.textContent).not.toContain("rather than were spent");
+  });
+
+  it("reads as one transaction rather than 1 transactions", async () => {
+    apiGet.mockImplementation(withExcluded(1, 10_00));
+    const { App } = await import("../src/App");
+    render(<App {...ports} />);
+    await screen.findByText(/moved\s+rather than were spent/);
+    expect(document.body.textContent).toContain("A further 1 transaction");
   });
 });
