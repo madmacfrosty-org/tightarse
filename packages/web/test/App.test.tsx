@@ -9,26 +9,36 @@ const summary = {
   currency: "GBP",
   from: "2025-08-01",
   to: "2026-08-01",
-  transactionCount: 9764,
-  income: 1070467_89,
-  spend: -1120392_44,
-  net: -49924_55,
+  transactionCount: 4000,
+  income: 100000_00,
+  spend: -110000_00,
+  net: -10000_00,
   byCategory: [{ category: "Groceries", total: -75830, count: 12, provisional: false }],
   byMonth: [{ month: "2026-07", income: 320000, spend: -280000, net: 40000 }],
   internalTransfersNetted: true,
-  transferCount: 225,
-  transferTotal: 616033_18,
+  transferCount: 40,
+  transferTotal: 20000_00,
   balanceSheetCount: 0,
   balanceSheetTotal: 0,
-  enrichedCount: 5218,
+  enrichedCount: 2000,
 };
 
-/** The real shape, taken from the live ledger: three accounts and two cards. */
+/**
+ * Two current accounts and two cards, all invented.
+ *
+ * The **shape** is what the tests need, and only two properties of it are
+ * load-bearing: two different institutions, so a tile's label can be checked,
+ * and one card with no `availableBalance` at all. That second one is the whole
+ * point — it is the state that broke the old "available exceeds current" rule
+ * for inferring card-ness.
+ *
+ * Invented, like every figure in this repo's tests.
+ */
 const accounts = [
-  { accountId: "a1", displayName: "1st Account", institutionName: "FIRST-DIRECT", currentBalance: -400307, availableBalance: 164295, isCard: false },
-  { accountId: "a2", displayName: "Savings Account", institutionName: "FIRST-DIRECT", currentBalance: 942, availableBalance: 942, isCard: false },
-  { accountId: "c1", displayName: "Gold card", institutionName: "FIRST-DIRECT", currentBalance: 181447, availableBalance: 556153, isCard: true },
-  { accountId: "c2", displayName: "British Airways Amex", institutionName: "AMEX", currentBalance: 56790, isCard: true },
+  { accountId: "a1", displayName: "Main Account", institutionName: "BANK-ONE", currentBalance: -1_234_56, availableBalance: 500_00, isCard: false },
+  { accountId: "a2", displayName: "Savings Account", institutionName: "BANK-ONE", currentBalance: 1_00, availableBalance: 1_00, isCard: false },
+  { accountId: "c1", displayName: "Blue card", institutionName: "BANK-ONE", currentBalance: 2_000_00, availableBalance: 3_000_00, isCard: true },
+  { accountId: "c2", displayName: "Travel card", institutionName: "CARD-CO", currentBalance: 500_00, isCard: true },
 ];
 
 const transactions = [
@@ -150,40 +160,42 @@ describe("an account the sync has not finished describing", () => {
     // The warning must be tied to the state, not permanent furniture.
     const { App } = await import("../src/App");
     render(<App {...ports} />);
-    await screen.findByText("−£6,376.02");
+    await screen.findByText("−£3,733.56");
     expect(screen.queryByText(/still\s+syncing and not included/)).toBeNull();
   });
 });
 
 describe("net position", () => {
   it("subtracts what is owed on cards instead of adding it", async () => {
-    // The bug this exists for: Amex reports no available balance, the dashboard
-    // inferred card-ness from "available exceeds current", and a £567.90 debt
-    // was presented as cash. Net was wrong by twice the balance — once for the
-    // debt not subtracted, once for the cash that was not there.
+    // The bug this exists for: one provider reports no available balance at
+    // all, the dashboard inferred card-ness from "available exceeds current",
+    // and a card debt was presented as cash. Net was wrong by twice the
+    // balance — once for the debt not subtracted, once for the cash that was
+    // never there. The figures here are invented; the arithmetic is the point.
     //
-    // cash    -400307 + 942            = -399365
-    // owed     181447 + 56790          =  238237
-    // net     -399365 - 238237         = -637602
+    // cash    -123456 + 100            = -123356
+    // owed     200000 + 50000          =  250000
+    // net     -123356 - 250000         = -373356
     const { App } = await import("../src/App");
     render(<App {...ports} />);
-    expect(await screen.findByText("−£6,376.02")).toBeDefined();
+    expect(await screen.findByText("−£3,733.56")).toBeDefined();
   });
 
   it("labels a card as a card and shows what is owed as a positive debt", async () => {
     const { App } = await import("../src/App");
     render(<App {...ports} />);
-    await screen.findByText("−£6,376.02");
-    expect(screen.getAllByText(/Card · AMEX/).length).toBe(1);
+    await screen.findByText("−£3,733.56");
+    expect(screen.getAllByText(/Card · CARD-CO/).length).toBe(1);
     // Shown negative in the tile, because it reduces what the household has.
-    expect(screen.getByText("−£567.90")).toBeDefined();
+    expect(screen.getByText("−£500.00")).toBeDefined();
   });
 
   it("takes card-ness from the ledger, not from the balances", async () => {
-    // Amex sends no availableBalance at all, which is what broke the old rule.
-    const amex = accounts.find((a) => a.accountId === "c2")!;
-    expect(amex.availableBalance).toBeUndefined();
-    expect(amex.isCard).toBe(true);
+    // This one sends no availableBalance at all, which is what broke the old
+    // rule.
+    const noAvailable = accounts.find((a) => a.accountId === "c2")!;
+    expect(noAvailable.availableBalance).toBeUndefined();
+    expect(noAvailable.isCard).toBe(true);
   });
 });
 
@@ -198,7 +210,7 @@ describe("requests", () => {
     // against, so an unversioned path served once has to be supported for ever.
     const { App } = await import("../src/App");
     render(<App {...ports} />);
-    await screen.findAllByText(/9,764 transactions/);
+    await screen.findAllByText(/4,000 transactions/);
 
     const paths = apiGet.mock.calls.map((c) => String(c[0]));
     expect(paths.length).toBeGreaterThan(0);
@@ -215,7 +227,7 @@ describe("requests", () => {
     // parameter goes rather than gaining a server-side meaning.
     const { App } = await import("../src/App");
     render(<App {...ports} />);
-    await screen.findAllByText(/9,764 transactions/);
+    await screen.findAllByText(/4,000 transactions/);
 
     const txnCalls = apiGet.mock.calls.map((c) => String(c[0])).filter((p) => p.startsWith(pathFor("/transactions")));
     expect(txnCalls.length).toBeGreaterThan(0);
@@ -309,14 +321,16 @@ describe("chrome", () => {
     render(<App {...ports} />);
     // Appears in more than one place, which is fine — assert it is present
     // rather than unique.
-    expect((await screen.findAllByText(/9,764 transactions/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/4,000 transactions/)).length).toBeGreaterThan(0);
   });
 
   it("says how many internal transfers were netted out", async () => {
     // Without this the totals look wrong to anyone who knows what they moved.
     const { App } = await import("../src/App");
     render(<App {...ports} />);
-    await waitFor(() => expect(screen.getByText(/225/)).toBeDefined());
+    // "40 legs" rather than /40/: a bare number matches the transaction count
+    // and the amounts too, so the old matcher passed on whatever it found.
+    await waitFor(() => expect(screen.getByText(/40 legs/)).toBeDefined());
   });
 
   it("asks for the known window on All time, not for everything", async () => {
@@ -326,7 +340,7 @@ describe("chrome", () => {
     // with a 500 after several seconds of loading.
     const { App } = await import("../src/App");
     render(<App {...ports} />);
-    await screen.findByText("−£6,376.02");
+    await screen.findByText("−£3,733.56");
 
     const allTime = screen.getByRole("button", { name: "All time" });
     expect((allTime as HTMLButtonElement).disabled).toBe(false);
@@ -353,14 +367,14 @@ describe("chrome", () => {
     });
     const { App } = await import("../src/App");
     render(<App {...ports} />);
-    await screen.findByText("−£6,376.02");
+    await screen.findByText("−£3,733.56");
     expect((screen.getByRole("button", { name: "All time" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("offers the three ranges", async () => {
     const { App } = await import("../src/App");
     render(<App {...ports} />);
-    await screen.findByText("−£6,376.02");
+    await screen.findByText("−£3,733.56");
     // "All time" rather than a fixed span: how far back a household total is
     // trustworthy is set by the shallowest account and widens a day at a time,
     // so a constant would be wrong today and wrong differently later. #33.
