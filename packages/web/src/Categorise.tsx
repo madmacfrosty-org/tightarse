@@ -113,7 +113,9 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
   const [category, setCategory] = useState("");
   const [adding, setAdding] = useState(false);
   const [newLabel, setNewLabel] = useState("");
-  const [newKind, setNewKind] = useState<"spending" | "income" | "movement">("spending");
+  const [newNature, setNewNature] = useState<
+    "expense" | "income" | "asset" | "liability"
+  >("expense");
   const [pending, setPending] = useState<Proposal | null>(null);
   const [applied, setApplied] = useState<string | null>(null);
 
@@ -239,7 +241,7 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
     try {
       const made = await api.post<CategoryChoiceView>(pathFor("/categories"), {
         label: newLabel.trim(),
-        kind: newKind,
+        nature: newNature,
       });
       setCategories((current) => [...current, made].sort((a, b) => a.label.localeCompare(b.label)));
       setCategory(made.id);
@@ -349,12 +351,18 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
           />
           <select
             aria-label="What it does to the money"
-            value={newKind}
-            onChange={(e) => setNewKind(e.target.value as typeof newKind)}
+            value={newNature}
+            onChange={(e) => setNewNature(e.target.value as typeof newNature)}
           >
-            <option value="spending">spending</option>
-            <option value="income">income</option>
-            <option value="movement">movement</option>
+            {/*
+              Worded as what the money IS, not as jargon. "asset" and
+              "liability" are the stored values; nobody filing a receipt should
+              have to know that.
+            */}
+            <option value="expense">spending — money gone</option>
+            <option value="income">income — money arrived</option>
+            <option value="asset">savings — money I still have</option>
+            <option value="liability">debt — money I owe</option>
           </select>
           <button type="button" disabled={busy || newLabel.trim().length === 0} onClick={() => void addCategory()}>
             Add

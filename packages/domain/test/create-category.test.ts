@@ -42,6 +42,7 @@ describe("adding a category", () => {
       id: "eating-out",
       label: "Eating Out",
       kind: "spending",
+      nature: "expense",
       taxonomy: "household",
       retired: false,
     });
@@ -144,5 +145,65 @@ describe("adding a category", () => {
     expect((await createCategory(deps(), "frost", { label: "First" })).id).toBe(
       "first",
     );
+  });
+});
+
+/**
+ * Creating a category with a nature.
+ *
+ * `nature` replaces `kind`, and until the backfill has run rows carry both. The
+ * property under test is that a category created today stays readable by code
+ * that has not caught up: `kind` is derived from the nature, never left out.
+ *
+ * Labels are invented.
+ */
+describe("a category created with a nature", () => {
+  it("stores the nature and derives a kind from it", async () => {
+    const d = deps();
+    const made = await createCategory(d, "t1", {
+      label: "Mortgage",
+      nature: "liability",
+    });
+    expect(made.nature).toBe("liability");
+    expect(made.kind).toBe("movement");
+  });
+
+  it("lets the nature win where both are sent", async () => {
+    const d = deps();
+    const made = await createCategory(d, "t1", {
+      label: "Savings pot",
+      kind: "spending",
+      nature: "asset",
+    });
+    expect(made.nature).toBe("asset");
+    expect(made.kind).toBe("movement");
+  });
+
+  it("derives a nature where only a kind is sent", async () => {
+    const d = deps();
+    const made = await createCategory(d, "t1", {
+      label: "Season ticket",
+      kind: "movement",
+    });
+    expect(made.nature).toBe("asset");
+  });
+
+  it("still defaults to spending when neither is sent", async () => {
+    const d = deps();
+    const made = await createCategory(d, "t1", { label: "Odds and ends" });
+    expect(made.nature).toBe("expense");
+    expect(made.kind).toBe("spending");
+  });
+
+  it("cannot reach liability by inference, which is why nature exists", async () => {
+    // `kind` has three values and none of them says "owed". Only a household
+    // saying so can produce a loan book.
+    for (const kind of ["spending", "income", "movement"] as const) {
+      const made = await createCategory(deps(), "t1", {
+        label: `Thing ${kind}`,
+        kind,
+      });
+      expect(made.nature).not.toBe("liability");
+    }
   });
 });

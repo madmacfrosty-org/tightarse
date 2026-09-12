@@ -518,7 +518,7 @@ describe("adding a category", () => {
 
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith(pathFor("/categories"), {
       label: "Season Ticket",
-      kind: "spending",
+      nature: "expense",
     }));
     await waitFor(() =>
       expect((screen.getByLabelText("Categorise as") as HTMLSelectElement).value).toBe("season-ticket"),
@@ -538,18 +538,29 @@ describe("adding a category", () => {
     expect(labels.indexOf("Aardvark")).toBeLessThan(labels.indexOf("Fuel"));
   });
 
-  it("defaults to spending, and takes the other two", async () => {
-    apiPost.mockResolvedValue({ id: "savings", label: "Savings", kind: "movement" });
+  it("defaults to spending, and takes the other three", async () => {
+    apiPost.mockResolvedValue({ id: "savings", label: "Savings", nature: "asset" });
     await withCategories();
 
     await userEvent.selectOptions(screen.getByLabelText("Categorise as"), "new category");
     await userEvent.type(screen.getByLabelText("New category"), "Savings");
-    expect((screen.getByLabelText("What it does to the money") as HTMLSelectElement).value).toBe("spending");
+    expect((screen.getByLabelText("What it does to the money") as HTMLSelectElement).value).toBe("expense");
 
-    await userEvent.selectOptions(screen.getByLabelText("What it does to the money"), "movement");
+    await userEvent.selectOptions(screen.getByLabelText("What it does to the money"), "asset");
     await userEvent.click(screen.getByRole("button", { name: "Add" }));
 
-    await waitFor(() => expect(apiPost.mock.calls[0][1]).toMatchObject({ kind: "movement" }));
+    await waitFor(() => expect(apiPost.mock.calls[0][1]).toMatchObject({ nature: "asset" }));
+  });
+
+  it("offers a debt, which the old three values could not say", async () => {
+    // The whole reason `nature` replaces `kind`. A loan is not spending, and
+    // its position is what is owed rather than what is held.
+    await withCategories();
+    await userEvent.selectOptions(screen.getByLabelText("Categorise as"), "new category");
+    await userEvent.type(screen.getByLabelText("New category"), "Mortgage");
+    await userEvent.selectOptions(screen.getByLabelText("What it does to the money"), "liability");
+    await userEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(apiPost.mock.calls[0][1]).toMatchObject({ nature: "liability" }));
   });
 
   it("will not add one with no name", async () => {

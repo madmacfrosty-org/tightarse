@@ -193,3 +193,10 @@ export function natureOf(category: {
   if (category.kind === "movement") return "asset";
   return "expense";
 }
+
+/** The `kind` a nature implies, for as long as rows still carry one. */
+export function kindFor(nature: CategoryNature): CategoryKind {
+  if (nature === "income") return "income";
+  if (nature === "expense") return "spending";
+  return "movement";
+}
