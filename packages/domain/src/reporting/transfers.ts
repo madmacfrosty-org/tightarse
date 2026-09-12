@@ -6,8 +6,9 @@ import type { RecordedTransaction } from "../ledger/transaction.js";
  * Money moved between the household's own accounts is not spending, but in a
  * single aggregated ledger it appears as a debit in one account and a credit in
  * another — counted as both spend and income. Against the real ledger that
- * inflated five-year totals to £1.67m in and £1.72m out, so this is a
- * correctness requirement for the primary view rather than a refinement.
+ * inflated the five-year totals by more than half of what they should have
+ * been, on both sides, so this is a correctness requirement for the primary
+ * view rather than a refinement.
  *
  * Computed at query time rather than stored. The rule needs tuning against real
  * data, and query-time means changing it shows an effect immediately instead of
@@ -45,28 +46,20 @@ export interface TransferOptions {
    * standing orders and inter-bank movement can lag. Beyond a few days the
    * chance of coincidence outgrows the chance of a genuine pair.
    *
-   * **Measured against the real ledger, 2026-09-12**, because "a few days" was
-   * a guess and widening it looked like an easy win:
+   * **Measured rather than assumed.** Run against a real ledger, the pair
+   * count is flat between three days and five: the genuine population is
+   * already captured at three. Far out — beyond a month, where no real
+   * transfer can sit — pairs keep accruing at a constant rate, which is the
+   * coincidence floor for two accounts holding thousands of rows that happen
+   * to share amounts.
    *
-   *   window   pairs        window   pairs
-   *       1d     240            14d     284
-   *       2d     270            21d     288
-   *       3d     277            30d     293
-   *       5d     277            60d     308
-   *       7d     281            90d     323
+   * Apply that floor backwards and it accounts for very nearly everything a
+   * wider window finds. Widening buys noise, and a false pair erases real
+   * spending invisibly, which is the direction this file is biased against.
    *
-   * Two things in that. The count is **flat from 3d to 5d** — the genuine
-   * population is already captured. And from 30d out, where no real transfer
-   * can plausibly sit, pairs accrue at a steady **0.50 per day**, which is the
-   * coincidence rate: two unrelated amounts that happen to match, on two
-   * accounts holding thousands of rows.
-   *
-   * Apply that rate backwards and the 16 extra pairs between 3d and 30d are
-   * roughly what chance alone predicts over 27 days. Their amounts say the same
-   * — £6, £13, £30, £40 between the same two accounts. Widening the window buys
-   * noise, and every false pair silently erases real spending.
-   *
-   * So three days is not a placeholder. It is where the curve flattens.
+   * So three days is not a placeholder. It is where the curve flattens. The
+   * figures behind that are the household's and do not belong in a public
+   * repository; re-run the comparison if it needs checking again.
    */
   windowDays?: number;
 }
