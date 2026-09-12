@@ -56,6 +56,23 @@ export const Category = z.object({
   description: z.string().optional(),
   nature: CategoryNature,
   /**
+   * Whether this book's position is part of what the household is worth.
+   *
+   * Absent means `isBalanceSheet(nature)`, which is right for almost every
+   * book. It exists because of the one place that rule breaks: a category like
+   * Transfer is not spending, so its nature is `asset` — but the money may have
+   * gone to an account the household holds, to an account it holds and we do
+   * not fetch, or to another person entirely, and **nothing in a transaction
+   * says which**. Counting it as held double-counts the first case and invents
+   * the third.
+   *
+   * #108 asked for a flag rather than a taxonomy and was right. It was left
+   * derived on the grounds that a second field could only disagree with the
+   * nature; this is the disagreement, and it was worth six figures on the real
+   * ledger before anybody looked.
+   */
+  rollsUp: z.boolean().optional(),
+  /**
    * What this book held before the ledger begins, in minor units.
    *
    * Absent means zero, which is right for every book that started empty — every
