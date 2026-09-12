@@ -44,6 +44,29 @@ export interface TransferOptions {
    * How far apart the two legs may be. Faster Payments is usually same-day, but
    * standing orders and inter-bank movement can lag. Beyond a few days the
    * chance of coincidence outgrows the chance of a genuine pair.
+   *
+   * **Measured against the real ledger, 2026-09-12**, because "a few days" was
+   * a guess and widening it looked like an easy win:
+   *
+   *   window   pairs        window   pairs
+   *       1d     240            14d     284
+   *       2d     270            21d     288
+   *       3d     277            30d     293
+   *       5d     277            60d     308
+   *       7d     281            90d     323
+   *
+   * Two things in that. The count is **flat from 3d to 5d** — the genuine
+   * population is already captured. And from 30d out, where no real transfer
+   * can plausibly sit, pairs accrue at a steady **0.50 per day**, which is the
+   * coincidence rate: two unrelated amounts that happen to match, on two
+   * accounts holding thousands of rows.
+   *
+   * Apply that rate backwards and the 16 extra pairs between 3d and 30d are
+   * roughly what chance alone predicts over 27 days. Their amounts say the same
+   * — £6, £13, £30, £40 between the same two accounts. Widening the window buys
+   * noise, and every false pair silently erases real spending.
+   *
+   * So three days is not a placeholder. It is where the curve flattens.
    */
   windowDays?: number;
 }
