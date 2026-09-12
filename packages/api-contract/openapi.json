@@ -271,6 +271,14 @@
             "type": "integer",
             "description": "Total moved between the household's own accounts, in integer minor units (pence). Divide by 100 for pounds."
           },
+          "movementCount": {
+            "type": "integer",
+            "description": "Transactions in a category the household marked `movement` — money to its own savings, say — and so left out of income and spend"
+          },
+          "movementTotal": {
+            "type": "integer",
+            "description": "Absolute value excluded because it moved rather than was spent, in integer minor units (pence). Divide by 100 for pounds."
+          },
           "enrichedCount": {
             "type": "integer",
             "description": "How many transactions carry a category"
@@ -289,6 +297,8 @@
           "internalTransfersNetted",
           "transferCount",
           "transferTotal",
+          "movementCount",
+          "movementTotal",
           "enrichedCount"
         ],
         "additionalProperties": false

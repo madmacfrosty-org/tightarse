@@ -276,6 +276,21 @@ export function App({ session, api }: { session: Session; api: Api }) {
           Transfers between your own accounts are excluded — {summary.transferCount} legs,{" "}
           {money(summary.transferTotal)} moved. Net position is unaffected by that netting.
         </p>
+        {summary.movementCount > 0 && (
+          <p className="note">
+            {/*
+              Said out loud for the same reason the transfer line is. Excluding
+              a category from spending is the one change here that can make a
+              figure quietly smaller, and a total that shrank silently would be
+              indistinguishable from one that was right. See #109.
+            */}
+            A further {summary.movementCount}{" "}
+            {summary.movementCount === 1 ? "transaction" : "transactions"} moved
+            rather than were spent — {money(summary.movementTotal)} filed to a
+            category you marked as movement. Money you still have does not count
+            as spending.
+          </p>
+        )}
         <div className="legend">
           <span><i className="swatch" style={{ background: "var(--in)" }} /> money in</span>
           <span><i className="swatch" style={{ background: "var(--out)" }} /> money out</span>

@@ -17,10 +17,20 @@ import { z } from "zod";
  * What a category does to the household's money.
  *
  * The only thing code may branch on. Labels and colours are presentation and
- * change freely; this does not, because totals depend on it.
+ * change freely; this does not, because totals depend on it — and as of #109
+ * they actually do. For as long as that sentence stood without `summarise` ever
+ * being given the catalogue, nothing branched on it and a category filed as
+ * `movement` counted as spending.
+ *
+ * Three values, not four. A fourth — `liability`, for a loan — is what #108
+ * step 3 calls `nature`, and there is no loan in this ledger to need it. Adding
+ * it now would mean a stored field, a backfill and a migration in exchange for
+ * a value nothing can produce or consume. It goes in when #110 gives it
+ * something to describe.
  */
 export const CategoryKind = z.enum(["spending", "income", "movement"]);
 export type CategoryKind = z.infer<typeof CategoryKind>;
+
 
 /** Whose taxonomy a category belongs to. A provider's is not ours. */
 export const Taxonomy = z.enum(["household", "provider"]);
@@ -146,3 +156,4 @@ export function kindOf(
 ): CategoryKind | undefined {
   return resolveCategory(id, catalogue).category?.kind;
 }
+

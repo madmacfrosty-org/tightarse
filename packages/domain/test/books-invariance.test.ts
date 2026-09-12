@@ -105,6 +105,11 @@ describe("books migration invariance", () => {
       "internalTransfersNetted": true,
       "transferCount": 2,
       "transferTotal": 50000,
+      // #109 adds these. Zero, and that is the assertion: this call passes no
+      // catalogue, so no category's `kind` is consulted and nothing is excluded
+      // on its account. Every figure above is unchanged.
+      "movementCount": 0,
+      "movementTotal": 0,
       "enrichedCount": 84
     });
   });
