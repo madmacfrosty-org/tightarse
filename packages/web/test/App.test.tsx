@@ -64,11 +64,21 @@ const balances = {
   ],
 };
 
+/**
+ * The same four accounts as books, plus a category.
+ *
+ * `householdPosition` deliberately equals what the account tiles come to:
+ * −£1,234.56 + £1.00 − £2,000.00 − £500.00. The dashboard reads its headline
+ * from here and its tiles from `/accounts`, and the two agreeing is the
+ * property worth pinning.
+ */
 const booksResponse = {
-  householdPosition: -1_233_56,
+  householdPosition: -3_733_56,
   books: [
     { book: "a1", label: "Main Account", nature: "asset", rollsUp: true, position: -1_234_56 },
     { book: "a2", label: "Savings Account", nature: "asset", rollsUp: true, position: 1_00 },
+    { book: "c1", label: "Blue card", nature: "liability", rollsUp: true, position: -2_000_00 },
+    { book: "c2", label: "Travel card", nature: "liability", rollsUp: true, position: -500_00 },
     { book: "groceries", label: "Groceries", nature: "expense", rollsUp: false, position: 758_30 },
   ],
 };
@@ -197,7 +207,10 @@ describe("net position", () => {
     await screen.findByText("−£3,733.56");
     expect(screen.getAllByText(/Card · CARD-CO/).length).toBe(1);
     // Shown negative in the tile, because it reduces what the household has.
-    expect(screen.getByText("−£500.00")).toBeDefined();
+    // Scoped to the tiles: the same figure appears again in the books panel,
+    // which is the point — both read the same number.
+    const tiles = document.querySelector(".tiles")!;
+    expect(tiles.textContent).toContain("−£500.00");
   });
 
   it("takes card-ness from the ledger, not from the balances", async () => {
@@ -373,6 +386,7 @@ describe("chrome", () => {
       if (path.startsWith(pathFor("/summary"))) return summary;
       if (path.startsWith(pathFor("/accounts"))) return { accounts };
       if (path.startsWith(pathFor("/transactions"))) return { transactions };
+      if (path.startsWith(pathFor("/books"))) return booksResponse;
       return balances;
     });
     const { App } = await import("../src/App");
