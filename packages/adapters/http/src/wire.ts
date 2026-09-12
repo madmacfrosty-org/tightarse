@@ -33,6 +33,7 @@ import type {
   BalancesResponse,
   RunningBalanceResponse,
   SummaryResponse,
+  BooksResponse,
   TransactionsResponse,
 } from "@tightarse/api-contract";
 import type {
@@ -45,6 +46,7 @@ import type {
   Proposed,
   RunningBalanceReport,
   Summary,
+  BooksResult,
   TransactionsResult,
 } from "@tightarse/domain";
 
@@ -149,6 +151,22 @@ export const asBalances = (b: BalancesResult): BalancesResponse => ({
  * the mistake `mergeCategories` made for months, sending the table's partition
  * keys and the raw object's location to a browser.
  */
+/**
+ * The books, as the wire spells them.
+ *
+ * Projected field by field, like everything else here.
+ */
+export const asBooks = (b: BooksResult): BooksResponse => ({
+  householdPosition: b.householdPosition,
+  books: b.books.map((x) => ({
+    book: x.book,
+    label: x.label,
+    nature: x.nature,
+    rollsUp: x.rollsUp,
+    position: x.position,
+  })),
+});
+
 export const asRunningBalance = (
   r: RunningBalanceReport,
 ): RunningBalanceResponse => ({

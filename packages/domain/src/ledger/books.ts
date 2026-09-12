@@ -235,3 +235,43 @@ export type Nature = "asset" | "liability" | "income" | "expense";
 export function isBalanceSheet(nature: Nature): boolean {
   return nature === "asset" || nature === "liability";
 }
+
+/**
+ * A book, and what has accumulated in it.
+ *
+ * One shape for a bank account, a category and a loan, which is the claim #108
+ * exists to make good. The position is always in leg convention — negative
+ * means the book owes — so a card and a mortgage read the same way as each
+ * other and the household total is a plain sum rather than a set of special
+ * cases.
+ */
+export interface BookPosition {
+  readonly book: BookId;
+  readonly label: string;
+  readonly nature: Nature;
+  /**
+   * Whether this book's position is part of what the household is worth.
+   *
+   * `isBalanceSheet(nature)`, carried on the row so a client does not have to
+   * know the rule. Derived rather than stored alongside the nature: #108
+   * describes a flag, and a flag is what this is, but a second stored field
+   * could only ever disagree with the nature. It becomes its own field the day
+   * something needs it to.
+   */
+  readonly rollsUp: boolean;
+  /** Minor units. Negative means owed. */
+  readonly position: number;
+}
+
+/**
+ * What the household is worth: every book that rolls up, added together.
+ *
+ * A plain sum, and that is the point of holding one convention. Cash is
+ * positive, a card is negative, a mortgage is negative, and none of them needs
+ * a rule of its own. The version this replaces subtracted cards by name.
+ */
+export function householdPosition(books: readonly BookPosition[]): number {
+  return books
+    .filter((b) => b.rollsUp)
+    .reduce((total, b) => total + b.position, 0);
+}

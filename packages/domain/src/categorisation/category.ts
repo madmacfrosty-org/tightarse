@@ -55,6 +55,23 @@ export const Category = z.object({
   colour: z.string().optional(),
   description: z.string().optional(),
   nature: CategoryNature,
+  /**
+   * What this book held before the ledger begins, in minor units.
+   *
+   * Absent means zero, which is right for every book that started empty — every
+   * expense book, and every category the household invented. It is wrong for
+   * exactly two kinds of thing, and they are the reason it exists: a loan drawn
+   * down before we had any data, and savings that already existed somewhere we
+   * do not fetch.
+   *
+   * Without it a liability book's position is "how much has been repaid", which
+   * is a real number and not the one anybody wants. With it, it is what is
+   * owed.
+   *
+   * Leg convention: negative is owed. A mortgage of £180,000 opens at
+   * -18_000_000.
+   */
+  openingPosition: z.number().int().optional(),
   taxonomy: Taxonomy.default("household"),
   /** Stops new rules choosing it. Existing categorisations still resolve. */
   retired: z.boolean().default(false),

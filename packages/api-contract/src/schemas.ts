@@ -351,6 +351,27 @@ export const AccountBalanceCheck = z.object({
 });
 export type AccountBalanceCheck = z.infer<typeof AccountBalanceCheck>;
 
+export const BookPositionView = z.object({
+  book: z.string().describe("The book's id: an account id or a category id"),
+  label: z.string(),
+  nature: z.enum(["asset", "liability", "income", "expense"]),
+  rollsUp: z
+    .boolean()
+    .describe("Whether this book's position is part of what the household is worth"),
+  position: minorUnits(
+    "What has accumulated in this book. Negative means owed, for every book alike",
+  ),
+});
+export type BookPositionView = z.infer<typeof BookPositionView>;
+
+export const BooksResponse = z.object({
+  books: z.array(BookPositionView),
+  householdPosition: minorUnits(
+    "Every book that rolls up, added together. A plain sum: cash is positive, a card and a loan negative",
+  ),
+});
+export type BooksResponse = z.infer<typeof BooksResponse>;
+
 export const RunningBalanceResponse = z.object({
   verdict: RunningBalanceVerdict,
   accounts: z.array(AccountBalanceCheck),

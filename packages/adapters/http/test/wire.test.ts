@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   asAccounts,
+  asBooks,
   asSummary,
   asBacklog,
   asCategories,
@@ -384,6 +385,51 @@ describe("the summary on the wire", () => {
     const out = asSummary(domain as never);
     expect(out.byCategory).not.toBe(domain.byCategory);
     expect(out.byMonth).not.toBe(domain.byMonth);
+  });
+});
+
+/**
+ * The books on the wire.
+ *
+ * Written because the routing test's stub returns an empty list, which
+ * exercises the function and none of the copying inside it — the same gap that
+ * let `asRunningBalance` ship untested.
+ *
+ * Every figure and label is invented.
+ */
+describe("the books on the wire", () => {
+  const result = {
+    householdPosition: -178_000_00,
+    books: [
+      { book: "cur", label: "Main Account", nature: "asset" as const, rollsUp: true, position: 2_000_00 },
+      { book: "mortgage", label: "Mortgage", nature: "liability" as const, rollsUp: true, position: -179_500_00 },
+      { book: "groceries", label: "Groceries", nature: "expense" as const, rollsUp: false, position: 12_450_00 },
+    ],
+  };
+
+  it("carries every field across, and no others", () => {
+    expect(asBooks(result)).toEqual(result);
+  });
+
+  it("drops a field the domain grew that the contract never promised", () => {
+    const grown = {
+      ...result,
+      books: [{ ...result.books[0]!, tenantId: "leaked", openingPosition: 1 }],
+    } as never;
+    const out = asBooks(grown).books[0]!;
+    expect(out).not.toHaveProperty("tenantId");
+    expect(out).not.toHaveProperty("openingPosition");
+  });
+
+  it("copies rather than serving the domain's own array", () => {
+    expect(asBooks(result).books).not.toBe(result.books);
+  });
+
+  it("has nothing to say about a household with no books", () => {
+    expect(asBooks({ books: [], householdPosition: 0 })).toEqual({
+      books: [],
+      householdPosition: 0,
+    });
   });
 });
 
