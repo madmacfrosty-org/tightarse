@@ -555,6 +555,12 @@ describe("adding a category", () => {
   it("offers a debt, which the old three values could not say", async () => {
     // The whole reason `nature` replaces `kind`. A loan is not spending, and
     // its position is what is owed rather than what is held.
+    //
+    // The mock is not decoration: without it `api.post` resolves undefined and
+    // the component throws reading `made.id`. Every assertion here still
+    // passed, so the suite reported 185 green and exited 1 on an unhandled
+    // error — which is how this reached main.
+    apiPost.mockResolvedValue({ id: "mortgage", label: "Mortgage", nature: "liability" });
     await withCategories();
     await userEvent.selectOptions(screen.getByLabelText("Categorise as"), "new category");
     await userEvent.type(screen.getByLabelText("New category"), "Mortgage");
