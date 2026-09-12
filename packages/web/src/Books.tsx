@@ -1,6 +1,4 @@
-import { pathFor, type BooksResponse, type BookPositionView } from "@tightarse/api-contract";
-import { useEffect, useState } from "react";
-import type { Api } from "./ports";
+import type { BooksResponse, BookPositionView } from "@tightarse/api-contract";
 
 /**
  * Every book, and what has accumulated in it.
@@ -46,30 +44,21 @@ function Rows({ books }: { books: readonly BookPositionView[] }) {
   );
 }
 
-export function Books({ api }: { api: Api }) {
-  const [data, setData] = useState<BooksResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+/**
+ * Handed the response rather than fetching it.
+ *
+ * The dashboard's headline figure is this same `householdPosition`, so there is
+ * one request and one number. Fetching separately here would have been a second
+ * read of the whole ledger to answer a question already answered.
+ */
+export function Books({ data }: { data: BooksResponse | null }) {
+  if (data === null) return <p className="subtle">Loading…</p>;
 
-  useEffect(() => {
-    api
-      .get<BooksResponse>(pathFor("/books"))
-      // Defensive at a boundary, as the category picker is: a response without
-      // the field is a panel with nothing to show, not a screen that throws
-      // while rendering.
-      .then((r) =>
-        setData({
-          books: r?.books ?? [],
-          householdPosition: r?.householdPosition ?? 0,
-        }),
-      )
-      .catch(() => setError("Could not load the books"));
-  }, [api]);
-
-  if (error) return <p className="error">{error}</p>;
-  if (!data) return <p className="subtle">Loading…</p>;
-
-  const worth = data.books.filter((b) => b.rollsUp);
-  const flows = data.books.filter((b) => !b.rollsUp);
+  // Defensive at a boundary, as the category picker is: a response without the
+  // field is a panel with nothing to show, not a screen that throws.
+  const all = data.books ?? [];
+  const worth = all.filter((b) => b.rollsUp);
+  const flows = all.filter((b) => !b.rollsUp);
 
   return (
     <section className="books">
@@ -87,7 +76,7 @@ export function Books({ api }: { api: Api }) {
         </p>
         <Rows books={worth} />
         <p>
-          <strong>Household position: {money(data.householdPosition)}</strong>
+          <strong>Household position: {money(data.householdPosition ?? 0)}</strong>
         </p>
       </div>
 

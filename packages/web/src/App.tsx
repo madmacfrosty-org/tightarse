@@ -10,6 +10,7 @@ import {
   pathFor,
   type AccountView,
   type BalancesResponse,
+  type BooksResponse,
   type Summary,
   type TransactionView,
 } from "@tightarse/api-contract";
@@ -77,6 +78,7 @@ export function App({ session, api }: { session: Session; api: Api }) {
   const [accounts, setAccounts] = useState<AccountView[]>([]);
   const [txns, setTxns] = useState<TransactionView[]>([]);
   const [balances, setBalances] = useState<BalancesResponse | null>(null);
+  const [books, setBooks] = useState<BooksResponse | null>(null);
   // Range-independent, so it survives a range change and is known before "All
   // time" can be chosen. That is what lets that option ask for the window
   // itself rather than for everything and hoping the server trims it.
@@ -125,12 +127,14 @@ export function App({ session, api }: { session: Session; api: Api }) {
       // contract change, not a bare parameter.
       api.get<{ transactions: TransactionView[] }>(`${pathFor("/transactions")}${q}`),
       api.get<BalancesResponse>(`${pathFor("/balances")}${q}`),
+      api.get<BooksResponse>(pathFor("/books")),
     ])
-      .then(([s, a, t, b]) => {
+      .then(([s, a, t, b, bk]) => {
         setSummary(s);
         setAccounts(a.accounts ?? []);
         setTxns(t.transactions ?? []);
         setBalances(b);
+        setBooks(bk);
         setCompleteFrom(a.completeFrom ?? null);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load"));
@@ -154,7 +158,9 @@ export function App({ session, api }: { session: Session; api: Api }) {
   if (error) return <div className="page error">{error}</div>;
   if (!summary) return <div className="page loading">Loading…</div>;
 
-  const { cardIds, net, unknown, provisional } = netPosition(accounts);
+  // Still the source of which accounts are cards and which have not said yet.
+  // The total it also computes is no longer read: `/books` states that.
+  const { cardIds, unknown, provisional } = netPosition(accounts);
   const unknownIds = new Set(unknown.map((a) => a.accountId));
 
   return (
@@ -206,11 +212,31 @@ export function App({ session, api }: { session: Session; api: Api }) {
       <div className="card">
         <h2>Net position</h2>
         <p className="note">
-          Cash across current accounts, less anything owed on cards.
+          Every book whose position counts towards what the household is worth,
+          added together — accounts and cards, and a loan where there is one.
         </p>
-        <div className="hero" style={{ color: net < 0 ? "var(--out)" : "var(--text-primary)" }}>
-          {money(net)}
-        </div>
+        {/*
+          One computation, not two. This used to be cash less cards, computed
+          here from the account tiles while `/books` computed the same figure a
+          different way. They agreed, which is exactly how two of them survive
+          until the day they quietly stop. A category that is an asset or a
+          liability now counts, which the account-only version could not express.
+        */}
+        {books === null ? (
+          <div className="hero subtle">…</div>
+        ) : (
+          <div
+            className="hero"
+            style={{
+              color:
+                books.householdPosition < 0
+                  ? "var(--out)"
+                  : "var(--text-primary)",
+            }}
+          >
+            {money(books.householdPosition)}
+          </div>
+        )}
         {/*
           Said plainly rather than shown as a footnote. An account whose type is
           not known yet is left out of this figure entirely (#29) — counting it
@@ -320,7 +346,7 @@ export function App({ session, api }: { session: Session; api: Api }) {
       */}
       <Categorise api={api} from={completeFrom ?? rangeFor(365, new Date()).from} to={rangeFor(0, new Date()).to} />
       <div className="card">
-        <Books api={api} />
+        <Books data={books} />
       </div>
       <Diagnostics api={api} />
 
