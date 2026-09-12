@@ -14,26 +14,17 @@
 import { z } from "zod";
 
 /**
- * What a category does to the household's money.
+ * What a category is, and the only thing totals branch on.
  *
- * **Superseded by `nature`, and kept because rows carry it.** This was
- * documented as the only thing code may branch on, and for as long as it said so
- * nothing branched on it — see #109. `nature` is what it was reaching for:
- * `movement` was two things at once, money into your own savings and money owed
- * on a loan, which differ in sign and are both balance-sheet rather than flow.
+ * Replaced `kind`, which offered spending, income and movement and had no way
+ * to say "a loan". The fourth value is the reason: `movement` could not tell
+ * money into your own savings from money paid off a debt, and their positions
+ * point in opposite directions.
  *
- * Still written by the picker and still stored, so it is still read. `natureOf`
- * is the one place that turns it into the thing totals actually use.
- */
-export const CategoryKind = z.enum(["spending", "income", "movement"]);
-export type CategoryKind = z.infer<typeof CategoryKind>;
-
-/**
- * What this book is, where the household has said.
- *
- * Optional because every row predates it. Absent does not mean "expense": it
- * means nobody has said, and `natureOf` falls back to what `kind` implies rather
- * than guessing. Nothing is excluded from a total on a guess.
+ * Required. A category that cannot say what it is cannot be told apart from
+ * spending, and being counted as spending when it is not is what #109 was
+ * about. Rows written before this existed were backfilled with the value their
+ * `kind` implied, so nothing was reinterpreted on the way.
  */
 export const CategoryNature = z.enum([
   "asset",
@@ -63,9 +54,7 @@ export const Category = z.object({
    */
   colour: z.string().optional(),
   description: z.string().optional(),
-  kind: CategoryKind,
-  /** See `natureOf`. Absent on every row written before #108 step 3. */
-  nature: CategoryNature.optional(),
+  nature: CategoryNature,
   taxonomy: Taxonomy.default("household"),
   /** Stops new rules choosing it. Existing categorisations still resolve. */
   retired: z.boolean().default(false),
@@ -160,43 +149,4 @@ export function resolveCategory(
     seen.add(next);
     current = target;
   }
-}
-
-/** The kind a reference resolves to, for code that may only branch on kind. */
-export function kindOf(
-  id: CategoryId,
-  catalogue: CategoryCatalogue,
-): CategoryKind | undefined {
-  return resolveCategory(id, catalogue).category?.kind;
-}
-
-/**
- * What a category is, for the purpose of totals.
- *
- * The one place `kind` turns into something code branches on — #109's
- * complaint was that no such place existed, so the field said totals depended
- * on it while nothing read it.
- *
- * Stated where the household has stated it, inferred from `kind` otherwise.
- * The inference is not a guess: `movement` is what the picker offers for money
- * that goes somewhere the household still owns, and `asset` is that same claim
- * with a sign attached. What the inference cannot produce is `liability` —
- * `kind` has no way to say "a loan" — which is exactly why `nature` exists as
- * its own field rather than as a rename.
- */
-export function natureOf(category: {
-  kind: CategoryKind;
-  nature?: CategoryNature | undefined;
-}): CategoryNature {
-  if (category.nature !== undefined) return category.nature;
-  if (category.kind === "income") return "income";
-  if (category.kind === "movement") return "asset";
-  return "expense";
-}
-
-/** The `kind` a nature implies, for as long as rows still carry one. */
-export function kindFor(nature: CategoryNature): CategoryKind {
-  if (nature === "income") return "income";
-  if (nature === "expense") return "spending";
-  return "movement";
 }

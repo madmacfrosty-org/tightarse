@@ -14,6 +14,7 @@
  * serves them, and what a client may rely on.
  */
 
+import type { CategoryNature } from "../../categorisation/category.js";
 import type { DateRange } from "../index.js";
 import type { AccountId } from "../../ledger/account.js";
 import type { DescriptionSummary, Recurrence } from "../../categorisation/corpus.js";
@@ -271,7 +272,7 @@ export interface TransactionFilter {
 export interface CategoryChoice {
   readonly id: string;
   readonly label: string;
-  readonly kind: string;
+  readonly nature: CategoryNature;
 }
 
 /** The catalogue, as a picker needs it. */

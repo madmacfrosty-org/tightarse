@@ -28,7 +28,7 @@ const deps = (existing: Row[] = []) => {
 const stored = (id: string, label: string): Row => ({
   id,
   label,
-  kind: "spending",
+  nature: "expense",
   taxonomy: "household",
   retired: false,
 });
@@ -41,7 +41,6 @@ describe("adding a category", () => {
     expect(c).toEqual({
       id: "eating-out",
       label: "Eating Out",
-      kind: "spending",
       nature: "expense",
       taxonomy: "household",
       retired: false,
@@ -61,19 +60,19 @@ describe("adding a category", () => {
   it("files it as spending when nothing says otherwise", async () => {
     // What nearly everything filed from a list of debits is.
     expect(
-      (await createCategory(deps(), "frost", { label: "Something" })).kind,
-    ).toBe("spending");
+      (await createCategory(deps(), "frost", { label: "Something" })).nature,
+    ).toBe("expense");
   });
 
-  it.each(["income", "movement", "spending"] as const)(
+  it.each(["income", "asset", "liability", "expense"] as const)(
     "takes %s, because totals branch on it",
-    async (kind) => {
-      // A transfer into savings filed as spending overstates every spending
-      // figure from then on, invisibly.
+    async (nature) => {
+      // Money into savings filed as spending overstates every spending figure
+      // from then on, invisibly.
       expect(
-        (await createCategory(deps(), "frost", { label: "Something", kind }))
-          .kind,
-      ).toBe(kind);
+        (await createCategory(deps(), "frost", { label: "Something", nature }))
+          .nature,
+      ).toBe(nature);
     },
   );
 
@@ -149,61 +148,19 @@ describe("adding a category", () => {
 });
 
 /**
- * Creating a category with a nature.
+ * `liability` is the value `kind` could never express.
  *
- * `nature` replaces `kind`, and until the backfill has run rows carry both. The
- * property under test is that a category created today stays readable by code
- * that has not caught up: `kind` is derived from the nature, never left out.
+ * Three values and none of them said "owed". That gap is the whole reason the
+ * field was replaced rather than renamed, so it is worth one test of its own.
  *
  * Labels are invented.
  */
-describe("a category created with a nature", () => {
-  it("stores the nature and derives a kind from it", async () => {
-    const d = deps();
-    const made = await createCategory(d, "t1", {
+describe("a category that is a debt", () => {
+  it("can be created, which the old three values could not do", async () => {
+    const made = await createCategory(deps(), "t1", {
       label: "Mortgage",
       nature: "liability",
     });
     expect(made.nature).toBe("liability");
-    expect(made.kind).toBe("movement");
-  });
-
-  it("lets the nature win where both are sent", async () => {
-    const d = deps();
-    const made = await createCategory(d, "t1", {
-      label: "Savings pot",
-      kind: "spending",
-      nature: "asset",
-    });
-    expect(made.nature).toBe("asset");
-    expect(made.kind).toBe("movement");
-  });
-
-  it("derives a nature where only a kind is sent", async () => {
-    const d = deps();
-    const made = await createCategory(d, "t1", {
-      label: "Season ticket",
-      kind: "movement",
-    });
-    expect(made.nature).toBe("asset");
-  });
-
-  it("still defaults to spending when neither is sent", async () => {
-    const d = deps();
-    const made = await createCategory(d, "t1", { label: "Odds and ends" });
-    expect(made.nature).toBe("expense");
-    expect(made.kind).toBe("spending");
-  });
-
-  it("cannot reach liability by inference, which is why nature exists", async () => {
-    // `kind` has three values and none of them says "owed". Only a household
-    // saying so can produce a loan book.
-    for (const kind of ["spending", "income", "movement"] as const) {
-      const made = await createCategory(deps(), "t1", {
-        label: `Thing ${kind}`,
-        kind,
-      });
-      expect(made.nature).not.toBe("liability");
-    }
   });
 });

@@ -46,8 +46,11 @@ export interface CategorisationDeps {
   /** Adding a category, which has to exist before a rule may name it. */
   readonly addCategory: (
     tenantId: string,
-    request: { label: string; kind?: "spending" | "income" | "movement" },
-  ) => Promise<{ id: string; label: string; kind: string }>;
+    request: {
+      label: string;
+      nature?: "asset" | "liability" | "income" | "expense";
+    },
+  ) => Promise<{ id: string; label: string; nature: string }>;
   /**
    * Proposing, which is a write.
    *
@@ -253,7 +256,7 @@ export async function route(deps: CategorisationDeps, event: HttpEvent) {
       const parsed = NewCategoryRequest.safeParse(body);
       if (!parsed.success) throw badRequest(parsed.error.issues);
       const added = await deps
-        .addCategory(tenantId, parsed.data)
+        .addCategory(tenantId, { label: parsed.data.label, nature: parsed.data.nature })
         .catch((e: unknown) => {
           // A taken name is an answer, not a fault. Reported as a conflict with
           // the reason intact, because "internal error" hides the one sentence
@@ -264,7 +267,7 @@ export async function route(deps: CategorisationDeps, event: HttpEvent) {
           throw e;
         });
       // 201: it made something, and the body is where to find it.
-      return json(201, { id: added.id, label: added.label, kind: added.kind });
+      return json(201, { id: added.id, label: added.label, nature: added.nature });
     }
 
     if (path.endsWith("/categorisation/proposals")) {

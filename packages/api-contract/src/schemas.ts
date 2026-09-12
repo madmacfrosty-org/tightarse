@@ -383,11 +383,9 @@ export type AccountsResponse = z.infer<typeof AccountsResponse>;
 export const CategoryChoiceView = z.object({
   id: z.string().describe("Stable. What a rule names and a categorisation stores."),
   label: z.string().describe("What a person reads. Freely changeable, including to match a provider's wording."),
-  kind: z.string().describe("spending, income or movement. Superseded by nature"),
   nature: z
     .enum(["asset", "liability", "income", "expense"])
-    .optional()
-    .describe("What the category is. Absent on rows written before it existed"),
+    .describe("What the category is: asset, liability, income or expense"),
 });
 export type CategoryChoiceView = z.infer<typeof CategoryChoiceView>;
 
@@ -413,27 +411,20 @@ export const PROVIDER_CATEGORIES = [
  * ones were — so a client cannot mint an identifier that rules and
  * categorisations will name for ever.
  *
- * `kind` defaults to spending, which is what nearly everything filed from a
+ * `nature` defaults to expense, which is what nearly everything filed from a
  * list of debits is. It is offered rather than assumed because totals branch on
- * it and nothing else, and a movement filed as spending is wrong invisibly.
+ * it and nothing else, and money that moved filed as spending is wrong
+ * invisibly.
  */
 export const NewCategoryRequest = z.object({
   label: z.string().min(1).describe("What a person reads. The id is derived from it."),
-  kind: z
-    .enum(["spending", "income", "movement"])
-    .default("spending")
-    .describe(
-      "What it does to the household's money. Defaults to spending, which is what nearly everything " +
-        "filed from a list of debits is — but a transfer into savings is a movement, and filed as " +
-        "spending it overstates every spending figure until somebody questions one.",
-    ),
   nature: z
     .enum(["asset", "liability", "income", "expense"])
-    .optional()
+    .default("expense")
     .describe(
-      "What the category is, which replaces `kind`. Wins where both are sent. `liability` is the " +
-        "one it can express and `kind` cannot: a loan is not spending, and its position is what is " +
-        "owed rather than what is held.",
+      "What the category is. Defaults to expense, which is what nearly everything filed from a list " +
+        "of debits is — but money into savings is an asset and money off a loan is a liability, and " +
+        "either filed as spending overstates every spending figure until somebody questions one.",
     ),
 });
 export type NewCategoryRequest = z.infer<typeof NewCategoryRequest>;

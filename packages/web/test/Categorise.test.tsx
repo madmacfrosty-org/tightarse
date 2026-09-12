@@ -333,7 +333,7 @@ describe("hiding what is already categorised", () => {
 
   const searched = async () => {
     apiGet.mockImplementation(async (p: string) =>
-      p.includes("/categories") ? { categories: [{ id: "fuel", label: "Fuel", kind: "spending" }] } : mixed,
+      p.includes("/categories") ? { categories: [{ id: "fuel", label: "Fuel", nature: "expense" }] } : mixed,
     );
     const Categorise = await load();
     render(<Categorise api={api} {...RANGE} />);
@@ -490,7 +490,7 @@ describe("choosing", () => {
 describe("adding a category", () => {
   const withCategories = async () => {
     apiGet.mockImplementation(async (p: string) =>
-      p.includes("/categories") ? { categories: [{ id: "fuel", label: "Fuel", kind: "spending" }] } : { transactions: [tx()] },
+      p.includes("/categories") ? { categories: [{ id: "fuel", label: "Fuel", nature: "expense" }] } : { transactions: [tx()] },
     );
     const Categorise = await load();
     render(<Categorise api={api} {...RANGE} />);
@@ -509,7 +509,7 @@ describe("adding a category", () => {
     // Created first rather than folded into the proposal: a rule naming a
     // category that does not exist is refused, so one invented inside a
     // proposal would be previewed against a catalogue the apply would not use.
-    apiPost.mockResolvedValue({ id: "season-ticket", label: "Season Ticket", kind: "spending" });
+    apiPost.mockResolvedValue({ id: "season-ticket", label: "Season Ticket", nature: "expense" });
     await withCategories();
 
     await userEvent.selectOptions(screen.getByLabelText("Categorise as"), "new category");
@@ -526,7 +526,7 @@ describe("adding a category", () => {
   });
 
   it("puts it in the list, in order, so it can be picked again", async () => {
-    apiPost.mockResolvedValue({ id: "aardvark", label: "Aardvark", kind: "spending" });
+    apiPost.mockResolvedValue({ id: "aardvark", label: "Aardvark", nature: "expense" });
     await withCategories();
 
     await userEvent.selectOptions(screen.getByLabelText("Categorise as"), "new category");
@@ -631,7 +631,7 @@ describe("proposing", () => {
 
   const ready = async () => {
     apiGet.mockImplementation(async (p: string) =>
-      p.includes("/categories") ? { categories: [{ id: "groceries", label: "Groceries", kind: "spending" }] } : two,
+      p.includes("/categories") ? { categories: [{ id: "groceries", label: "Groceries", nature: "expense" }] } : two,
     );
     const Categorise = await load();
     render(<Categorise api={api} {...RANGE} />);
@@ -714,7 +714,7 @@ describe("proposing", () => {
     // the filters had hidden, and the screen would have lied about the button.
     apiPost.mockResolvedValue({ prediction });
     apiGet.mockImplementation(async (p: string) =>
-      p.includes("/categories") ? { categories: [{ id: "bills", label: "Bills", kind: "spending" }] } : two,
+      p.includes("/categories") ? { categories: [{ id: "bills", label: "Bills", nature: "expense" }] } : two,
     );
     const Categorise = await load();
     render(<Categorise api={api} {...RANGE} />);
@@ -792,7 +792,7 @@ describe("proposing", () => {
 
   it("will not propose anything without a category", async () => {
     apiGet.mockImplementation(async (p: string) =>
-      p.includes("/categories") ? { categories: [{ id: "groceries", label: "Groceries", kind: "spending" }] } : two,
+      p.includes("/categories") ? { categories: [{ id: "groceries", label: "Groceries", nature: "expense" }] } : two,
     );
     const Categorise = await load();
     render(<Categorise api={api} {...RANGE} />);
@@ -829,7 +829,7 @@ describe("proposing", () => {
 
   it("reports a refusal from the API instead of a blank panel", async () => {
     apiGet.mockImplementation(async (p: string) =>
-      p.includes("/categories") ? { categories: [{ id: "groceries", label: "Groceries", kind: "spending" }] } : two,
+      p.includes("/categories") ? { categories: [{ id: "groceries", label: "Groceries", nature: "expense" }] } : two,
     );
     apiPost.mockImplementationOnce(async () => {
       throw new Error("sets.0.order: Expected number");

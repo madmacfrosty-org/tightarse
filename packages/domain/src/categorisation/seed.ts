@@ -12,7 +12,7 @@
  */
 
 import { CATEGORIES, type CategoryLabel } from "./taxonomy.js";
-import type { Category, CategoryKind } from "./category.js";
+import type { Category, CategoryNature } from "./category.js";
 
 /**
  * `Eating Out` -> `eating-out`, `Gifts & Charity` -> `gifts-charity`.
@@ -37,9 +37,9 @@ export function slugFor(label: string): string {
  * Only `Income` and `Transfer` are anything other than spending, because those
  * two are unarguable. Two others are genuinely debatable and are left as
  * spending deliberately, since that is what the totals do today and changing a
- * kind changes what the household is told it spent:
+ * nature changes what the household is told it spent:
  *
- *   Savings & Investments  money to your own savings account is a movement;
+ *   Savings & Investments  money to your own savings account is an asset;
  *                          money into an external investment is not, and the
  *                          ledger cannot tell which from the transaction alone.
  *   Cash Withdrawal        the money has left the account but has not been
@@ -47,17 +47,18 @@ export function slugFor(label: string): string {
  *                          on.
  *
  * Both want deciding on purpose rather than by whoever writes the next line of
- * this file.
+ * this file. A loan would now be `liability`; there is none seeded, because the
+ * seed is what a household starts with and a debt is something it acquires.
  */
-const KINDS: Partial<Record<CategoryLabel, CategoryKind>> = {
+const NATURES: Partial<Record<CategoryLabel, CategoryNature>> = {
   Income: "income",
-  Transfer: "movement",
+  Transfer: "asset",
 };
 
 export const SEED_CATEGORIES: readonly Category[] = CATEGORIES.map((label) => ({
   id: slugFor(label),
   label,
-  kind: KINDS[label] ?? "spending",
+  nature: NATURES[label] ?? "expense",
   taxonomy: "household" as const,
   retired: false,
 }));
