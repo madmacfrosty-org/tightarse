@@ -79,12 +79,19 @@ describe("a current account's series", () => {
     ).toEqual([undefined, undefined, 90_00]);
   });
 
-  it("prefers the live balance once it is more recent than the last transaction", () => {
-    // A current account's running balance is only as fresh as its last settled
-    // transaction. On a quiet couple of days the live balance has moved on, and
-    // taking the stale one made the household's series end £56 below the figure
-    // on the account tiles — a small, entirely explainable difference that
-    // still reads as a bug when two panels disagree.
+  it("does not take the live balance as a position, because it is not a leg", () => {
+    // This reverses a deliberate earlier decision, and the reason is #108 step
+    // 2: a position is the running sum of a book's legs. The live balance is an
+    // observation, and mixing one back in is exactly the thing being removed.
+    //
+    // What that earlier decision was protecting is real and is not solved here.
+    // It read: taking the stale figure "made the household's series end £56
+    // below the figure on the account tiles — a small, entirely explainable
+    // difference that still reads as a bug when two panels disagree." The tiles
+    // still show the provider's live balance, so they will disagree again
+    // wherever the ledger and the bank do. Making the tiles derived too is the
+    // other half of this step; until then the disagreement is visible, which is
+    // what step 2 asks for, but it is not yet explained on screen.
     const rows = [m("2026-03-01T00:00:00Z", -10_00, 90_00)];
     const withLive: AccountFacts = {
       ...account,
@@ -93,7 +100,7 @@ describe("a current account's series", () => {
     };
     expect(
       accountSeries(withLive, rows, days("2026-03-01", "2026-03-04")),
-    ).toEqual([90_00, 90_00, 85_00, 85_00]);
+    ).toEqual([90_00, 90_00, 90_00, 90_00]);
   });
 
   it("does not let the live balance leak into a range that ends before it", () => {
@@ -130,7 +137,15 @@ describe("a current account's series", () => {
     expect(asc).toEqual([90_00, 90_00, 70_00, 70_00, 65_00]);
   });
 
-  it("orders the live balance against transactions by date, not by arrival", () => {
+  it("states what the legs say, not what the provider last claimed", () => {
+    // The rows here contradict themselves: 90 after the 1st, then a debit of
+    // 10, then 60 after the 4th. A chain that carried the provider's figures
+    // forward reported both and never noticed; summing legs cannot, because
+    // there is only one answer it can give.
+    //
+    // 80 rather than 60 is the ledger disagreeing with the bank out loud, which
+    // is what #108 step 2 is for. The running-balance check is where that
+    // disagreement gets named and attributed to a transaction.
     const rows = [
       m("2026-03-04T00:00:00Z", -10_00, 60_00),
       m("2026-03-01T00:00:00Z", -10_00, 90_00),
@@ -140,10 +155,9 @@ describe("a current account's series", () => {
       currentBalance: 70_00,
       balanceAsOf: "2026-03-02",
     };
-    // 90 on the 1st, live 70 on the 2nd, then the transaction on the 4th.
     expect(
       accountSeries(withLive, rows, days("2026-03-01", "2026-03-04")),
-    ).toEqual([90_00, 70_00, 70_00, 60_00]);
+    ).toEqual([90_00, 90_00, 90_00, 80_00]);
   });
 
   it("takes the last balance of a day when several land at the same instant", () => {

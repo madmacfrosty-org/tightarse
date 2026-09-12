@@ -38,6 +38,7 @@ import { mergeCategories, summarise, toAccountState } from "./summary.js";
 import type { RecordedTransaction } from "../ledger/transaction.js";
 import {
   daysBetween,
+  derivedPosition,
   netPositionSeries,
   type AccountFacts,
   type Movement,
@@ -301,11 +302,23 @@ export async function accounts(
   ]);
   const coverage = coverageFor(rows, all);
   const complete = completeFrom([...coverage.values()]);
+  const movements = toMovements(all);
+  const byAccount = new Map<string, Movement[]>();
+  for (const m of movements)
+    byAccount.set(m.accountId, [...(byAccount.get(m.accountId) ?? []), m]);
   return {
     accounts: rows.map((row) => {
       const c = coverage.get(String(row["accountId"]));
+      const facts = toAccountFacts(row);
+      // The ledger's own answer, next to the provider's. #108 step 2: a
+      // position is what a book's legs add up to.
+      const derived = derivedPosition(
+        facts,
+        byAccount.get(facts.accountId) ?? [],
+      );
       return {
         ...toAccountState(row),
+        ...(derived === undefined ? {} : { derivedBalance: derived }),
         ...(c?.historyFrom !== undefined ? { historyFrom: c.historyFrom } : {}),
         ...(c?.historyComplete !== undefined
           ? { historyComplete: c.historyComplete }

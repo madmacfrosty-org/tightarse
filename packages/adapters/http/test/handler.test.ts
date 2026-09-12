@@ -438,8 +438,16 @@ describe("balance over time", () => {
   });
 
   it("subtracts card debt, so the last point matches the account tiles", async () => {
-    // £900 cash less £100 owed. The same figure the net-position tile shows,
-    // because a chart disagreeing with the headline number reads as a bug.
+    // £500 cash less £100 owed. The tiles now read the same derived figure, so
+    // the two still agree — a chart disagreeing with the headline number reads
+    // as a bug whichever of them is right.
+    //
+    // £500 rather than £900 because this fixture's account states a balance of
+    // £900 while holding one transaction of £500. Under #108 step 2 a position
+    // is what the legs add up to, so that £400 gap is now on the chart instead
+    // of being papered over by preferring the bank's figure. The sign is what
+    // this test guards and it still does: adding the card instead of
+    // subtracting it would read £600.
     const res = await route(
       deps,
       event({
@@ -448,7 +456,7 @@ describe("balance over time", () => {
       }),
     );
     const body = JSON.parse(res.body);
-    expect(body.points[body.points.length - 1].net).toBe(800_00);
+    expect(body.points[body.points.length - 1].net).toBe(400_00);
   });
 
   it("clamps the range and says where it actually starts", async () => {

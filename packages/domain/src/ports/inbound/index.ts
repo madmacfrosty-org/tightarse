@@ -117,6 +117,17 @@ export interface AccountState {
   readonly accountType?: string | undefined;
   /** Absent when never fetched, which is not the same as zero. */
   readonly currentBalance?: number | undefined;
+  /**
+   * What this account's own transactions add up to — the ledger's answer rather
+   * than the provider's.
+   *
+   * Same convention and same units as `currentBalance`, so the two are directly
+   * comparable: where they differ, the ledger and the bank differ. A separate
+   * field rather than a redefinition of `currentBalance`, because a consumer
+   * reading "the bank's live figure" must not silently start receiving
+   * something else. Absent when the account has nothing to derive from.
+   */
+  readonly derivedBalance?: number | undefined;
   readonly availableBalance?: number | undefined;
   readonly lastSyncedAt?: string | undefined;
   /** Earliest date this account has any data for. */
