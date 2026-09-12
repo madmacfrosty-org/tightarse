@@ -933,6 +933,44 @@ describe("books", () => {
     expect(r.householdPosition).toBe(0);
   });
 
+  it("keeps a book out of what the household is worth when it is told to", async () => {
+    // Transfer is the case. Its nature is asset — it is not spending — but
+    // where the money went is the one thing a transfer does not say, so
+    // counting it as held double-counts anything that landed in an account we
+    // already read.
+    const r = await books(
+      ledgerWith({
+        listAccounts: async () => [{ accountId: "cur", isCard: false }],
+        listCategories: async () => [
+          { ...cat("transfer", "asset"), rollsUp: false },
+        ],
+        listRange: async () => ({
+          transactions: [
+            txn({ dedupKey: "d1", accountId: "cur", amount: -500_00, runningBalance: 500_00 }),
+          ],
+          categorisations: [
+            { dedupKey: "d1", category: "transfer", setId: "household", appliedAt: "2026-03-01T00:00:00Z" },
+          ],
+        }),
+      }) as never,
+      "frost",
+    );
+    expect(by(r, "transfer").position).toBe(500_00);
+    expect(by(r, "transfer").rollsUp).toBe(false);
+    // The money left the account and is not claimed as held elsewhere.
+    expect(r.householdPosition).toBe(500_00);
+  });
+
+  it("still takes the nature's word where nothing was said", async () => {
+    const r = await books(
+      ledgerWith({
+        listCategories: async () => [cat("savings-elsewhere", "asset")],
+      }) as never,
+      "frost",
+    );
+    expect(by(r, "savings-elsewhere").rollsUp).toBe(true);
+  });
+
   it("leaves a retired category out, because nothing can be filed there now", async () => {
     const r = await books(
       ledgerWith({

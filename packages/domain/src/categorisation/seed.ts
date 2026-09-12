@@ -55,10 +55,21 @@ const NATURES: Partial<Record<CategoryLabel, CategoryNature>> = {
   Transfer: "asset",
 };
 
+/**
+ * Books whose position is not part of what the household is worth.
+ *
+ * Transfer is not spending — its nature is `asset` — but where the money went
+ * is exactly what a transfer does not say. It may be another account we hold,
+ * one we hold and do not fetch, or somebody else. Counting it double-counts the
+ * first and invents the last.
+ */
+const NOT_WORTH: Partial<Record<CategoryLabel, boolean>> = { Transfer: false };
+
 export const SEED_CATEGORIES: readonly Category[] = CATEGORIES.map((label) => ({
   id: slugFor(label),
   label,
   nature: NATURES[label] ?? "expense",
+  ...(NOT_WORTH[label] === undefined ? {} : { rollsUp: NOT_WORTH[label] }),
   taxonomy: "household" as const,
   retired: false,
 }));

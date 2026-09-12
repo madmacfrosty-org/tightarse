@@ -384,7 +384,9 @@ export async function books(
       book: c.id,
       label: c.label,
       nature: c.nature,
-      rollsUp: isBalanceSheet(c.nature),
+      // Stated where the household has stated it; otherwise what the nature
+      // implies. See `Category.rollsUp`.
+      rollsUp: c.rollsUp ?? isBalanceSheet(c.nature),
       position: (c.openingPosition ?? 0) + (byBook.get(c.id) ?? 0),
     }));
 

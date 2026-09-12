@@ -320,3 +320,16 @@ describe("seeding the rules in service today", () => {
     ).toBe(true);
   });
 });
+
+describe("books the seed keeps out of what the household is worth", () => {
+  it("does not count Transfer as held, because it does not say where it went", () => {
+    const transfer = SEED_CATEGORIES.find((c) => c.id === "transfer")!;
+    expect(transfer.nature).toBe("asset");
+    expect(transfer.rollsUp).toBe(false);
+  });
+
+  it("says nothing about the rest, so the nature decides", () => {
+    const others = SEED_CATEGORIES.filter((c) => c.id !== "transfer");
+    expect(others.every((c) => c.rollsUp === undefined)).toBe(true);
+  });
+});
