@@ -451,8 +451,10 @@ describe("the category catalogue", () => {
       "frost",
     );
 
+    // `nature` travels alongside `kind` until the backfill has run and `kind`
+    // goes. Derived here, because this row predates the field.
     expect(r.categories).toEqual([
-      { id: "fuel", label: "Fuel", kind: "spending" },
+      { id: "fuel", label: "Fuel", kind: "spending", nature: "expense" },
     ]);
   });
 

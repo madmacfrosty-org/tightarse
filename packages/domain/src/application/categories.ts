@@ -11,7 +11,13 @@
  * truth, in one order: the category exists, then rules may name it.
  */
 
-import { Category, type CategoryKind } from "../categorisation/category.js";
+import {
+  Category,
+  kindFor,
+  natureOf,
+  type CategoryKind,
+  type CategoryNature,
+} from "../categorisation/category.js";
 import { slugFor } from "../categorisation/seed.js";
 import type { Categories, Row } from "../ports/outbound/index.js";
 
@@ -48,6 +54,14 @@ export interface NewCategory {
    * one. Totals branch on this and nothing else, so it is worth a control.
    */
   readonly kind?: CategoryKind | undefined;
+  /**
+   * What the category is. Preferred over `kind`, which it replaces.
+   *
+   * Both are written while rows still carry a `kind`: `kindFor` derives one, so
+   * a category created today is readable by code that has not caught up yet.
+   * When the backfill has run and `kind` goes, so does that.
+   */
+  readonly nature?: CategoryNature | undefined;
 }
 
 /**
@@ -77,10 +91,15 @@ export async function createCategory(
   // Named, so the answer is "use that one" rather than "try again".
   if (clash) throw new CategoryExists(clash);
 
+  // `nature` wins where both are given; `kind` is derived from it so nothing
+  // reading the old field breaks while rows still carry one.
+  const nature: CategoryNature =
+    request.nature ?? natureOf({ kind: request.kind ?? "spending" });
   const category: Category = {
     id,
     label,
-    kind: request.kind ?? "spending",
+    kind: kindFor(nature),
+    nature,
     taxonomy: "household",
     retired: false,
   };

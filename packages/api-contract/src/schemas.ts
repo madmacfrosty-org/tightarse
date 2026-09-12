@@ -383,7 +383,11 @@ export type AccountsResponse = z.infer<typeof AccountsResponse>;
 export const CategoryChoiceView = z.object({
   id: z.string().describe("Stable. What a rule names and a categorisation stores."),
   label: z.string().describe("What a person reads. Freely changeable, including to match a provider's wording."),
-  kind: z.string().describe("spending, income or movement"),
+  kind: z.string().describe("spending, income or movement. Superseded by nature"),
+  nature: z
+    .enum(["asset", "liability", "income", "expense"])
+    .optional()
+    .describe("What the category is. Absent on rows written before it existed"),
 });
 export type CategoryChoiceView = z.infer<typeof CategoryChoiceView>;
 
@@ -422,6 +426,14 @@ export const NewCategoryRequest = z.object({
       "What it does to the household's money. Defaults to spending, which is what nearly everything " +
         "filed from a list of debits is — but a transfer into savings is a movement, and filed as " +
         "spending it overstates every spending figure until somebody questions one.",
+    ),
+  nature: z
+    .enum(["asset", "liability", "income", "expense"])
+    .optional()
+    .describe(
+      "What the category is, which replaces `kind`. Wins where both are sent. `liability` is the " +
+        "one it can express and `kind` cannot: a loan is not spending, and its position is what is " +
+        "owed rather than what is held.",
     ),
 });
 export type NewCategoryRequest = z.infer<typeof NewCategoryRequest>;
