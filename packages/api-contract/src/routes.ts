@@ -121,7 +121,18 @@ export const ROUTES: readonly Route[] = [
     summary: "Totals for a date range",
     description:
       "Spending and income over the range, split by category and by month, with internal transfers netted out.",
-    query: range,
+    query: [
+      ...range,
+      {
+        name: "asAt",
+        required: false,
+        schema: z.string(),
+        description:
+          "Answer as the ledger stood at this instant, rather than as it stands now. " +
+          "A categorisation recorded after it is not yet known, so 'what did March say in April' " +
+          "is answerable. Omit for now, which is what every figure has always meant.",
+      },
+    ],
     // Named `Summary`, not `SummaryResponse`: the response *is* a Summary, and
     // a second name for the same shape would put two identical components in
     // the document for a client generator to turn into two structs.

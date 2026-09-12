@@ -1487,6 +1487,15 @@
               "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
               "description": "Date as YYYY-MM-DD"
             }
+          },
+          {
+            "name": "asAt",
+            "in": "query",
+            "required": false,
+            "description": "Answer as the ledger stood at this instant, rather than as it stands now. A categorisation recorded after it is not yet known, so 'what did March say in April' is answerable. Omit for now, which is what every figure has always meant.",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {

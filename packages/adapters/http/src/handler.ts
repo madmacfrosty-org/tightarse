@@ -182,11 +182,23 @@ export async function route(deps: ApiDeps, event: HttpEvent) {
 
     // Each result goes through `wire.ts`, which is where the domain answer meets
     // the promise made to installed clients.
-    if (path.endsWith("/summary"))
+    if (path.endsWith("/summary")) {
+      // Passed through rather than parsed into an instant here: the domain
+      // compares it against `appliedAt`, which is stored as the provider's own
+      // string, and turning it into a Date and back would introduce a format
+      // the ledger does not use.
+      const asAt = event.queryStringParameters?.["asAt"];
       return json(
         200,
-        asSummary(await deps.reporting.summary(tenantId, range)),
+        asSummary(
+          await deps.reporting.summary(
+            tenantId,
+            range,
+            asAt === undefined ? {} : { asAt },
+          ),
+        ),
       );
+    }
     if (path.endsWith("/transactions"))
       return json(
         200,

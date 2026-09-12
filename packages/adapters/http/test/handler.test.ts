@@ -33,6 +33,7 @@ const deps: ApiDeps = {
       listRange,
       listAccounts,
       listRuleSets,
+      listCategorisationHistory: vi.fn(async () => []),
       getAdoptions: vi.fn(async () => []),
       listCategories,
     },
@@ -886,5 +887,75 @@ describe("narrowing the list", () => {
     );
 
     expect(seen).toEqual([undefined]);
+  });
+});
+
+/**
+ * #108 step 4 on the wire.
+ *
+ * The parameter is passed through rather than parsed: the domain compares it
+ * against a stored `appliedAt`, and turning it into a Date and back would
+ * introduce a format the ledger does not use.
+ */
+describe("asking what the summary said at a past moment", () => {
+  const emptySummary = {
+    currency: "GBP",
+    from: "2026-03-01",
+    to: "2026-03-31",
+    transactionCount: 0,
+    income: 0,
+    spend: 0,
+    net: 0,
+    byCategory: [],
+    byMonth: [],
+    internalTransfersNetted: true,
+    transferCount: 0,
+    transferTotal: 0,
+    balanceSheetCount: 0,
+    balanceSheetTotal: 0,
+    enrichedCount: 0,
+  };
+
+  const capturing = (seen: unknown[]): ApiDeps => ({
+    reporting: {
+      summary: async (_t, _r, opts) => {
+        seen.push(opts);
+        return emptySummary;
+      },
+      transactions: async (_t, range) => ({ range, transactions: [] }),
+      categories: async () => ({ categories: [] }),
+      accounts: async () => ({ accounts: [] }),
+      balances: async (_t, range) => ({ range, points: [] }),
+      runningBalanceCheck: async () => ({
+        verdict: "insufficient" as const,
+        accounts: [],
+      }),
+      books: async () => ({ books: [], householdPosition: 0 }),
+    },
+  });
+
+  const ask = async (query: Record<string, string>) => {
+    const seen: unknown[] = [];
+    await route(
+      capturing(seen),
+      event({ rawPath: "/v1/summary", queryStringParameters: query }),
+    );
+    return seen;
+  };
+
+  it("passes the instant through to the use case", async () => {
+    expect(
+      await ask({
+        from: "2026-03-01",
+        to: "2026-03-31",
+        asAt: "2026-04-01T00:00:00Z",
+      }),
+    ).toEqual([{ asAt: "2026-04-01T00:00:00Z" }]);
+  });
+
+  it("says nothing about an instant when none was asked for", async () => {
+    // Absent must not become a string: "now" is the absence of the option, and
+    // sending an empty one would make every caller look like it asked.
+    expect(await ask({ from: "2026-03-01", to: "2026-03-31" })).toEqual([{}]);
   });
 });
