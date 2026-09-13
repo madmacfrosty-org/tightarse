@@ -30,6 +30,8 @@ const listRuleSets = vi.fn(async (): Promise<Record<string, unknown>[]> => []);
 const listCategorisationHistory = vi.fn(
   async (): Promise<Record<string, unknown>[]> => [],
 );
+const listConsents = vi.fn(async (): Promise<Record<string, unknown>[]> => []);
+const getSettings = vi.fn(async (): Promise<null> => null);
 const listCategories = vi.fn(
   async (): Promise<Record<string, unknown>[]> => [],
 );
@@ -47,6 +49,8 @@ const deps = {
     getAdoptions,
     listCategories,
     listCategorisationHistory,
+    listConsents,
+    getSettings,
   } satisfies LedgerReads,
   // Separate: reading another tenant's set is its own capability.
   shared: { getRuleSetVersion } satisfies SharedRuleSets,
@@ -805,6 +809,100 @@ describe("what running_balance means, judged from the ledger", () => {
  *
  * Every figure and label is invented.
  */
+/**
+ * Consent, on the way to a screen.
+ *
+ * The dashboard reads this with the accounts, so a warning arrives with the
+ * page rather than after it. The verdict comes from dates; the provider's own
+ * status is carried and decides nothing.
+ *
+ * Every name and date here is invented.
+ */
+describe("consents alongside the accounts", () => {
+  const consentRow = (over: Record<string, unknown> = {}) => ({
+    tenantId: "frost",
+    consentId: "cred-1",
+    provider: "truelayer",
+    institutionName: "Some Bank",
+    grantedAt: "2026-08-11T09:00:00Z",
+    expiresAt: "2099-01-01T00:00:00Z",
+    providerStatus: "Authorised",
+    fetchedAt: new Date().toISOString(),
+    ...over,
+  });
+
+  beforeEach(() => {
+    listRange.mockResolvedValue({ transactions: [], categorisations: [] });
+    listAccounts.mockResolvedValue([]);
+    listCategories.mockResolvedValue([]);
+    getSettings.mockResolvedValue(null);
+  });
+
+  it("judges each one and names the bank", async () => {
+    listConsents.mockResolvedValue([consentRow()]);
+    const r = await accounts(deps, "frost");
+    expect(r.consents).toEqual([
+      expect.objectContaining({
+        consentId: "cred-1",
+        institutionName: "Some Bank",
+        providerStatus: "Authorised",
+        health: "ok",
+      }),
+    ]);
+  });
+
+  it("puts the one that needs doing something about first", async () => {
+    listConsents.mockResolvedValue([
+      consentRow({ consentId: "far", expiresAt: "2099-01-01T00:00:00Z" }),
+      consentRow({ consentId: "near", expiresAt: "2026-09-20T00:00:00Z" }),
+    ]);
+    const r = await accounts(deps, "frost");
+    expect(r.consents.map((c) => c.consentId)).toEqual(["near", "far"]);
+  });
+
+  it("takes the thresholds from settings where a household has said", async () => {
+    // A hundred days out: quiet under the default thirty, and a warning once
+    // the household says it wants four months' notice.
+    const inDays = (n: number) =>
+      new Date(Date.now() + n * 864e5).toISOString();
+    listConsents.mockResolvedValue([consentRow({ expiresAt: inDays(100) })]);
+
+    getSettings.mockResolvedValue(null);
+    expect((await accounts(deps, "frost")).consents[0]!.health).toBe("ok");
+
+    getSettings.mockResolvedValue({
+      consentWarnDays: 120,
+      consentEscalateDays: 10,
+    } as never);
+    expect((await accounts(deps, "frost")).consents[0]!.health).toBe("warn");
+  });
+
+  it("falls back to thirty and ten when nothing has been said", async () => {
+    // Nothing can write settings yet — see #151. The read path is already
+    // correct, so the day a screen exists nothing here has to move.
+    getSettings.mockResolvedValue(null);
+    listConsents.mockResolvedValue([consentRow()]);
+    expect((await accounts(deps, "frost")).consents[0]!.health).toBe("ok");
+  });
+
+  it("says nothing rather than something wrong about a row it cannot read", async () => {
+    listConsents.mockResolvedValue([{ nonsense: true }, consentRow()]);
+    const r = await accounts(deps, "frost");
+    expect(r.consents).toHaveLength(1);
+  });
+
+  it("leaves out a bank name the provider did not give, rather than sending null", async () => {
+    listConsents.mockResolvedValue([consentRow({ institutionName: undefined })]);
+    const r = await accounts(deps, "frost");
+    expect(r.consents[0]).not.toHaveProperty("institutionName");
+  });
+
+  it("has nothing to report before a sync has written one", async () => {
+    listConsents.mockResolvedValue([]);
+    expect((await accounts(deps, "frost")).consents).toEqual([]);
+  });
+});
+
 describe("books", () => {
   const ledgerWith = (over: Record<string, unknown>) => ({
     ledger: {

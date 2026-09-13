@@ -451,12 +451,60 @@ describe("the accounts on the wire", () => {
 
   it("carries every field across, and no others", () => {
     expect(
-      asAccounts({ accounts: [state], completeFrom: "2021-01-01" } as never),
-    ).toEqual({ completeFrom: "2021-01-01", accounts: [state] });
+      asAccounts({
+        accounts: [state],
+        completeFrom: "2021-01-01",
+        consents: [],
+      } as never),
+    ).toEqual({ completeFrom: "2021-01-01", accounts: [state], consents: [] });
+  });
+
+  it("carries a consent across, and drops what the contract never promised", () => {
+    // The copying inside `consents` is only exercised by a non-empty list, and
+    // the routing stub sends an empty one — the same gap that let
+    // `asRunningBalance` and `asBooks` ship untested.
+    const out = asAccounts({
+      accounts: [state],
+      consents: [
+        {
+          consentId: "cred-1",
+          institutionName: "Some Bank",
+          expiresAt: "2026-11-09T00:00:00Z",
+          providerStatus: "Authorised",
+          daysRemaining: 56,
+          health: "ok",
+          grantedAt: "leaked",
+        },
+      ],
+    } as never);
+    expect(out.consents[0]).toEqual({
+      consentId: "cred-1",
+      institutionName: "Some Bank",
+      expiresAt: "2026-11-09T00:00:00Z",
+      providerStatus: "Authorised",
+      daysRemaining: 56,
+      health: "ok",
+    });
+  });
+
+  it("omits a bank name the provider never gave", () => {
+    const out = asAccounts({
+      accounts: [state],
+      consents: [
+        {
+          consentId: "cred-1",
+          expiresAt: "2026-11-09T00:00:00Z",
+          providerStatus: "Authorised",
+          daysRemaining: 56,
+          health: "ok",
+        },
+      ],
+    } as never);
+    expect(out.consents[0]).not.toHaveProperty("institutionName");
   });
 
   it("carries both balances, because they answer different questions", () => {
-    const out = asAccounts({ accounts: [state] } as never).accounts[0]!;
+    const out = asAccounts({ accounts: [state], consents: [] } as never).accounts[0]!;
     expect(out.currentBalance).toBe(900_00);
     expect(out.derivedBalance).toBe(500_00);
   });
@@ -464,6 +512,7 @@ describe("the accounts on the wire", () => {
   it("drops a field the domain grew that the contract never promised", () => {
     const grown = {
       accounts: [{ ...state, tenantId: "leaked", providerAccountId: "leaked" }],
+      consents: [],
     } as never;
     const out = asAccounts(grown).accounts[0]!;
     expect(out).not.toHaveProperty("tenantId");
@@ -471,13 +520,16 @@ describe("the accounts on the wire", () => {
   });
 
   it("omits what the row does not have, rather than sending null", () => {
-    const out = asAccounts({ accounts: [{ accountId: "bare" }] } as never);
+    const out = asAccounts({
+      accounts: [{ accountId: "bare" }],
+      consents: [],
+    } as never);
     expect(out.accounts[0]).toEqual({ accountId: "bare" });
     expect(out).not.toHaveProperty("completeFrom");
   });
 
   it("copies rather than serving the domain's own array", () => {
-    const result = { accounts: [state] } as never;
+    const result = { accounts: [state], consents: [] } as never;
     expect(asAccounts(result).accounts).not.toBe(
       (result as { accounts: unknown[] }).accounts,
     );
