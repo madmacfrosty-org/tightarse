@@ -1,4 +1,8 @@
-import { pathFor } from "@tightarse/api-contract";
+import {
+  ConnectCallbackResponse,
+  ConnectStartResponse,
+  pathFor,
+} from "@tightarse/api-contract";
 import { useEffect, useState } from "react";
 import type { Api } from "./ports";
 
@@ -26,7 +30,11 @@ export function ConnectBank({ api }: { api: Api }) {
   const start = (provider: string) => {
     setBusy(provider);
     setError(null);
-    api.get<{ url: string }>(`${pathFor("/connect/start")}?provider=${encodeURIComponent(provider)}`)
+    api
+      .get(
+        ConnectStartResponse,
+        `${pathFor("/connect/start")}?provider=${encodeURIComponent(provider)}`,
+      )
       .then(({ url }) => window.location.assign(url))
       .catch((e: unknown) => {
         setError(e instanceof Error ? e.message : "Could not start");
@@ -87,9 +95,11 @@ export function Connected({ api, onFinished }: { api: Api; onFinished: () => voi
     // a provider rejection that looks like a real failure.
     window.history.replaceState({}, "", window.location.pathname);
 
-    api.get<{ connectionId: string; consentExpiresAt: string }>(
-      `${pathFor("/connect/callback")}?code=${encodeURIComponent(code)}`,
-    )
+    api
+      .get(
+        ConnectCallbackResponse,
+        `${pathFor("/connect/callback")}?code=${encodeURIComponent(code)}`,
+      )
       .then((r) => setState({ phase: "done", expires: r.consentExpiresAt.slice(0, 10) }))
       .catch((e: unknown) =>
         setState({ phase: "failed", message: e instanceof Error ? e.message : "Exchange failed" }),

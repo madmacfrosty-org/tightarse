@@ -1,4 +1,5 @@
 import { pathFor } from "@tightarse/api-contract";
+import type { Parses } from "../src/ports";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -19,8 +20,13 @@ import userEvent from "@testing-library/user-event";
 
 const apiGet = vi.fn();
 const api = {
-  get: <T,>(p: string) => apiGet(p) as Promise<T>,
-  post: <T,>(p: string, b: unknown) => Promise.resolve(b as T),
+  // Parses, exactly as the real adapter does (#41). A fixture that does not
+  // match the contract fails here rather than proving the component works
+  // against a shape the API never sends.
+  get: <T,>(schema: Parses<T>, p: string) =>
+    apiGet(p).then((body: unknown) => schema.parse(body)),
+  post: <T,>(schema: Parses<T>, _p: string, b: unknown) =>
+    Promise.resolve(schema.parse(b)),
 };
 
 const load = async () => (await import("../src/Diagnostics")).Diagnostics;

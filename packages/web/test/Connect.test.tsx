@@ -1,4 +1,5 @@
 import { pathFor } from "@tightarse/api-contract";
+import type { Parses } from "../src/ports";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -7,8 +8,13 @@ const apiGet = vi.fn();
 // Supplied as an object, not a replaced module.
 const apiPost = vi.fn();
 const api = {
-  get: <T,>(p: string) => apiGet(p) as Promise<T>,
-  post: <T,>(p: string, b: unknown) => apiPost(p, b) as Promise<T>,
+  // Parses, exactly as the real adapter does (#41). A fixture that does not
+  // match the contract fails here rather than proving the component works
+  // against a shape the API never sends.
+  get: <T,>(schema: Parses<T>, p: string) =>
+    apiGet(p).then((body: unknown) => schema.parse(body)),
+  post: <T,>(schema: Parses<T>, p: string, b: unknown) =>
+    apiPost(p, b).then((body: unknown) => schema.parse(body)),
 };
 
 const assign = vi.fn();
@@ -35,7 +41,10 @@ describe("ConnectBank", () => {
   });
 
   it("sends the browser to the consent URL the API returns", async () => {
-    apiGet.mockResolvedValue({ url: "https://auth.truelayer.com/?providers=ob-amex" });
+    apiGet.mockResolvedValue({
+      url: "https://auth.truelayer.com/?providers=ob-amex",
+      state: "t1:abc",
+    });
     const { ConnectBank } = await import("../src/Connect");
     render(<ConnectBank api={api} />);
     await userEvent.click(screen.getByRole("button", { name: "American Express" }));

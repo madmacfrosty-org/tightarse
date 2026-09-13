@@ -847,3 +847,37 @@ export const ProposalResponse = z.object({
   applied: AppliedView.optional().describe("What recategorising did, absent unless it was asked for"),
 });
 export type ProposalResponse = z.infer<typeof ProposalResponse>;
+
+// ------------------------------------------------------------------- connect
+
+/**
+ * Where to send the browser to give consent.
+ *
+ * `state` carries the tenant, so the callback knows whose connection this is
+ * without trusting anything the browser sends back. The dashboard only reads
+ * `url`, but the field is declared because the response has it and a contract
+ * that omits what is on the wire is a contract nobody can check against.
+ */
+export const ConnectStartResponse = z.object({
+  url: z.string().min(1).describe("The provider's consent URL, already built"),
+  state: z
+    .string()
+    .min(1)
+    .describe("Opaque. Carries the tenant through the provider and back."),
+});
+export type ConnectStartResponse = z.infer<typeof ConnectStartResponse>;
+
+/**
+ * What a completed authorisation leaves behind.
+ *
+ * The first sync has already been started by the time this is returned — the
+ * deep-history window shuts within the hour, so it does not wait for the
+ * browser. See `connect.ts`.
+ */
+export const ConnectCallbackResponse = z.object({
+  connectionId: z.string().min(1),
+  consentExpiresAt: z
+    .string()
+    .describe("ISO-8601. Roughly 90 days out, and the reason #69 exists."),
+});
+export type ConnectCallbackResponse = z.infer<typeof ConnectCallbackResponse>;
