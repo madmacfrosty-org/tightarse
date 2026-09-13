@@ -1,7 +1,12 @@
-import type { RecordedTransaction } from "../ledger/transaction.js";
+import type { RecordedTransaction } from "./transaction.js";
 
 /**
  * Internal transfer detection.
+ *
+ * In `ledger/` because a pairing is an observation about the transactions
+ * themselves — this debit is that credit — in the same family as a running
+ * balance or a dedup key. It was filed under `reporting/` by its first consumer
+ * rather than by what it is, which is #74.
  *
  * Money moved between the household's own accounts is not spending, but in a
  * single aggregated ledger it appears as a debit in one account and a credit in
@@ -66,11 +71,21 @@ export interface TransferOptions {
 
 const DAY_MS = 86_400_000;
 
+/**
+ * How far apart two legs may be, by default.
+ *
+ * Exported because a scoped read has to know it: pairing needs both legs in
+ * view, so a range must be widened by at least this much at each end before
+ * detection runs, or a pair straddling a boundary loses one leg and the one
+ * left behind counts as spending. See `summarise`.
+ */
+export const DEFAULT_WINDOW_DAYS = 3;
+
 export function detectTransfers(
   rows: readonly RecordedTransaction[],
   opts: TransferOptions = {},
 ): TransferDetection {
-  const windowDays = opts.windowDays ?? 3;
+  const windowDays = opts.windowDays ?? DEFAULT_WINDOW_DAYS;
 
   // Group by absolute amount: a transfer's two legs are equal and opposite, so
   // only rows sharing a magnitude can ever pair.

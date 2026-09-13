@@ -55,7 +55,7 @@ export function minorUnitExponent(currency: string): number {
  * a factor of a hundred or ten respectively.
  *
  * Sign is preserved and is authoritative — TrueLayer signs debits negative and
- * credits positive, consistently across the 9,707 transactions measured.
+ * credits positive, consistently across every transaction measured.
  */
 export function toMinorUnits(majorUnits: number, currency: string): number {
   if (!Number.isFinite(majorUnits)) {

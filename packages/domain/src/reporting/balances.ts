@@ -9,7 +9,7 @@
  *   the provider's own running total and it is authoritative, so a day's
  *   balance is simply the last one on or before that day.
  * - **Cards** carry none at all — measured at 0 of 2,287 across every card in
- *   the household, against 9,498 of 9,498 on the current accounts. Their
+ *   the household, against every settled current-account row. Their
  *   history has to be walked backwards from the balance we hold today, taking
  *   off everything that happened since.
  *

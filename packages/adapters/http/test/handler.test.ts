@@ -114,9 +114,12 @@ describe("the range a request may ask for", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-10T09:00:00Z"));
     await route(deps, event() as never);
+    // The rolling year, widened by the three-day transfer pairing window at
+    // each end — a pair straddling a boundary otherwise loses a leg and the one
+    // left inside counts as spending. Still a year and six days, not five years.
     expect(listRange).toHaveBeenCalledWith("frost", {
-      from: "2025-03-10",
-      to: "2026-03-10",
+      from: "2025-03-07",
+      to: "2026-03-13",
     });
     vi.useRealTimers();
   });

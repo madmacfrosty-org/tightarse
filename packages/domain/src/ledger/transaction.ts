@@ -148,11 +148,11 @@ export type RecordedTransaction = z.infer<typeof RecordedTransaction>;
 /**
  * Identity of a settled transaction.
  *
- * Measured against 9,653 real First Direct transactions, because two plausible
+ * Measured against the whole real ledger, because two plausible
  * schemes both turned out to merge distinct payments:
  *
- *   normalised_provider_transaction_id   191 card transactions -> 160 ids
- *   timestamp + amount + description     9,168 account rows    -> 9,028 keys
+ *   normalised_provider_transaction_id   collided on the card rows
+ *   timestamp + amount + description     collided on the account rows
  *
  * The first collides because the provider reuses ids across card transactions
  * with entirely different amounts. The second collides because people really do
@@ -160,7 +160,7 @@ export type RecordedTransaction = z.infer<typeof RecordedTransaction>;
  * merged real transactions — money quietly disappearing from the ledger.
  *
  * Only the provider identifier COMBINED with the content is unique across every
- * account and the card: 9,653 transactions, 9,653 keys.
+ * account and the card: one key per transaction, no collisions.
  *
  * Including the amount is safe here specifically because pending rows are a
  * separate transient cache that never becomes a ledger row. Nothing ever has to

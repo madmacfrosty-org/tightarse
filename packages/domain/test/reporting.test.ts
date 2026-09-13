@@ -127,12 +127,17 @@ describe("which sets a report uses", () => {
   });
 });
 
-describe("summary and transactions read only the range asked for", () => {
-  it("passes the requested range straight through", async () => {
+describe("summary and transactions read close to the range asked for", () => {
+  it("widens by the pairing window at each end, and by no more", async () => {
+    // Not the range exactly, and deliberately. Transfer pairing needs both legs
+    // and a pair straddling a boundary loses one to the cut — the leg left
+    // inside finds no partner and counts as spending. Three days at each end is
+    // the detection window; anything wider would be reading the ledger to
+    // answer a question about a month.
     await summary(deps, "frost", { from: "2026-01-01", to: "2026-02-01" });
     expect(listRange).toHaveBeenCalledWith("frost", {
-      from: "2026-01-01",
-      to: "2026-02-01",
+      from: "2025-12-29",
+      to: "2026-02-04",
     });
   });
 
