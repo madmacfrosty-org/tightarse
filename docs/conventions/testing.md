@@ -293,3 +293,16 @@ supposed to mean.
 `dynamodb` was the other package named in #55. It is not changed here, because
 its guard refuses to run without `LEDGER_TEST_TABLE` and a gate that cannot be
 measured should not be adjusted from a guess.
+
+**A config change does not invalidate the incremental cache.** The budget above
+landed, CI restored the report from before it, and reported 263 timeouts and a
+score 1.8 points higher than the same commit scores cold — the gate passing on
+results produced under the old budget. Stryker reuses a verdict per mutant and
+has no reason to think the rules changed underneath it.
+
+The cache key carries a generation for that reason. Bump it whenever a change
+should make Stryker reach a different verdict on a mutant it has already judged:
+a timeout budget, a test runner setting, anything that changes what "detected"
+means. One cold run costs about eight minutes. A stale one costs the meaning of
+the number, and costs it silently, which is the same failure the save-only-on-
+green rule above exists to prevent.
