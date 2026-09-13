@@ -499,6 +499,15 @@ export interface LedgerWrites {
     },
   ): Promise<void>;
   putBalanceReading(reading: BalanceReading): Promise<void>;
+  /**
+   * What the provider says about a connection's consent.
+   *
+   * Written from the transform, like everything else on this port, so nothing
+   * holding a refresh token has to grow a ledger dependency in order to record
+   * a date. `Household` declares the same operation for the control plane; this
+   * is the ingest path reaching the same row.
+   */
+  putConsent(consent: Consent): Promise<void>;
 }
 
 /**

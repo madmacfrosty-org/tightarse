@@ -1,5 +1,6 @@
 import {
   toMinorUnits,
+  type Consent,
   type Account,
   type Transaction,
   type TransactionStatus,
@@ -249,10 +250,14 @@ export const DATASET_HANDLERS = {
   "truelayer.cards": "accounts",
   "truelayer.balance": "balance",
   "truelayer.card_balance": "balance",
-  // Known and deliberately ignored: identity and connection metadata belong in
-  // the raw zone for audit, but nothing in the ledger reads them.
+  // `me` carries the provider's own word on when this connection's consent
+  // lapses. It was ignored on the grounds that nothing in the ledger read it,
+  // which was true until something needed to warn a person before the feed
+  // stops. The payload has been landing in the raw zone all along.
+  "truelayer.me": "consent",
+  // Known and deliberately ignored: identity belongs in the raw zone for audit,
+  // but nothing in the ledger reads it.
   "truelayer.info": "ignore",
-  "truelayer.me": "ignore",
   "truelayer.direct_debits": "ignore",
   "truelayer.standing_orders": "ignore",
 } as const;
@@ -268,4 +273,42 @@ export function handlerFor(dataset: string): DatasetHandler {
     throw new Error(`No handler for dataset "${dataset}"`);
   }
   return h;
+}
+
+/** `/data/v1/me`, as TrueLayer sends it. */
+export interface RawMe {
+  credentials_id: string;
+  consent_status?: string;
+  consent_created_at?: string;
+  consent_expires_at?: string;
+  provider?: { display_name?: string; provider_id?: string };
+}
+
+/**
+ * One connection's consent, as the provider states it.
+ *
+ * Everything optional is optional because the API reference says so — its
+ * schema carries no `required` array, types `consent_status` as a bare string
+ * and enumerates no values for it. A row we cannot date is not worth writing:
+ * the whole point is a deadline, and inventing one from the clock is the guess
+ * this replaces.
+ */
+export function mapConsent(
+  raw: RawMe,
+  ctx: { tenantId: string; fetchedAt: string },
+): Consent | undefined {
+  if (!raw.consent_expires_at || !raw.consent_created_at) return undefined;
+  return {
+    tenantId: ctx.tenantId,
+    consentId: raw.credentials_id,
+    provider: "truelayer",
+    grantedAt: raw.consent_created_at,
+    expiresAt: raw.consent_expires_at,
+    // Carried verbatim and shown. Nothing branches on it — see `Consent`.
+    providerStatus: raw.consent_status ?? "unknown",
+    fetchedAt: ctx.fetchedAt,
+    ...(raw.provider?.display_name === undefined
+      ? {}
+      : { institutionName: raw.provider.display_name }),
+  };
 }

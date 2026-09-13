@@ -917,10 +917,18 @@ suite("control plane: settings, consents and the legacy rules row", () => {
       provider: "truelayer",
       grantedAt: "2026-08-18T00:00:00Z",
       expiresAt: "2026-11-16T00:00:00Z",
-      status: "active",
+      providerStatus: "Authorised",
+      fetchedAt: "2026-08-18T06:00:00Z",
+      institutionName: "Some Bank",
     });
     const consents = await store.listConsents(TENANT);
-    expect(consents.map((c) => c["consentId"])).toContain(`conn-${TENANT}`);
+    const row = consents.find((c) => c["consentId"] === `conn-${TENANT}`);
+    expect(row).toBeDefined();
+    // Round-tripped whole: the reader needs the date to judge and `fetchedAt` to
+    // tell a live row from a frozen one.
+    expect(row!["expiresAt"]).toBe("2026-11-16T00:00:00Z");
+    expect(row!["fetchedAt"]).toBe("2026-08-18T06:00:00Z");
+    expect(row!["providerStatus"]).toBe("Authorised");
   });
 });
 
