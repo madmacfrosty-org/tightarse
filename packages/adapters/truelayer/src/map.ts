@@ -295,7 +295,7 @@ export interface RawMe {
  */
 export function mapConsent(
   raw: RawMe,
-  ctx: { tenantId: string; seenAt: string },
+  ctx: { tenantId: string; fetchedAt: string },
 ): Consent | undefined {
   if (!raw.consent_expires_at || !raw.consent_created_at) return undefined;
   return {
@@ -306,7 +306,7 @@ export function mapConsent(
     expiresAt: raw.consent_expires_at,
     // Carried verbatim and shown. Nothing branches on it — see `Consent`.
     providerStatus: raw.consent_status ?? "unknown",
-    seenAt: ctx.seenAt,
+    fetchedAt: ctx.fetchedAt,
     ...(raw.provider?.display_name === undefined
       ? {}
       : { institutionName: raw.provider.display_name }),

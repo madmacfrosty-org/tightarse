@@ -129,11 +129,11 @@ export async function transformObject(deps: TransformDeps, key: string): Promise
     }
 
     case "consent": {
-      // One row per connection, rewritten every sync. `seenAt` is the envelope's
-      // own fetch time rather than the clock here: a replay of an old raw object
-      // must not claim the provider said this today.
+      // One row per connection, rewritten every sync. `fetchedAt` comes from the
+      // envelope rather than the clock here, as it does for a balance reading:
+      // a replay of an old raw object must not claim we asked today.
       const written = (results as RawMe[])
-        .map((r) => mapConsent(r, { tenantId, seenAt: env.fetchedAt }))
+        .map((r) => mapConsent(r, { tenantId, fetchedAt: env.fetchedAt }))
         .filter((c): c is Consent => c !== undefined);
       for (const c of written) await deps.ledger.putConsent(c);
       return { key, dataset, handler, rows: written.length };

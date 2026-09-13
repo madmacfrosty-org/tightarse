@@ -390,13 +390,14 @@ describe("what the provider says about consent", () => {
     expect(putConsent.mock.calls[0]![0]).toMatchObject({ providerStatus: "unknown" });
   });
 
-  it("takes the moment from the object, not from the clock", async () => {
-    // A replay of a raw object from August must not claim the provider said
-    // this today — `seenAt` is what tells a live row from a frozen one, so a
-    // replay that refreshed it would erase the only signal of a dead feed.
+  it("takes the fetch time from the object, not from the clock", async () => {
+    // A replay of a raw object from August must not claim we asked today —
+    // `fetchedAt` is what tells a live row from a frozen one, so a replay that
+    // refreshed it would erase the only signal of a dead feed. Same field, same
+    // source and same reasoning as `BalanceReading.fetchedAt`.
     const { putConsent } = await run([me()]);
     expect(putConsent.mock.calls[0]![0]).toMatchObject({
-      seenAt: "2026-03-15T00:00:00Z",
+      fetchedAt: "2026-03-15T00:00:00Z",
     });
   });
 

@@ -24,7 +24,9 @@ export const Consent = z.object({
   provider: z.literal("truelayer"),
   /** The bank, for a screen that would otherwise show a UUID. */
   institutionName: z.string().optional(),
+  /** The provider's `consent_created_at`, as it sent it. */
   grantedAt: z.string(),
+  /** The provider's `consent_expires_at`. The only thing anything judges on. */
   expiresAt: z.string(),
   /**
    * The provider's own word for the state, carried verbatim and shown.
@@ -41,12 +43,16 @@ export const Consent = z.object({
    */
   providerStatus: z.string(),
   /**
-   * When the provider last asserted all of the above.
+   * When we asked, from the raw envelope. Always present; our clock.
    *
-   * Load-bearing, unlike the status. A lapsed consent cannot be refreshed, so
-   * it stops producing these rows — the row freezes rather than turning bad.
-   * A reader that ignored this would show the last happy answer for ever.
+   * Named as `BalanceReading.fetchedAt` is, and meaning the same thing from the
+   * same source — this is the moment of the fetch, not the provider's word for
+   * anything.
+   *
+   * Load-bearing here, unlike the status. A lapsed consent cannot be refreshed,
+   * so it stops producing these rows: the row freezes rather than turning bad,
+   * and a reader ignoring this would show the last happy answer for ever.
    */
-  seenAt: z.string(),
+  fetchedAt: z.string(),
 });
 export type Consent = z.infer<typeof Consent>;
