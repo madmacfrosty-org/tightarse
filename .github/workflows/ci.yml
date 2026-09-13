@@ -154,13 +154,24 @@ jobs:
       # restore-keys makes this a rolling cache: the exact key never hits,
       # because it carries the commit, so every run restores the newest earlier
       # report and writes its own.
+      #
+      # The generation in the prefix exists because **a Stryker config change
+      # does not invalidate this cache**. #55 raised `timeoutMS` so that mutants
+      # covered by most of the suite would be tested rather than timing out; CI
+      # restored the report from before that change and reported 263 timeouts
+      # and a score 1.8 points higher than the same commit scores cold. The
+      # gate passed on results produced under the old budget.
+      #
+      # Bump the generation whenever a change should make Stryker reach a
+      # different verdict on a mutant it has already judged. One cold run costs
+      # about eight minutes; a stale one costs the meaning of the number.
       - name: Restore the mutation report
         uses: actions/cache/restore@v4
         with:
           path: |
             */*/.stryker/incremental.json
-          key: stryker-${{ github.sha }}
-          restore-keys: stryker-
+          key: stryker-g2-${{ github.sha }}
+          restore-keys: stryker-g2-
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -204,7 +215,7 @@ jobs:
         with:
           path: |
             */*/.stryker/incremental.json
-          key: stryker-${{ github.sha }}
+          key: stryker-g2-${{ github.sha }}
 
       - name: Destroy the ephemeral ledger table
         if: always()
