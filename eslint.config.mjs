@@ -307,6 +307,38 @@ export default [
       "jsdoc/check-tag-names": ["error", { typed: true }],
     },
   },
+  // The wire is where a domain answer becomes a promise to installed clients,
+  // and a spread there serves whatever the domain happens to be carrying today.
+  // `mergeCategories` did exactly that for months, sending the ledger table's
+  // partition keys and a raw object's location to a browser.
+  //
+  // Three of these were found by hand — `asSummary`, `asAccounts` and the
+  // original `mergeCategories` — and the fourth would have been found the same
+  // way. A comment asking people to project field by field is the thing that
+  // did not work, so this is the rule instead.
+  //
+  // `...(cond ? {} : { k: v })` stays legal and is used everywhere here: under
+  // `exactOptionalPropertyTypes` it is how an optional field is omitted rather
+  // than sent as undefined. What is banned is spreading a value straight in,
+  // which is the only form that can carry a field nobody named.
+  {
+    files: ["packages/adapters/http/src/wire.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "ObjectExpression > SpreadElement > Identifier",
+          message:
+            "Project field by field. A spread on the wire serves whatever the domain result happens to hold — which is how partition keys reached a browser. Conditional spreads of object literals are fine.",
+        },
+        {
+          selector: "ObjectExpression > SpreadElement > MemberExpression",
+          message:
+            "Project field by field. A spread on the wire serves whatever the domain result happens to hold — which is how partition keys reached a browser. Conditional spreads of object literals are fine.",
+        },
+      ],
+    },
+  },
   {
     files: ["**/test/**"],
     rules: { "no-restricted-imports": "off" },
