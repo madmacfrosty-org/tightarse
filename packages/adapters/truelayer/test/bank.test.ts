@@ -55,9 +55,30 @@ describe("listing what a connection holds", () => {
   it("asks for both resources and names each listing by its dataset", async () => {
     const { paths, subject } = bank(() => ({ results: [{ account_id: "a1" }] }));
     const out = await subject.listItems("token");
-    expect(paths).toEqual(["/data/v1/accounts", "/data/v1/cards"]);
-    expect(out.payloads.map((p) => p.dataset)).toEqual(["truelayer.accounts", "truelayer.cards"]);
+    // `me` first, and every run: it carries when the consent lapses, and a row
+    // that stops being refreshed is the only signal that a feed has died.
+    expect(paths).toEqual(["/data/v1/me", "/data/v1/accounts", "/data/v1/cards"]);
+    expect(out.payloads.map((p) => p.dataset)).toEqual([
+      "truelayer.me",
+      "truelayer.accounts",
+      "truelayer.cards",
+    ]);
     expect(out.payloads.every((p) => p.itemId === null)).toBe(true);
+  });
+
+  it("keeps fetching when a connection cannot describe itself", async () => {
+    // A connection that will not answer `/me` still has transactions worth
+    // having. The consent row goes stale, which is exactly what stale is for —
+    // aborting the sync would lose the data as well as the warning.
+    const { subject } = bank((p) =>
+      p.endsWith("/me") ? refuse(403) : { results: [{ account_id: "a1" }] },
+    );
+    const out = await subject.listItems("token");
+    expect(out.skipped).toContain("me");
+    expect(out.items).toEqual([
+      { resource: "accounts", itemId: "a1" },
+      { resource: "cards", itemId: "a1" },
+    ]);
   });
 
   it("reports a resource the provider does not offer as skipped, not as a failure", async () => {
@@ -181,6 +202,8 @@ describe("call accounting", () => {
     const { subject } = bank(() => ({ results: [] }));
     expect(subject.calls).toBe(0);
     await subject.listItems("token");
-    expect(subject.calls).toBe(2);
+    // Three: `me`, then the two resources. One per connection per daily run,
+    // against a budget of four per endpoint per 24 hours.
+    expect(subject.calls).toBe(3);
   });
 });
