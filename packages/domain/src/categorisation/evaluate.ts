@@ -228,7 +228,7 @@ export function foldSet(set: RuleSet, candidate: Candidate): SetOutcome {
  * categorise differently on two runs and the history would churn. Comparing
  * names is arbitrary and stable, and stable is the part that matters.
  *
- * It has still chosen wrongly once — `provider` sorts before `provider-types`,
+ * It has still chosen wrongly once — `provider` sorts before `from-provider`,
  * and `provider` is the id discarded at read, so the legacy set won every tie
  * and its answers were thrown away. The fix for that is not a better tie-break;
  * it is #121, where precedence is a position in an adopted list and equal ranks

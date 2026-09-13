@@ -83,13 +83,13 @@ describe("what to do about one transaction", () => {
     // set it replaced, for ever.
     const d = decide({
       ...args,
-      evaluation: evaluation("groceries", "provider-types"),
+      evaluation: evaluation("groceries", "from-provider"),
       current: stored({ setId: "provider", version: 2 }),
     });
 
     expect(d.kind).toBe("append");
     if (d.kind !== "append") throw new Error("expected append");
-    expect(d.next.setId).toBe("provider-types");
+    expect(d.next.setId).toBe("from-provider");
     expect(d.next.category).toBe("groceries");
     // A new version of the categorisation, not a rewrite of the old one.
     expect(d.next.version).toBe(3);

@@ -500,7 +500,7 @@ suite("which sets a tenant uses (integration)", () => {
 
   it("keeps supersedes when it is set, and omits it when it is not", async () => {
     await ledger.putAdoptions(TENANT, [
-      adoption("provider-types", 1, "provider"),
+      adoption("from-provider", 1, "provider"),
       adoption("built-in"),
     ]);
 

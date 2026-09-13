@@ -12,7 +12,7 @@ import { z } from "zod";
  * **Precedence is position in this list, not a number on a row.** A number
  * invites two sets to hold the same one, and two sets at equal rank were broken
  * by comparing their ids, which is deterministic and meaningless. It had already
- * landed on the wrong set once: `provider` sorts before `provider-types` and is
+ * landed on the wrong set once: `provider` sorts before `from-provider` and is
  * the id discarded at read, so the legacy set won every tie and its answers were
  * thrown away. A list has no equal ranks to break.
  *
