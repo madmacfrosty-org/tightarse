@@ -281,8 +281,16 @@ export class IngestStack extends cdk.Stack {
     // Once a day. Unattended access is capped at four calls per 24 hours per
     // account, endpoint and consent, so daily spends one of four per resource
     // consent and a sync makes several per account, so hourly would breach it.
+    //
+    // Disabled where the deployment may not refresh a connection. `SYNC_ENABLED`
+    // already stopped the work, but the rule still fired, still started the
+    // state machine, and still had it read the client credential — daily, in an
+    // account holding no connections to sync. Gating the schedule as well means
+    // dev asks for nothing rather than asking and declining, which is what lets
+    // its copy of the credential be emptied (#71).
     new events.Rule(this, "DailySync", {
       schedule: events.Schedule.cron(config.ingestScheduleCron),
+      enabled: settings.syncEnabled,
       targets: [new targets.SfnStateMachine(syncMachine)],
       description: "Daily TrueLayer sync",
     });
