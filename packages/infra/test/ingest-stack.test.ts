@@ -412,3 +412,34 @@ describe("where the bank sends the browser back", () => {
     );
   });
 });
+
+/**
+ * #71: the sync schedule follows `syncEnabled`, and prod's must not move.
+ *
+ * `SYNC_ENABLED` already stopped dev doing the work, but the rule fired anyway,
+ * started the state machine, and had it read the TrueLayer client credential —
+ * daily, in an account holding no connections. Gating the schedule is what let
+ * dev's copy of that credential be emptied.
+ *
+ * The prod assertion is the one that earns its place. This is a shared stack,
+ * and a change meant to disable one environment's schedule is one typo away
+ * from disabling the household's only sync — which nothing would report,
+ * because a sync that never runs looks exactly like one with nothing to fetch.
+ */
+describe("the daily sync schedule", () => {
+  const ruleFor = (t: ReturnType<typeof templates>["ingest"]) =>
+    Object.values(
+      t.findResources("AWS::Events::Rule", {
+        Properties: { Description: "Daily TrueLayer sync" },
+      }),
+    )[0] as { Properties: Record<string, unknown> } | undefined;
+
+  it("is disabled in dev, which may not refresh a connection", () => {
+    expect(devSettings.syncEnabled).toBe(false);
+    expect(ruleFor(ingest)?.Properties["State"]).toBe("DISABLED");
+  });
+
+  it("is enabled in prod, which is the only deployment that may", () => {
+    expect(ruleFor(prod.ingest)?.Properties["State"]).toBe("ENABLED");
+  });
+});
