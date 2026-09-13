@@ -294,6 +294,39 @@ describe("what a failure tells the caller", () => {
     expect(body(res)["error"]).toBe("Internal error");
   });
 
+  it("logs the cause it refuses to send, so a 500 can be diagnosed at all", async () => {
+    // The other half of the test above. Hiding the message from the browser is
+    // right; hiding it from everybody is how a deployed 500 becomes
+    // unattributable — the browser shows "Internal error" and CloudWatch shows
+    // nothing, which is the state dev was in when the first end-to-end test
+    // could not say why it had failed (#169).
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    listRange.mockRejectedValue(new Error("ResourceNotFound: some-table"));
+
+    await route(deps, event() as never);
+
+    expect(logged).toHaveBeenCalled();
+    expect(logged.mock.calls.flat().join(" ")).toContain("ResourceNotFound");
+    logged.mockRestore();
+  });
+
+  it("says nothing for a 4xx, which already explains itself to the caller", async () => {
+    // A log nobody reads is a log nobody reads. The caller was told what was
+    // wrong with its own request; repeating that to CloudWatch on every
+    // malformed range buries the 500s that matter.
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await route(
+      deps,
+      event({
+        queryStringParameters: { from: "2026-05-01", to: "2026-01-01" },
+      }) as never,
+    );
+
+    expect(logged).not.toHaveBeenCalled();
+    logged.mockRestore();
+  });
+
   it("does explain a 4xx, which is the caller's own mistake", async () => {
     const res = await route(
       deps,
