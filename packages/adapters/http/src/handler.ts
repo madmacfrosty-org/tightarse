@@ -229,6 +229,18 @@ export async function route(deps: ApiDeps, event: HttpEvent) {
     const message = err instanceof Error ? err.message : "Unknown error";
     // Never echo the underlying error for a 500 — it can carry key material
     // and table structure.
+    //
+    // Logged before it is hidden, which it was not. `serve.ts` has said for a
+    // while that the cause "is logged here, at the seam" and that hiding it is
+    // "right in production and useless on a laptop" — but the logging lived in
+    // the local dev server and the hiding lived here, so a 500 in a deployed
+    // environment reached the browser as "Internal error" and CloudWatch as
+    // nothing at all. Found by the first end-to-end test, which could not say
+    // why it had failed (#169).
+    //
+    // Only for a 500: a 4xx echoes its own message to the client already, and
+    // logging every rejected request is how a log stops being read.
+    if (statusCode === 500) console.error("request failed:", err);
     return json(statusCode, {
       error: statusCode === 500 ? "Internal error" : message,
     });
