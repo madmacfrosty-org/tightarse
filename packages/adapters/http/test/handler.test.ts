@@ -584,7 +584,7 @@ describe("routing, against the application rather than through it", () => {
     },
     balances: async (_t, range) => {
       called.push("balances");
-      return { range, points: [] };
+      return { range, points: [], series: [] };
     },
     runningBalanceCheck: async () => {
       called.push("runningBalanceCheck");
@@ -927,7 +927,7 @@ describe("asking what the summary said at a past moment", () => {
       transactions: async (_t, range) => ({ range, transactions: [] }),
       categories: async () => ({ categories: [] }),
       accounts: async () => ({ accounts: [], consents: [] }),
-      balances: async (_t, range) => ({ range, points: [] }),
+      balances: async (_t, range) => ({ range, points: [], series: [] }),
       runningBalanceCheck: async () => ({
         verdict: "insufficient" as const,
         accounts: [],

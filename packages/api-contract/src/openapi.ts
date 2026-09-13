@@ -21,6 +21,7 @@ import {
   BalancePoint,
   BalancesResponse,
   // The leaf types too, for the same reason the helpers above are named.
+  AccountSeriesView,
   BookPositionView,
   BooksResponse,
   ConsentView,
@@ -107,6 +108,7 @@ const NAMED = {
   BalancesResponse,
   // Leaf types named for the same reason the helpers above are: unnamed they
   // become a $ref into another schema's properties, which generators reject.
+  AccountSeriesView,
   BookPositionView,
   BooksResponse,
   ConsentView,

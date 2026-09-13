@@ -248,7 +248,7 @@ describe("the household's net position", () => {
       },
     ];
     expect(
-      netPositionSeries(accounts, movements, days("2026-03-01", "2026-03-01")),
+      netPositionSeries(accounts, movements, days("2026-03-01", "2026-03-01")).points,
     ).toEqual([{ date: "2026-03-01", net: 800_00 }]);
   });
 
@@ -277,7 +277,7 @@ describe("the household's net position", () => {
       },
     ];
     expect(
-      netPositionSeries(accounts, movements, days("2026-03-01", "2026-03-02")),
+      netPositionSeries(accounts, movements, days("2026-03-01", "2026-03-02")).points,
     ).toEqual([
       { date: "2026-03-01", net: 100_00 },
       { date: "2026-03-02", net: 150_00 },
@@ -295,13 +295,13 @@ describe("the household's net position", () => {
         runningBalance: 100_00,
       },
     ];
-    const series = netPositionSeries(
+    const { points } = netPositionSeries(
       accounts,
       movements,
       days("2026-03-01", "2026-03-10"),
     );
-    expect(series).toHaveLength(10);
-    expect(series.every((p) => p.net === 100_00)).toBe(true);
+    expect(points).toHaveLength(10);
+    expect(points.every((p) => p.net === 100_00)).toBe(true);
   });
 });
 
@@ -357,7 +357,86 @@ describe("accounts with nothing in them", () => {
         accounts,
         movements,
         daysBetween("2026-03-01", "2026-03-01"),
-      ),
+      ).points,
     ).toEqual([{ date: "2026-03-01", net: 100_00 }]);
+  });
+});
+
+/**
+ * Each account's own position, kept rather than summed away.
+ *
+ * #33 asks for "each individual account and card balance". The figures were
+ * always computed — the net is built from them — and then discarded, so the
+ * question was unanswerable while the number was right there.
+ *
+ * Every figure is invented.
+ */
+describe("the series behind the net", () => {
+  const cur = { accountId: "cur", isCard: false };
+  const card = { accountId: "card", isCard: true, currentBalance: 50_00 };
+  const at = (accountId: string, ts: string, amount: number, rb?: number) => ({
+    accountId,
+    timestamp: ts,
+    amount,
+    dedupKey: `${accountId}-${ts}-${amount}`,
+    ...(rb === undefined ? {} : { runningBalance: rb }),
+  });
+
+  it("gives one series per account, aligned to the points", () => {
+    const d = days("2026-03-01", "2026-03-02");
+    const out = netPositionSeries(
+      [cur, card],
+      [at("cur", "2026-03-01T00:00:00Z", 500_00, 500_00), at("card", "2026-03-01T00:00:00Z", -50_00)],
+      d,
+    );
+    expect(out.series.map((s) => s.accountId)).toEqual(["cur", "card"]);
+    for (const s of out.series) expect(s.values).toHaveLength(out.points.length);
+  });
+
+  it("says which series is money owed rather than money held", () => {
+    // A card's values are what is OWED, carried positive. A client adding them
+    // to cash without checking overstates the household by twice the debt —
+    // the £567.90 bug, arrived at from the client's side.
+    const out = netPositionSeries([cur, card], [], days("2026-03-01", "2026-03-01"));
+    expect(out.series.find((s) => s.accountId === "card")!.isCard).toBe(true);
+    expect(out.series.find((s) => s.accountId === "cur")!.isCard).toBe(false);
+  });
+
+  it("adds up to the net it is served beside", () => {
+    // The property worth protecting: two figures on one response that disagree
+    // are worse than one. Cash less what is owed, per day.
+    const d = days("2026-03-01", "2026-03-02");
+    const out = netPositionSeries(
+      [cur, card],
+      [at("cur", "2026-03-01T00:00:00Z", 500_00, 500_00), at("card", "2026-03-01T00:00:00Z", -50_00)],
+      d,
+    );
+    out.points.forEach((p, i) => {
+      const total = out.series.reduce((sum, s) => {
+        const v = s.values[i];
+        return v === undefined ? sum : sum + (s.isCard ? -v : v);
+      }, 0);
+      expect(total).toBe(p.net);
+    });
+  });
+
+  it("leaves a day an account has no data for absent, not zero", () => {
+    // "We do not know" and "it held nothing" are different, and a total drawn
+    // over the second would be short rather than wrong. See #33 and #29.
+    const out = netPositionSeries(
+      [cur],
+      [at("cur", "2026-03-03T00:00:00Z", 500_00, 500_00)],
+      days("2026-03-01", "2026-03-03"),
+    );
+    const values = out.series[0]!.values;
+    expect(values[0]).toBeUndefined();
+    expect(values[1]).toBeUndefined();
+    expect(values[2]).toBe(500_00);
+  });
+
+  it("has a series for an account with nothing in it at all", () => {
+    const out = netPositionSeries([cur], [], days("2026-03-01", "2026-03-01"));
+    expect(out.series).toHaveLength(1);
+    expect(out.series[0]!.values).toEqual([undefined]);
   });
 });
