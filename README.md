@@ -195,11 +195,15 @@ npm run access -w @tightarse/cli -- list
 npm run access -w @tightarse/cli -- grant someone@example.com <tenant>
 
 # this household's own categorisation rules (never committed)
-TABLE=$LEDGER_TABLE npm run rules -w @tightarse/schedule -- list
-TABLE=$LEDGER_TABLE npm run rules -w @tightarse/schedule -- test "SOME DESCRIPTION"
+TABLE=$LEDGER_TABLE npm run rules -w @tightarse/cli -- list
+TABLE=$LEDGER_TABLE npm run rules -w @tightarse/cli -- test "SOME DESCRIPTION"
 
-# categorise by hand; the schedule does this daily, rules only
-TABLE=$LEDGER_TABLE npm run run-batch -w @tightarse/schedule -- --mode rules --dry-run
+# categorise by hand; the schedule does this daily, rules only. Dry by default.
+TENANT=frost TABLE=$LEDGER_TABLE npm run categorise -w @tightarse/cli
+
+# rebuild part of the ledger from the raw zone, e.g. after a mapping changes
+TENANT=frost BUCKET=$RAW_BUCKET TABLE=$LEDGER_TABLE DATASETS=truelayer.me \
+  npm run backfill -w @tightarse/cli -- --dry-run
 ```
 
 Connecting a bank is a browser flow: sign in, choose a provider, authorise at

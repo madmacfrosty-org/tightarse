@@ -1,7 +1,7 @@
 /**
  * Report what the rules do, and optionally improve them.
  *
- *   TENANT=frost TABLE=<name> npm run optimise -w @tightarse/schedule
+ *   TENANT=frost TABLE=<name> npm run optimise -w @tightarse/cli
  *   ... -- --resolve-conflicts            propose fixes, still writing nothing
  *   ... -- --set built-in --rule 4 --pattern '<new>'   change one rule
  *   ... -- --file proposal.json           supply whole sets

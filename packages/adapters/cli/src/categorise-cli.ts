@@ -1,7 +1,7 @@
 /**
  * Apply the household's rule sets to its ledger.
  *
- *   TENANT=frost TABLE=<name> npm run categorise -w @tightarse/schedule
+ *   TENANT=frost TABLE=<name> npm run categorise -w @tightarse/cli
  *   ... -- --write                 actually write
  *   ... -- --from 2021-01-01 --to 2026-12-31
  *
