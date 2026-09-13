@@ -317,6 +317,12 @@ export default [
   // way. A comment asking people to project field by field is the thing that
   // did not work, so this is the rule instead.
   //
+  // Not extended to `[...x.ys]`. An array of objects has the same hazard one
+  // level down — `asTransactions` and `asBalances` both had it — but an array
+  // of strings does not, and the AST cannot tell them apart. Tried it: four of
+  // the six hits were `string[]`. A rule that fires on correct code is how
+  // rules come to be disabled, so those two are projected by hand instead.
+  //
   // `...(cond ? {} : { k: v })` stays legal and is used everywhere here: under
   // `exactOptionalPropertyTypes` it is how an optional field is omitted rather
   // than sent as undefined. What is banned is spreading a value straight in,

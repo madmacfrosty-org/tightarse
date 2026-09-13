@@ -99,6 +99,17 @@ export interface CategorisedTransaction {
   readonly accountId: string;
   /** The provider's own type. Not the direction — see `amount`. */
   readonly transactionType: string;
+  /**
+   * The account's position immediately after this transaction.
+   *
+   * Derived from the ledger's own legs in the ledger's own order, not relayed
+   * from the provider — so it is answerable for a card, which carries no
+   * running balance at all, and for every row in a day, which share a timestamp.
+   *
+   * Absent where the account cannot be anchored: nothing to derive from, or a
+   * current account whose rows carry no running balance yet.
+   */
+  readonly balance?: number | undefined;
   readonly providerCategory?: string | undefined;
   readonly category: string;
   /**

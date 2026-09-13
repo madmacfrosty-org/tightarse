@@ -137,6 +137,11 @@ export const TransactionView = z.object({
   description: z.string(),
   accountId: z.string(),
   transactionType: z.string().describe("The provider's own type. Not the direction — see amount"),
+  balance: minorUnits(
+    "The account's position immediately after this transaction, derived from the ledger's own " +
+      "legs in its own order. Answerable for a card, which carries no running balance, and for " +
+      "every row in a day, which share a timestamp. Absent where the account cannot be anchored",
+  ).optional(),
   providerCategory: z.string().optional(),
   category: z.string(),
   setId: z

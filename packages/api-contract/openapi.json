@@ -146,6 +146,10 @@
             "type": "string",
             "description": "The provider's own type. Not the direction — see amount"
           },
+          "balance": {
+            "type": "integer",
+            "description": "The account's position immediately after this transaction, derived from the ledger's own legs in its own order. Answerable for a card, which carries no running balance, and for every row in a day, which share a timestamp. Absent where the account cannot be anchored, in integer minor units (pence). Divide by 100 for pounds."
+          },
           "providerCategory": {
             "type": "string"
           },

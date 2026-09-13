@@ -818,6 +818,80 @@ describe("what running_balance means, judged from the ledger", () => {
  *
  * Every name and date here is invented.
  */
+/**
+ * A balance on every transaction.
+ *
+ * #33: "select a transaction and see the balance at that moment". A daily
+ * position cannot answer it — every row is stamped midnight and the real ledger
+ * holds up to 47 in a day — so this is the running total in the ledger's own
+ * order, and the endpoint reads the history before the range to compute it.
+ *
+ * Every figure is invented.
+ */
+describe("the balance at each transaction", () => {
+  beforeEach(() => {
+    listAccounts.mockResolvedValue([{ accountId: "cur", isCard: false }]);
+    listRuleSets.mockResolvedValue([]);
+    getAdoptions.mockResolvedValue([]);
+    listCategories.mockResolvedValue([]);
+    listConsents.mockResolvedValue([]);
+    getSettings.mockResolvedValue(null);
+    listRange.mockClear();
+  });
+
+  const rows = [
+    txn({ dedupKey: "a", accountId: "cur", amount: 500_00, runningBalance: 500_00, timestamp: "2026-03-01T00:00:00Z" }),
+    txn({ dedupKey: "b", accountId: "cur", amount: -20_00, timestamp: "2026-03-01T00:00:00Z" }),
+    txn({ dedupKey: "c", accountId: "cur", amount: -30_00, timestamp: "2026-03-02T00:00:00Z" }),
+  ];
+
+  it("gives each row the position after it, not the position on its day", () => {
+    // `a` and `b` share a day. A daily figure could only report one number for
+    // both; the ledger's own order gives each its own.
+    listRange.mockResolvedValue({ transactions: rows, categorisations: [] });
+    return transactions(deps, "frost", { from: "2026-03-01", to: "2026-03-31" }).then((r) => {
+      const by = new Map(r.transactions.map((t) => [t.dedupKey, t.balance]));
+      expect(by.get("a")).toBe(500_00);
+      expect(by.get("b")).toBe(480_00);
+      expect(by.get("c")).toBe(450_00);
+    });
+  });
+
+  it("reads the history up to the range's end, and no further", async () => {
+    // A running total needs everything before it. Reading past the range would
+    // make an older range cost the same as today's for nothing.
+    listRange.mockResolvedValue({ transactions: rows, categorisations: [] });
+    await transactions(deps, "frost", { from: "2026-03-01", to: "2026-03-31" });
+    const ranges = listRange.mock.calls.map((c) => c[1]);
+    expect(ranges).toContainEqual({ from: "1970-01-01", to: "2026-03-31" });
+  });
+
+  it("passes over an account with nothing in it", async () => {
+    // A newly connected account has a row before it has a transaction. Looking
+    // up its movements finds none, which is a state rather than a fault.
+    listAccounts.mockResolvedValue([
+      { accountId: "cur", isCard: false },
+      { accountId: "fresh", isCard: false },
+    ]);
+    listRange.mockResolvedValue({ transactions: rows, categorisations: [] });
+    const r = await transactions(deps, "frost", { from: "2026-03-01", to: "2026-03-31" });
+    expect(r.transactions).toHaveLength(3);
+  });
+
+  it("says nothing rather than something wrong when an account cannot be anchored", async () => {
+    // No running balance anywhere, so there is no figure to start from. A
+    // balance invented from the rows in hand is a total that began in the middle.
+    listRange.mockResolvedValue({
+      transactions: [
+        { ...txn({ dedupKey: "a", accountId: "cur", amount: -20_00 }), runningBalance: undefined },
+      ],
+      categorisations: [],
+    });
+    const r = await transactions(deps, "frost", { from: "2026-03-01", to: "2026-03-31" });
+    expect(r.transactions[0]).not.toHaveProperty("balance");
+  });
+});
+
 describe("consents alongside the accounts", () => {
   const consentRow = (over: Record<string, unknown> = {}) => ({
     tenantId: "frost",
