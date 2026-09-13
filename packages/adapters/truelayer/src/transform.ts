@@ -3,6 +3,7 @@ import { parseRawKey } from "@tightarse/domain";
 import {
   handlerFor,
   mapAccount,
+  mapConsent,
   mapBalance,
   isCardDataset,
   balanceReadingOf,
@@ -10,9 +11,10 @@ import {
   mapTransaction,
   type RawAccount,
   type RawBalance,
+  type RawMe,
   type RawTransaction,
 } from "./map.js";
-import type { LedgerWrites, RawObjects } from "@tightarse/domain";
+import type { Consent, LedgerWrites, RawObjects } from "@tightarse/domain";
 
 /** The envelope the uploader and fetcher write around every response. */
 interface RawEnvelope {
@@ -124,6 +126,17 @@ export async function transformObject(deps: TransformDeps, key: string): Promise
       // is a normal outcome and must delete the previous set.
       await deps.ledger.replacePending(tenantId, accountId, txns);
       return { key, dataset, handler, rows: txns.length };
+    }
+
+    case "consent": {
+      // One row per connection, rewritten every sync. `seenAt` is the envelope's
+      // own fetch time rather than the clock here: a replay of an old raw object
+      // must not claim the provider said this today.
+      const written = (results as RawMe[])
+        .map((r) => mapConsent(r, { tenantId, seenAt: env.fetchedAt }))
+        .filter((c): c is Consent => c !== undefined);
+      for (const c of written) await deps.ledger.putConsent(c);
+      return { key, dataset, handler, rows: written.length };
     }
 
     case "accounts": {

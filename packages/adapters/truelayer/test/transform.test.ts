@@ -334,3 +334,84 @@ describe("reading a raw object", () => {
     expect(r.unanchored).toEqual({ card: 0, account: 0 });
   });
 });
+
+/**
+ * Consent, as the provider states it.
+ *
+ * `/data/v1/me` has been landing in the raw zone since the first sync and was
+ * marked `ignore` on the grounds that nothing in the ledger read it. Something
+ * does now: 90 days is a deadline, and the only warning that reaches anybody is
+ * one the ledger can see.
+ *
+ * Every figure and name here is invented.
+ */
+describe("what the provider says about consent", () => {
+  const me = (over: Record<string, unknown> = {}) => ({
+    credentials_id: "cred-1",
+    consent_status: "Authorised",
+    consent_created_at: "2026-08-11T09:00:00Z",
+    consent_expires_at: "2026-11-09T09:00:00Z",
+    provider: { display_name: "Some Bank", provider_id: "ob-some" },
+    ...over,
+  });
+
+  const run = async (results: unknown[]) => {
+    const putConsent = vi.fn(async (_c: unknown) => {});
+    const d = deps(results);
+    (d.deps as any).ledger.putConsent = putConsent;
+    const r = await transformObject(d.deps, keyFor("truelayer.me"));
+    return { r, putConsent };
+  };
+
+  it("writes the provider's own expiry, rather than a date we worked out", async () => {
+    const { r, putConsent } = await run([me()]);
+    expect(r.handler).toBe("consent");
+    expect(putConsent.mock.calls[0]![0]).toMatchObject({
+      consentId: "cred-1",
+      grantedAt: "2026-08-11T09:00:00Z",
+      expiresAt: "2026-11-09T09:00:00Z",
+      institutionName: "Some Bank",
+    });
+  });
+
+  it("carries the status across without reading it", async () => {
+    // Their API reference types this as a bare string, enumerates nothing, and
+    // the ledger has seen exactly one value. Anything we branched on would be a
+    // guess dressed as a schema, so it travels verbatim and decides nothing.
+    const { putConsent } = await run([me({ consent_status: "SomethingNew" })]);
+    expect(putConsent.mock.calls[0]![0]).toMatchObject({
+      providerStatus: "SomethingNew",
+      expiresAt: "2026-11-09T09:00:00Z",
+    });
+  });
+
+  it("says unknown rather than nothing when the status is missing", async () => {
+    const { putConsent } = await run([me({ consent_status: undefined })]);
+    expect(putConsent.mock.calls[0]![0]).toMatchObject({ providerStatus: "unknown" });
+  });
+
+  it("takes the moment from the object, not from the clock", async () => {
+    // A replay of a raw object from August must not claim the provider said
+    // this today — `seenAt` is what tells a live row from a frozen one, so a
+    // replay that refreshed it would erase the only signal of a dead feed.
+    const { putConsent } = await run([me()]);
+    expect(putConsent.mock.calls[0]![0]).toMatchObject({
+      seenAt: "2026-03-15T00:00:00Z",
+    });
+  });
+
+  it("writes nothing at all when there is no expiry to record", async () => {
+    // The schema carries no required array, so the field is not promised. A row
+    // without a date is worse than no row: the whole point is a deadline, and
+    // inventing one from the clock is the guess this replaces.
+    const { r, putConsent } = await run([me({ consent_expires_at: undefined })]);
+    expect(putConsent).not.toHaveBeenCalled();
+    expect(r.rows).toBe(0);
+  });
+
+  it("keeps the connections it can read when one of them is unreadable", async () => {
+    const { putConsent } = await run([me({ consent_created_at: undefined }), me({ credentials_id: "cred-2" })]);
+    expect(putConsent).toHaveBeenCalledTimes(1);
+    expect(putConsent.mock.calls[0]![0]).toMatchObject({ consentId: "cred-2" });
+  });
+});
