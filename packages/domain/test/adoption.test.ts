@@ -142,27 +142,44 @@ describe("adopting", () => {
 });
 
 describe("the sets a tenant actually uses", () => {
-  const set = (setId: string, order: number) => ({ setId, order });
+  const set = (setId: string) => ({ setId });
+  const adopt = (ids: readonly string[]) =>
+    ids.map((setId) => ({
+      owner: "t1",
+      setId,
+      version: 1,
+      adoptedAt: "2026-01-01T00:00:00.000Z",
+    }));
 
-  it("falls back to the sets' own order when nothing is adopted", () => {
-    // Every tenant today. Precedence is mid-migration from the set to the
-    // adoption, and the fallback is what lets both exist without a data change.
-    const out = orderedSets([], [set("built-in", 2), set("household", 0)]);
-    expect(out.map((s) => s.setId)).toEqual(["household", "built-in"]);
+  it("gives a tenant that has adopted nothing no sets at all", () => {
+    // There is no fallback to an order carried on the set, because sets no
+    // longer carry one (#121). Onboarding writes the list — `seedAdoptions` —
+    // and a tenant without one has not been onboarded.
+    //
+    // Deliberately not silent-but-harmless: returning every set in an arbitrary
+    // order would categorise, and categorise differently between runs.
+    // Returning none categorises nothing, which the first report shows.
+    expect(orderedSets([], [set("built-in"), set("household")])).toEqual([]);
   });
 
-  it("keeps the fallback deterministic when two sets share an order", () => {
-    // A data mistake, but the answer must not depend on the order a scan
-    // returned them in, or the same ledger categorises differently twice.
-    const a = orderedSets([], [set("bbb", 5), set("aaa", 5)]);
-    const b = orderedSets([], [set("aaa", 5), set("bbb", 5)]);
-    expect(a.map((s) => s.setId)).toEqual(b.map((s) => s.setId));
+  it("cannot express two sets at the same rank, so there is no tie to break", () => {
+    // What the old `order` field allowed and a list does not. The tie-break it
+    // needed chose wrongly once: `provider` sorted before `from-provider`, and
+    // `provider` is the id discarded at read, so the legacy set won every tie
+    // and its answers were thrown away.
+    const sets = [set("aaa"), set("bbb")];
+    expect(orderedSets(adopt(["bbb", "aaa"]), sets).map((s) => s.setId)).toEqual(
+      ["bbb", "aaa"],
+    );
+    expect(orderedSets(adopt(["aaa", "bbb"]), sets).map((s) => s.setId)).toEqual(
+      ["aaa", "bbb"],
+    );
   });
 
   it("uses the adopted order once there is one, ignoring the sets' own", () => {
     const out = orderedSets(
       [a("built-in"), a("household")],
-      [set("household", 0), set("built-in", 2)],
+      [set("household"), set("built-in")],
     );
 
     // Adopted order wins outright: built-in outranks household here because the
@@ -175,18 +192,18 @@ describe("the sets a tenant actually uses", () => {
     // instruction.
     const out = orderedSets(
       [a("household")],
-      [set("household", 0), set("shared-merchants", 4)],
+      [set("household"), set("shared-merchants")],
     );
     expect(out.map((s) => s.setId)).toEqual(["household"]);
   });
 
   it("ignores an adoption whose set is missing rather than failing", () => {
-    const out = orderedSets([a("gone"), a("household")], [set("household", 0)]);
+    const out = orderedSets([a("gone"), a("household")], [set("household")]);
     expect(out.map((s) => s.setId)).toEqual(["household"]);
   });
 
   it("cannot express two sets at the same rank", () => {
-    const out = orderedSets([a("x"), a("y")], [set("x", 9), set("y", 9)]);
+    const out = orderedSets([a("x"), a("y")], [set("x"), set("y")]);
     expect(out.map((s) => s.setId)).toEqual(["x", "y"]);
   });
 });

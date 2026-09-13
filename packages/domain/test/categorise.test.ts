@@ -167,7 +167,7 @@ const rule = (pattern: string, category: string): Rule => ({
 });
 
 const set = (
-  over: Partial<RuleSet> & { setId: string; order: number; rules: Rule[] },
+  over: Partial<RuleSet> & { setId: string; rules: Rule[] },
 ): RuleSet => ({
   version: 1,
   name: over.setId,
@@ -191,7 +191,6 @@ function ledger(
   sets: RuleSet[] = [
     set({
       setId: "built-in",
-      order: 2,
       rules: [rule("somemart", "groceries")],
     }),
   ],
@@ -207,7 +206,19 @@ function ledger(
           categorisations: cats,
         }),
       },
-      ruleSets: { listRuleSets: async () => sets as unknown as Row[] },
+      ruleSets: {
+        listRuleSets: async () => sets as unknown as Row[],
+        // Precedence is the adoption list's (#121), so a fake without one
+        // categorises nothing. Derived from the sets in the order the test
+        // wrote them, which is the order each test means by precedence.
+        getAdoptions: async () =>
+          sets.map((set) => ({
+            owner: "t1",
+            setId: set.setId,
+            version: set.version,
+            adoptedAt: "2026-01-01T00:00:00.000Z",
+          })),
+      },
       categorisations: {
         putCategorisation: async (_t: string, c: Categorisation) => {
           written.push(c);
@@ -261,13 +272,11 @@ describe("applying over a range", () => {
     // Running this for real found 2,229 frozen by the opposite reading.
     const authored = set({
       setId: "household",
-      order: 0,
       authored: true,
       rules: [],
     });
     const builtIn = set({
       setId: "built-in",
-      order: 2,
       rules: [rule("somemart", "fuel")],
     });
     const cat = {
@@ -311,7 +320,6 @@ describe("applying over a range", () => {
   it("counts conflicts and inert refines without inventing an answer", async () => {
     const conflicted = set({
       setId: "built-in",
-      order: 2,
       rules: [rule("somemart", "groceries"), rule("superstore", "shopping")],
     });
     const { deps, written } = ledger(
@@ -333,7 +341,6 @@ describe("applying over a range", () => {
     // actionable thing a run can tell you about the rules themselves.
     const qualifierOnly = set({
       setId: "built-in",
-      order: 2,
       rules: [
         {
           matcher: { kind: "merchant", pattern: "forecourt" },
@@ -370,7 +377,6 @@ describe("applying over a range", () => {
   it("matches on the provider category a transaction carries", async () => {
     const byProvider = set({
       setId: "provider-map",
-      order: 3,
       rules: [
         {
           matcher: { kind: "providerCategory", value: "ATM" },
@@ -412,7 +418,6 @@ describe("applying over a range", () => {
     // it were a category would make the candidate lie about its own shape.
     const byProvider = set({
       setId: "provider-map",
-      order: 3,
       rules: [
         {
           matcher: { kind: "providerCategory", value: "ATM" },

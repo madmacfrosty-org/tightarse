@@ -138,9 +138,6 @@ export const RuleSet = z.object({
   /** Immutable. A change produces the next version, never a mutation. */
   version: z.number().int().nonnegative(),
   name: z.string().min(1),
-  /** Explicit precedence. Data, never load order — it decides whether a
-   *  model-proposed rule can outrank one written by hand. */
-  order: z.number().int(),
   /** True means never regenerated. Overrides live in an authored set. */
   authored: z.boolean(),
   /** Ordered: the fold applies matching rules in this order. */

@@ -11,12 +11,15 @@ import { categorise, realDeps, type CategoriseDeps } from "../src/categorise-han
 
 const listRange = vi.fn();
 const listRuleSets = vi.fn();
+// Precedence is the adoption list's (#121): a fake without one categorises
+// nothing, because `orderedSets` ranks only what was adopted.
+const getAdoptions = vi.fn();
 const listCategorisationHistory = vi.fn();
 const putCategorisation = vi.fn();
 const getSettings = vi.fn();
 
 const deps = (over: Partial<CategoriseDeps> = {}): CategoriseDeps => ({
-  ledger: { listRange, listRuleSets, putCategorisation, listCategorisationHistory, getSettings } as never,
+  ledger: { listRange, listRuleSets, getAdoptions, putCategorisation, listCategorisationHistory, getSettings } as never,
   tenantId: "frost",
   environment: "test",
   ...over,
@@ -37,6 +40,14 @@ beforeEach(() => {
   vi.spyOn(console, "log").mockImplementation(() => {});
   listRange.mockReset().mockResolvedValue({ transactions: [], enrichments: [], categorisations: [] });
   listRuleSets.mockReset().mockResolvedValue([]);
+  getAdoptions.mockReset().mockImplementation(async () =>
+    (await listRuleSets()).map((set: { setId: string; version: number }) => ({
+      owner: "t1",
+      setId: set.setId,
+      version: set.version,
+      adoptedAt: "2026-01-01T00:00:00.000Z",
+    })),
+  );
   putCategorisation.mockReset().mockResolvedValue(undefined);
   getSettings.mockReset().mockResolvedValue({ enrichment: "rules" });
 });

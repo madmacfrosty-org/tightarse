@@ -40,7 +40,6 @@ const ruleSetRow = (over: Record<string, unknown> = {}): Row => ({
   setId: "built-in",
   version: 1,
   name: "built-in",
-  order: 2,
   authored: false,
   status: "effective",
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -69,6 +68,16 @@ const deps = (
   },
   ruleSets: {
     listRuleSets: vi.fn(async () => sets),
+    // Precedence is the adoption list's (#121). Everything this fake returns is
+    // adopted, in the order it returns it.
+    getAdoptions: vi.fn(async () =>
+      sets.map((set) => ({
+        owner: "t1",
+        setId: set["setId"] as string,
+        version: (set["version"] as number) ?? 1,
+        adoptedAt: "2026-01-01T00:00:00.000Z",
+      })),
+    ),
     listRuleSetHistory: vi.fn(async () => [] as Row[]),
     putRuleSetVersion: vi.fn(async () => undefined),
     decideRuleSetVersion: vi.fn(async () => undefined),
@@ -135,7 +144,6 @@ describe("describing the backlog", () => {
     // from the backlog it belongs in and from every count drawn off it.
     const clashing = ruleSetRow({
       setId: "household",
-      order: 0,
       rules: [
         {
           matcher: { kind: "merchant", pattern: "somemart" },

@@ -39,7 +39,7 @@ const refines = (pattern: string, category: string): Rule => ({
 });
 
 const set = (
-  over: Partial<RuleSet> & { setId: string; order: number; rules: Rule[] },
+  over: Partial<RuleSet> & { setId: string; rules: Rule[] },
 ): RuleSet => ({
   version: 1,
   name: over.setId,
@@ -50,12 +50,11 @@ const set = (
 });
 
 /** The shipped set, which a household rule outranks. */
-const builtIn = (rules: Rule[]) => set({ setId: "built-in", order: 2, rules });
+const builtIn = (rules: Rule[]) => set({ setId: "built-in", rules });
 /** A household proposal always arrives as a new version. */
 const household = (rules: Rule[], version = 1) =>
-  set({ setId: "household", order: 0, rules, version });
-const overrides = (rules: Rule[]) =>
-  set({ setId: "overrides", order: -1, rules });
+  set({ setId: "household", rules, version });
+const overrides = (rules: Rule[]) => set({ setId: "overrides", rules });
 
 describe("what a proposal wins", () => {
   it("reports a category where nothing matched before", () => {
@@ -100,7 +99,10 @@ describe("what a proposal wins", () => {
 describe("what a proposal takes", () => {
   it("names the transactions it would recategorise, not just the ones it wins", () => {
     const before = [builtIn([asserts("somemart", "groceries")])];
-    const after = [...before, household([asserts("somemart", "fuel")])];
+    // Precedence order, most trusted first: `preview` applies the order it is
+    // given and reads none of its own (#121), so a household rule that is meant
+    // to outrank the shipped one has to be placed above it.
+    const after = [household([asserts("somemart", "fuel")]), ...before];
     const p = preview(before, after, [tx("SOMEMART FORECOURT")]);
 
     expect(p.gained.transactions).toBe(0);
@@ -133,7 +135,8 @@ describe("what a proposal takes", () => {
 describe("what a proposal does not change", () => {
   it("separates agreeing with what was there from being beaten to it", () => {
     const before = [builtIn([asserts("somemart", "groceries")])];
-    const after = [...before, household([asserts("somemart", "groceries")])];
+    // Household above built-in, which is the precedence the list states.
+    const after = [household([asserts("somemart", "groceries")]), ...before];
 
     expect(
       preview(before, after, [tx("SOMEMART 118")]).unchanged.transactions,
@@ -275,7 +278,7 @@ describe("conflicts the proposal introduces", () => {
   it("breaks a tie by set, so two runs agree", () => {
     const before = [
       household([]),
-      set({ setId: "assisted", order: 1, rules: [] }),
+      set({ setId: "assisted", rules: [] }),
     ];
     const after = [
       household(
@@ -284,7 +287,6 @@ describe("conflicts the proposal introduces", () => {
       ),
       set({
         setId: "assisted",
-        order: 1,
         version: 2,
         rules: [asserts("othershop", "a"), asserts("othershop", "b")],
       }),
@@ -302,7 +304,7 @@ describe("conflicts the proposal introduces", () => {
   it("puts the widest conflict first, and breaks ties by set so two runs agree", () => {
     const before = [
       household([]),
-      set({ setId: "assisted", order: 1, rules: [] }),
+      set({ setId: "assisted", rules: [] }),
     ];
     const after = [
       household(
@@ -311,7 +313,6 @@ describe("conflicts the proposal introduces", () => {
       ),
       set({
         setId: "assisted",
-        order: 1,
         version: 2,
         rules: [asserts("othershop", "a"), asserts("othershop", "b")],
       }),

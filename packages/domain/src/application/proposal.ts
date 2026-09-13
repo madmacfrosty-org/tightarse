@@ -18,7 +18,8 @@
  */
 
 import { filterMatcher } from "../categorisation/evaluate.js";
-import { OVERRIDES, OVERRIDES_ORDER } from "../categorisation/overrides.js";
+import { OVERRIDES } from "../categorisation/overrides.js";
+import { orderedSets } from "../categorisation/adoption.js";
 import { preview } from "../categorisation/preview.js";
 import type { Preview } from "../categorisation/preview.js";
 import { RuleSet, parseRuleSets } from "../categorisation/rules.js";
@@ -152,11 +153,11 @@ function arrangementAfter(
  * that quietly went first would change what the existing ones do.
  */
 const HOUSEHOLD = { setId: "household", order: 0 } as const;
-const OVERRIDES_TARGET = { setId: OVERRIDES, order: OVERRIDES_ORDER } as const;
+const OVERRIDES_TARGET = { setId: OVERRIDES } as const;
 
 function setWith(
   before: readonly RuleSet[],
-  target: { setId: string; order: number },
+  target: { setId: string },
   added: RuleSet["rules"],
 ): RuleSet {
   const existing = before.find((s) => s.setId === target.setId);
@@ -164,7 +165,6 @@ function setWith(
     setId: target.setId,
     version: existing?.version ?? 0,
     name: existing?.name ?? target.setId,
-    order: existing?.order ?? target.order,
     authored: true,
     status: "effective",
     createdAt: existing?.createdAt ?? new Date(0).toISOString(),
@@ -250,7 +250,22 @@ export async function proposeRules(
   const after = arrangementAfter(before, sets);
   const corpus: Candidate[] = transactions.map(candidateOf);
 
-  const prediction = preview(before, after, corpus);
+  // Both arrangements go in precedence order, because `preview` applies the
+  // order it is given and reads none of its own (#121). A proposal's whole
+  // question is what changes, so the two must be ranked the same way — ordering
+  // only one of them would report a difference the rules never made.
+  //
+  // A set the proposal introduces is not adopted yet and so would not rank at
+  // all. It is appended, which is where an unranked set sits: below everything
+  // the household has decided to trust.
+  const adoptions = await deps.ruleSets.getAdoptions(tenantId);
+  const rank = (arrangement: readonly RuleSet[]): RuleSet[] => {
+    const ranked = orderedSets(adoptions, arrangement);
+    const seen = new Set(ranked.map((r) => r.setId));
+    return [...ranked, ...arrangement.filter((a) => !seen.has(a.setId))];
+  };
+
+  const prediction = preview(rank(before), rank(after), corpus);
 
   if (request.commit === "preview") return { prediction };
 

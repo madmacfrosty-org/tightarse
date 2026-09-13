@@ -31,7 +31,6 @@ const currentSet: Row = {
   setId: "household",
   version: 3,
   name: "household",
-  order: 0,
   authored: true,
   status: "effective",
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -43,7 +42,6 @@ const proposedSet = (category = "groceries"): RuleSet =>
     setId: "household",
     version: 3,
     name: "household",
-    order: 0,
     authored: true,
     status: "effective",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -77,6 +75,17 @@ const deps = (
       })),
     } as unknown as ProposalDeps["transactions"],
     ruleSets: {
+      // Precedence is the adoption list's (#121), so a fake without one
+      // categorises nothing. Every set this fake returns is adopted, in the
+      // order it returns them.
+      getAdoptions: vi.fn(async () =>
+        (over.sets ?? [currentSet]).map((set) => ({
+          owner: "t1",
+          setId: set["setId"] as string,
+          version: set["version"] as number,
+          adoptedAt: "2026-01-01T00:00:00.000Z",
+        })),
+      ),
       // Accepting points `current` at the new version, so a run after it sees
       // the accepted rules. A fake that kept returning the old ones would let
       // "applying does nothing" pass as success.
@@ -366,7 +375,6 @@ describe("building the rule from what was asked for", () => {
 
     expect(d.written[0]).toMatchObject({
       setId: "household",
-      order: 0,
       authored: true,
     });
     expect(d.written[0]!.rules.at(-1)).toMatchObject({
@@ -407,7 +415,7 @@ describe("building the rule from what was asked for", () => {
     });
   });
 
-  it("names transactions outright at override precedence, one rule each", async () => {
+  it("names transactions outright in the overrides set, one rule each", async () => {
     const d = deps();
     await proposeRules(d, "frost", {
       transactions: { dedupKeys: ["a", "b"], category: "groceries" },
@@ -417,7 +425,7 @@ describe("building the rule from what was asked for", () => {
       range: RANGE,
     });
 
-    expect(d.written[0]).toMatchObject({ setId: "overrides", order: -1 });
+    expect(d.written[0]).toMatchObject({ setId: "overrides" });
     expect(d.written[0]!.rules).toEqual([
       {
         matcher: { kind: "transaction", dedupKey: "a" },
@@ -529,7 +537,6 @@ describe("what the prediction is measured against", () => {
       ...proposedSet(),
       setId: "overrides",
       name: "overrides",
-      order: -1,
     } as typeof currentSet & RuleSet;
     const out = await proposeRules(d, "frost", {
       sets: [brandNew],

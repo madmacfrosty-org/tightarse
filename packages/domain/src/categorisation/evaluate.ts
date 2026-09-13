@@ -31,6 +31,13 @@ export type SetProblem =
 export interface SetOutcome {
   readonly setId: string;
   readonly version: number;
+  /**
+   * Where this set sat in the list it was applied in, 0 first.
+   *
+   * The position rather than a number the set carried: sets no longer carry one
+   * (#121). Assigned here because only the caller of `evaluate` knows the order,
+   * which is the point — precedence is the adoption list's, not the set's.
+   */
   readonly order: number;
   /** What this set concluded, if anything. */
   readonly category?: CategoryId | undefined;
@@ -164,7 +171,11 @@ export function matches(rule: Rule, candidate: Candidate): boolean {
  * most one category, which keeps cardinality sane and makes "what did each
  * source say" answerable.
  */
-export function foldSet(set: RuleSet, candidate: Candidate): SetOutcome {
+export function foldSet(
+  set: RuleSet,
+  candidate: Candidate,
+  order: number,
+): SetOutcome {
   const problems: SetProblem[] = [];
   let category: CategoryId | undefined;
   const asserted: CategoryId[] = [];
@@ -197,7 +208,7 @@ export function foldSet(set: RuleSet, candidate: Candidate): SetOutcome {
     return {
       setId: set.setId,
       version: set.version,
-      order: set.order,
+      order,
       problems: [{ kind: "conflict", categories: asserted }, ...problems],
     };
   }
@@ -205,48 +216,20 @@ export function foldSet(set: RuleSet, candidate: Candidate): SetOutcome {
   return {
     setId: set.setId,
     version: set.version,
-    order: set.order,
+    order,
     ...(category === undefined ? {} : { category }),
     problems,
   };
 }
 
 /**
- * Put sets in the order their precedence implies, most trusted first.
- *
- * Explicit, and separate from `evaluate`, because precedence is on its way out
- * of the set: a set shared between households sits above one tenant's rules and
- * below another's, so where it ranks belongs to the decision to use it rather
- * than to the set (#121). Ordering here means `evaluate` never has to know how
- * that decision is expressed, and a caller reading from adoptions passes an
- * ordered list without going through this at all.
- *
- * The tie-break on `setId` stays for now, and it is worth being clear about why,
- * because it is meaningless as a RANKING and load-bearing as a GUARANTEE. Two
- * sets at equal `order` is a data mistake, but the answer must not then depend
- * on the order a scan happened to return them in: the same ledger would
- * categorise differently on two runs and the history would churn. Comparing
- * names is arbitrary and stable, and stable is the part that matters.
- *
- * It has still chosen wrongly once — `provider` sorts before `from-provider`,
- * and `provider` is the id discarded at read, so the legacy set won every tie
- * and its answers were thrown away. The fix for that is not a better tie-break;
- * it is #121, where precedence is a position in an adopted list and equal ranks
- * cannot be expressed at all. This goes when that lands.
- */
-export function inPrecedenceOrder(sets: readonly RuleSet[]): RuleSet[] {
-  return [...sets].sort(
-    (a, b) => a.order - b.order || a.setId.localeCompare(b.setId),
-  );
-}
-
-/**
  * Evaluate every set, and say which answer stands.
  *
  * **Applies the sets in the order given.** The first with an answer wins, so the
- * caller decides precedence — `inPrecedenceOrder` for sets that still carry
- * their own, an adoption list once they do not. Evaluation reads no `order`
- * field of its own, so precedence can move without this function changing.
+ * caller decides precedence, and it decides it with the adoption list —
+ * `orderedSets` for a tenant's own sets, `setsInForce` where a version pin has
+ * to be honoured. Evaluation reads no `order` field of its own, because there is
+ * no longer one to read (#121).
  *
  * Precedence is data rather than load order precisely so that an imported rule
  * can never outrank a hand-written one by accident. That is now the caller's
@@ -256,7 +239,7 @@ export function evaluate(
   sets: readonly RuleSet[],
   candidate: Candidate,
 ): Evaluation {
-  const outcomes = sets.map((set) => foldSet(set, candidate));
+  const outcomes = sets.map((set, index) => foldSet(set, candidate, index));
 
   const winner = outcomes.find((o) => o.category !== undefined);
 

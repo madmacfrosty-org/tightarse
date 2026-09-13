@@ -20,7 +20,6 @@ const set = (setId: string, rules: Rule[], authored = false): RuleSet => ({
   setId,
   version: 3,
   name: setId,
-  order: authored ? 0 : 2,
   status: "effective",
   authored,
   rules,
