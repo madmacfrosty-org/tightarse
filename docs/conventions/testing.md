@@ -239,11 +239,57 @@ Starting floors, which say more about coverage than quality while coverage is
 still low:
 
 ```
-metrics    100.0     categoriser  41.0     ingest      32.9
-auth        55.5     truelayer    39.6     transform   28.4
-fixtures    35.9     api          31.7     schema      25.8
+metrics     100.0     aws      87.0     cognito   75.3     truelayer  61.6
+api-contract 92.8     dynamodb 82.5     events    72.7     steps      58.2
+domain       89.0                       schedule  64.7     http       55.9
 ```
 
-A package total is dragged down by files with no tests at all — 207 of the api's
-mutants are simply uncovered — so read the killed/survived split for quality and
-the total for a ratchet.
+A package total is dragged down by files with no tests at all — two thirds of
+`steps`' mutants are simply uncovered — so read the killed/survived split for
+quality and the total for a ratchet.
+
+`http` is the one with real slack: it scores around 79 against a floor of 55.9,
+because most of its mutants are uncovered rather than surviving. Raising it is a
+ratchet decision rather than a fix, and is not what #55 was about.
+
+### Timeouts, and why the budget matters more than it looks
+
+Stryker scores a mutant that exceeds its time budget as **detected**. That is
+right when the mutant genuinely does not terminate, and wrong in a way nothing
+reports when the budget was simply too small.
+
+The domain had 357 of them, and the score moved by nine points between this
+machine and a CI runner on identical code (#55). The cause was not slow mutants.
+`merchants.ts` is a data table imported, directly or not, by most of the suite,
+so `coverageAnalysis: perTest` finds nearly every test covering a mutant in it —
+and running nearly the whole suite for one mutant costs more than a budget sized
+for one test.
+
+Two consequences, and the second is the one that matters:
+
+- The score was **not reproducible**. Two runs on this machine, minutes apart,
+  gave 173 and 181 timeouts in one file.
+- The score was **flattered**. Those mutants counted as detected without ever
+  being tested. Raising the budget turned 181 timeouts in `merchants.ts` into
+  525 killed and **nine survived, up from four** — five real survivors had been
+  hiding inside the timeout population.
+
+So `timeoutMS: 60000` on a suite that runs in about four seconds. It is not a
+tolerance for slowness; it is room for the covering set to finish. It also made
+the run **faster** — 2m25s against 5m41s for that file — because a timeout burns
+its whole budget while a killed mutant stops at the first failing test.
+
+Sixty seconds rather than twenty because twenty is what *this* machine needs.
+Both give the identical result here, to the mutant, in the same eight minutes —
+the budget is never reached except by the two that never terminate, so raising
+it costs nothing measurable and buys headroom on a runner slower than this one.
+That headroom is the entire point: the score differing by machine is the bug.
+
+What survives the change is the population worth having: two mutants, both real
+infinite loops — an emptied `for (;;)` body, and a loop counter mutated to count
+backwards. Those hang on any machine at any budget, which is what a timeout is
+supposed to mean.
+
+`dynamodb` was the other package named in #55. It is not changed here, because
+its guard refuses to run without `LEDGER_TEST_TABLE` and a gate that cannot be
+measured should not be adjusted from a guess.

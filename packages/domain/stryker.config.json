@@ -19,10 +19,11 @@
   "thresholds": {
     "high": 90,
     "low": 70,
-    "break": 79.5
+    "break": 89.0
   },
   "tempDirName": ".stryker-tmp",
   "vitest": {
     "related": false
-  }
+  },
+  "timeoutMS": 60000
 }
