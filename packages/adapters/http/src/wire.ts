@@ -168,6 +168,14 @@ export const asAccounts = (a: AccountsResult): AccountsResponse => ({
 export const asBalances = (b: BalancesResult): BalancesResponse => ({
   range: b.range,
   points: b.points.map((p) => ({ date: p.date, net: p.net })),
+  series: b.series.map((s) => ({
+    accountId: s.accountId,
+    isCard: s.isCard,
+    // `undefined` does not survive JSON; a missing day has to be visibly
+    // missing rather than a hole in an array, or a client reading by index
+    // silently shifts every later day.
+    values: s.values.map((v) => (v === undefined ? null : v)),
+  })),
 });
 
 /**

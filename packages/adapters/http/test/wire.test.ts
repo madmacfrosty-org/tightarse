@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   asAccounts,
+  asBalances,
   asBooks,
   asTransactions,
   asSummary,
@@ -398,6 +399,41 @@ describe("the summary on the wire", () => {
  *
  * Every figure and label is invented.
  */
+describe("the balances on the wire", () => {
+  const result = {
+    range: RANGE,
+    points: [{ date: "2026-01-01", net: 450_00 }],
+    series: [
+      { accountId: "cur", isCard: false, values: [500_00] },
+      { accountId: "card", isCard: true, values: [50_00] },
+    ],
+  };
+
+  it("carries every field across, and no others", () => {
+    expect(asBalances(result as never)).toEqual(result);
+  });
+
+  it("sends a day with no data as null, not as a hole", () => {
+    // `undefined` does not survive JSON. A missing entry would shorten the
+    // array and silently shift every later day for a client reading by index.
+    const gappy = {
+      ...result,
+      series: [{ accountId: "cur", isCard: false, values: [undefined, 500_00] }],
+    } as never;
+    expect(asBalances(gappy).series[0]!.values).toEqual([null, 500_00]);
+  });
+
+  it("drops a field the domain grew that the contract never promised", () => {
+    const grown = {
+      ...result,
+      series: [{ ...result.series[0]!, openingPosition: 1, tenantId: "leaked" }],
+    } as never;
+    const out = asBalances(grown).series[0]!;
+    expect(out).not.toHaveProperty("openingPosition");
+    expect(out).not.toHaveProperty("tenantId");
+  });
+});
+
 describe("the transactions on the wire", () => {
   const row = {
     dedupKey: "d1",

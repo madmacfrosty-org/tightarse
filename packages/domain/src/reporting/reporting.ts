@@ -550,17 +550,15 @@ export async function balances(
   ]);
   const complete = completeFrom([...coverageFor(rows, all).values()]);
   const served = clampToCoverage(range, complete);
-  return {
-    range: served,
-    // The whole history, not `served`. A card's balance on a given day is what is
-    // owed today less everything since, so transactions after the requested range
-    // are load-bearing.
-    points: netPositionSeries(
-      rows.map(toAccountFacts),
-      toMovements(all),
-      daysBetween(served.from, served.to),
-    ),
-  };
+  // The whole history, not `served`. A card's balance on a given day is what is
+  // owed today less everything since, so transactions after the requested range
+  // are load-bearing.
+  const { points, series } = netPositionSeries(
+    rows.map(toAccountFacts),
+    toMovements(all),
+    daysBetween(served.from, served.to),
+  );
+  return { range: served, points, series };
 }
 
 /**

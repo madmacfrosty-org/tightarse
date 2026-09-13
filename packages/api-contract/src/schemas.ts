@@ -258,6 +258,21 @@ export const BalancePoint = z.object({
 });
 export type BalancePoint = z.infer<typeof BalancePoint>;
 
+export const AccountSeriesView = z.object({
+  accountId: z.string(),
+  isCard: z
+    .boolean()
+    .describe("Whether the values are money owed rather than money held"),
+  values: z
+    .array(minorUnits("This account's position that day").nullable())
+    .describe(
+      "Aligned to `points` by index. Null where the account has no data for that day, which is " +
+        "not the same as holding nothing — it is why a household total is clamped to where every " +
+        "account has data rather than drawn short",
+    ),
+});
+export type AccountSeriesView = z.infer<typeof AccountSeriesView>;
+
 export const BalancesResponse = z.object({
   /**
    * The range actually served, which may be narrower than the one requested.
@@ -269,6 +284,13 @@ export const BalancesResponse = z.object({
   range: DateRange,
   /** One per day across `range`, both ends inclusive. */
   points: z.array(BalancePoint),
+  series: z
+    .array(AccountSeriesView)
+    .default([])
+    .describe(
+      "Each account's own position across the same days. The figures the net is built from, " +
+        "kept rather than summed away. Defaulted, so a response from before this existed parses",
+    ),
 });
 export type BalancesResponse = z.infer<typeof BalancesResponse>;
 

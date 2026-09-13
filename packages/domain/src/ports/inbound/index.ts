@@ -16,6 +16,7 @@
 
 import type { CategoryNature } from "../../categorisation/category.js";
 import type { BookPosition } from "../../ledger/books.js";
+import type { AccountSeries } from "../../reporting/balances.js";
 import type { ConsentHealth } from "../../household/consent.js";
 import type { DateRange } from "../index.js";
 import type { AccountId } from "../../ledger/account.js";
@@ -221,6 +222,14 @@ export interface BalancesResult {
   readonly range: DateRange;
   /** One per day across `range`, both ends inclusive. */
   readonly points: readonly BalancePoint[];
+  /**
+   * Each account's own position across the same days, aligned to `points`.
+   *
+   * The figures the net is built from, kept rather than summed away. They were
+   * computed per account and immediately discarded, so "what did this account
+   * hold that day" was unanswerable while the number was right there. See #33.
+   */
+  readonly series: readonly AccountSeries[];
 }
 
 /**

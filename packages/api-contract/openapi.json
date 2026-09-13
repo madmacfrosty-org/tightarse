@@ -381,11 +381,46 @@
             "items": {
               "$ref": "#/components/schemas/BalancePoint"
             }
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AccountSeriesView"
+            },
+            "default": [],
+            "description": "Each account's own position across the same days. The figures the net is built from, kept rather than summed away. Defaulted, so a response from before this existed parses"
           }
         },
         "required": [
           "range",
           "points"
+        ],
+        "additionalProperties": false
+      },
+      "AccountSeriesView": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "isCard": {
+            "type": "boolean",
+            "description": "Whether the values are money owed rather than money held"
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "description": "This account's position that day, in integer minor units (pence). Divide by 100 for pounds.",
+              "nullable": true
+            },
+            "description": "Aligned to `points` by index. Null where the account has no data for that day, which is not the same as holding nothing — it is why a household total is clamped to where every account has data rather than drawn short"
+          }
+        },
+        "required": [
+          "accountId",
+          "isCard",
+          "values"
         ],
         "additionalProperties": false
       },

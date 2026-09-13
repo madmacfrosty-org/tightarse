@@ -226,6 +226,21 @@ export function accountSeries(
 }
 
 /**
+ * One account's position across the same days as `BalancePoint`.
+ *
+ * `values` is aligned to `points` by index, and an entry is absent where the
+ * account has no data for that day — which is not the same as holding nothing,
+ * and is why a total is clamped to where every account has data rather than
+ * drawn short. See #33.
+ */
+export interface AccountSeries {
+  readonly accountId: string;
+  /** Whether `values` is money owed rather than money held. */
+  readonly isCard: boolean;
+  readonly values: readonly (number | undefined)[];
+}
+
+/**
  * The household's net position for each day: cash less what is owed on cards.
  *
  * An account with no value for a day contributes nothing, which is only safe
@@ -238,17 +253,18 @@ export function netPositionSeries(
   accounts: readonly AccountFacts[],
   movements: readonly Movement[],
   days: readonly string[],
-): BalancePoint[] {
+): { points: BalancePoint[]; series: AccountSeries[] } {
   const byAccount = new Map<string, Movement[]>();
   for (const m of movements)
     byAccount.set(m.accountId, [...(byAccount.get(m.accountId) ?? []), m]);
 
   const series = accounts.map((a) => ({
+    accountId: a.accountId,
     isCard: a.isCard === true,
     values: accountSeries(a, byAccount.get(a.accountId) ?? [], days),
   }));
 
-  return days.map((date, d) => {
+  const points = days.map((date, d) => {
     let net = 0;
     for (const s of series) {
       const v = s.values[d];
@@ -260,6 +276,22 @@ export function netPositionSeries(
     }
     return { date, net };
   });
+
+  // The same figures the net is built from, kept rather than summed away. They
+  // were computed per account and immediately discarded, so "what did this
+  // account hold that day" was unanswerable while the number was right there.
+  //
+  // Aligned to `points` by index rather than carrying a date per value: one
+  // date per day beside five accounts is four repetitions of it, on a response
+  // already the length of the range.
+  return {
+    points,
+    series: series.map((s) => ({
+      accountId: s.accountId,
+      isCard: s.isCard,
+      values: [...s.values],
+    })),
+  };
 }
 
 /**
