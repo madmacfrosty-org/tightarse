@@ -258,7 +258,13 @@ export function seedAdoptions(
   sets: readonly { readonly setId: string; readonly version: number }[],
   now: Date,
 ): Adoptions {
-  const KNOWN = ["household", "built-in", "from-provider"];
+  // `overrides` first, and it is not a set the seed produces: it appears the
+  // moment a household corrects one transaction. Left out of this list it was
+  // treated as unrecognised and ranked LAST — exactly inverted, on the one set
+  // that names individual transactions somebody was looking at. Prod's real
+  // list is `overrides > household > built-in > from-provider`, which is what
+  // this has to reproduce.
+  const KNOWN = ["overrides", "household", "built-in", "from-provider"];
   // Anything not seeded ranks LAST, never first. `indexOf` returns -1 for an
   // unknown id, which sorts it to the most trusted position — the opposite of
   // what an unrecognised set deserves. Running the migration against a real

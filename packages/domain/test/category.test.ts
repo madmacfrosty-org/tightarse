@@ -368,6 +368,22 @@ describe("the adoption list onboarding writes", () => {
     ]);
   });
 
+  it("puts corrections above everything, including hand-written rules", () => {
+    // An override names ONE transaction, and whoever wrote it was looking at
+    // that transaction — nothing has better information. `overrides` is not a
+    // set the seed produces; it appears when a household corrects something,
+    // so leaving it out of the ranking treated it as unrecognised and put it
+    // LAST. This is the order the real ledger holds.
+    const withOverrides = [{ setId: "overrides", version: 3 }, ...sets];
+
+    expect(seedAdoptions("t1", withOverrides, NOW).map((a) => a.setId)).toEqual([
+      "overrides",
+      "household",
+      "built-in",
+      "from-provider",
+    ]);
+  });
+
   it("puts a set it does not recognise last, never first", () => {
     // The bug this pins, found by running the migration against a real table
     // rather than by any test: `indexOf` returns -1 for an unknown id, which
