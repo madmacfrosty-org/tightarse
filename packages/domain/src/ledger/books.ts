@@ -16,6 +16,7 @@
 
 import type { RecordedTransaction } from "./transaction.js";
 import type { Categorisation } from "../categorisation/categorisation.js";
+import type { TransferPair } from "./transfers.js";
 
 /**
  * A named place legs accumulate.
@@ -53,8 +54,16 @@ export interface Leg {
  * one and paying for the check on every row would buy nothing.
  */
 export interface Trade {
-  /** The transaction this arose from. Content-addressed, so it identifies it. */
-  readonly dedupKey: string;
+  /**
+   * The transactions this arose from. Content-addressed, so they identify it.
+   *
+   * Plural because a trade is one movement of money, and a movement between two
+   * accounts the household holds is reported by the bank **twice** — once in
+   * each account. Those two rows are two observations of one event, not two
+   * events, and collapsing them is what stops a transfer being counted from
+   * both ends. See `transferTrade`.
+   */
+  readonly dedupKeys: readonly string[];
   readonly legs: readonly Leg[];
 }
 
@@ -120,7 +129,7 @@ export function tradeFor(
 ): Trade {
   const appliesAt = transaction.timestamp;
   return {
-    dedupKey: transaction.dedupKey,
+    dedupKeys: [transaction.dedupKey],
     legs: [
       {
         book: transaction.accountId,
@@ -142,16 +151,64 @@ export function tradeFor(
   };
 }
 
-/** The leg that is not the bank account: the one categorising records. */
-export function categoryLeg(trade: Trade): Leg {
-  // Index 1 by construction. Named rather than indexed at the call sites, so
-  // the ordering is stated in one place instead of assumed in several.
+/**
+ * The far side of a trade.
+ *
+ * A category where a rule named one, and **the other account** where the trade
+ * is a transfer. It was called `categoryLeg` while a second book could only ever
+ * be a category; that assumption is what #74 removed.
+ *
+ * Index 1 by construction. Named rather than indexed at the call sites, so the
+ * ordering is stated in one place instead of assumed in several.
+ */
+export function otherLeg(trade: Trade): Leg {
   return trade.legs[1]!;
 }
 
 /** The leg against the bank account the money crossed. */
 export function accountLeg(trade: Trade): Leg {
   return trade.legs[0]!;
+}
+
+/**
+ * The one trade behind a transfer's two rows.
+ *
+ * A movement between two books the household holds is one event that the bank
+ * reports in both accounts. Given its own trade each, the pair contributes to
+ * every account twice, and the second leg has to be filed somewhere that cancels
+ * it back out — which is what the `Transfer` category was doing, and why
+ * detection had to be undone again in every total that consumed it.
+ *
+ * Collapsed here instead: two legs, one in each account, and no third book. A
+ * transfer is then not spending because of what it *is* rather than because
+ * something subtracted it afterwards.
+ *
+ * Each leg keeps **its own** `appliesAt`. The legs of a real transfer can be up
+ * to the pairing window apart, and each account's position moved on its own
+ * date; forcing one date on both would move money out of an account before it
+ * arrived in the other, or after.
+ */
+export function transferTrade(
+  out: RecordedTransaction,
+  into: RecordedTransaction,
+): Trade {
+  return {
+    dedupKeys: [out.dedupKey, into.dedupKey],
+    legs: [
+      {
+        book: out.accountId,
+        amount: out.amount,
+        appliesAt: out.timestamp,
+        recordedAt: out.ingestedAt,
+      },
+      {
+        book: into.accountId,
+        amount: into.amount,
+        appliesAt: into.timestamp,
+        recordedAt: into.ingestedAt,
+      },
+    ],
+  };
 }
 
 /**
@@ -165,10 +222,32 @@ export function accountLeg(trade: Trade): Leg {
 export function tradesFrom(
   transactions: readonly RecordedTransaction[],
   categorisations: ReadonlyMap<string, Categorisation>,
+  pairs: readonly TransferPair[] = [],
 ): Trade[] {
-  return transactions.map((t) =>
-    tradeFor(t, categorisations.get(t.dedupKey)),
-  );
+  const byKey = new Map(transactions.map((t) => [t.dedupKey, t]));
+
+  // A matched pair becomes one trade, and neither of its rows gets one of its
+  // own. Dropped rather than skipped-then-subtracted: a transfer that never
+  // enters a flow needs nothing taken back out of one.
+  const trades: Trade[] = [];
+  const consumed = new Set<string>();
+  for (const pair of pairs) {
+    const out = byKey.get(pair.out);
+    const into = byKey.get(pair.in);
+    // Detection may have been given a wider set than this one — a pairing needs
+    // both legs in view, so a scoped read widens by the window. A pair whose
+    // other leg lies outside `transactions` is not ours to collapse.
+    if (out === undefined || into === undefined) continue;
+    trades.push(transferTrade(out, into));
+    consumed.add(pair.out);
+    consumed.add(pair.in);
+  }
+
+  for (const t of transactions) {
+    if (consumed.has(t.dedupKey)) continue;
+    trades.push(tradeFor(t, categorisations.get(t.dedupKey)));
+  }
+  return trades;
 }
 
 /**

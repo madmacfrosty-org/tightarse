@@ -25,17 +25,22 @@ which pairs a debit in one account against a credit in another. Both sides have
 to be in the ledger. When the other side is an account we do not hold, there is
 nothing to pair with, and the money reads as gone.
 
-That detection stops being necessary. It exists because the summary adds raw
-amounts by sign rather than by book — `detectTransfers` produces a set of keys
-purely so the sum can skip them. Once money between two held accounts is legs in
-two asset books, it never enters a spending flow at all, and a heuristic that is
-deliberately conservative because "a false positive silently erases real
-spending" is replaced by the model being right.
+**Done, in #74.** What stopped being necessary is not the detection but the
+*undoing*: `detectTransfers` used to produce a set of keys purely so the sum
+could skip them. A matched pair is now collapsed into a single trade whose two
+legs name the two accounts — `transferTrade` — so money between two held accounts
+never enters a spending flow and there is nothing to take back out of one.
+Detection still does the finding; it just no longer has to be compensated for
+afterwards.
 
-The obvious remedy does not work either. `CategoryKind` exists, describes itself
-as "the only thing code may branch on… because totals depend on it", and nothing
-branches on it: `summarise` never receives the catalogue. Marking a category as a
-movement changes no figure.
+The pair had to become *one* trade rather than two. The bank reports a transfer
+twice, once in each account, and a trade each would contribute to both accounts
+twice — the same double-count that made #143 wrong by six figures.
+
+`CategoryKind` was the obvious remedy and did not work: it described itself as
+"the only thing code may branch on… because totals depend on it" while nothing
+branched on it, because `summarise` never received the catalogue. It has since
+been replaced by `nature`, which `summarise` does receive and does branch on.
 
 ## The model
 
