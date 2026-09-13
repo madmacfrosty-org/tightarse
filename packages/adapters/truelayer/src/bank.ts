@@ -73,6 +73,31 @@ export class TrueLayerBank implements BankData {
     const payloads: BankPayload[] = [];
     const skipped: string[] = [];
 
+    // Connection metadata, every run. It carries the provider's own word on
+    // when this consent lapses, and a consent row is only worth anything if it
+    // is refreshed: a lapsed consent cannot be refreshed at all, so a row that
+    // has stopped moving is the signal the feed has died. Fetched once at
+    // connect and never again, every consent would read as long dead within two
+    // days of being granted.
+    //
+    // One call per connection per run. Unattended access allows four per
+    // account, endpoint and consent per 24 hours and the sync runs daily, so
+    // this is comfortably inside it — but it is a budget, and anything that
+    // starts calling `listItems` more than once a day has to count again.
+    //
+    // Its own try, outside the resource loop: `me` is not a resource and its
+    // absence must not look like a provider offering cards and no accounts.
+    try {
+      const res = await this.client.get(accessToken, "/data/v1/me");
+      payloads.push({ dataset: "truelayer.me", itemId: null, body: res.body });
+    } catch (err) {
+      // A connection that cannot describe itself is still a connection whose
+      // transactions are worth fetching. The consent row goes stale, which is
+      // what stale is for.
+      if (!(err instanceof TrueLayerError && err.isNotApplicable)) throw err;
+      skipped.push("me");
+    }
+
     for (const resource of RESOURCES) {
       try {
         const res = await this.client.get(accessToken, `/data/v1/${resource}`);
