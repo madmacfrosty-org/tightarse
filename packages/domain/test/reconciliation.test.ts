@@ -112,8 +112,9 @@ describe("transactions that settle after a reading was taken", () => {
    * readings while their dates sat outside the window, and the alarm stayed open
    * for three days over money that was fully accounted for.
    *
-   * Dates here are after PROVENANCE_TRUSTED_FROM, because first-seen only means
-   * anything on rows written since it became write-once.
+   * What decides is `firstSeenAt` against when the older reading was fetched,
+   * which is only meaningful because that field is write-once. It has not always
+   * been; see the note in `reconciliation.ts`.
    */
   it("counts one we did not hold when the window opened", () => {
     const result = reconcileAccount(
@@ -172,10 +173,13 @@ describe("transactions that settle after a reading was taken", () => {
     expect(result.breaks[0]!.discrepancy).toBe(-56_59);
   });
 
-  it("ignores a first-seen from before the value meant first seen", () => {
-    // The regression this cost: on the day it shipped, one break became six.
-    // Every row the rolling window had re-ingested carried a last-write timestamp
-    // days after it arrived, so the whole ledger looked like it had just settled.
+  it("counts a late settler whenever it was first seen, now the field is write-once", () => {
+    // This used to be excluded by a cutoff date: `firstSeenAt` once recorded the
+    // LAST write, and the rolling window made re-ingested rows look newly
+    // settled — one break became six. The ledger was rebuilt from the raw zone,
+    // every row is write-once, and the date went with it (#70). What decides now
+    // is the only thing that ever should have: was it first seen after the
+    // reading was taken.
     const result = reconcileAccount(
       "acc-1",
       [
@@ -184,8 +188,7 @@ describe("transactions that settle after a reading was taken", () => {
       ],
       [settledLate("2026-08-15T00:00:00Z", -56_59, "2026-08-18T05:00:00.000Z")],
     );
-    expect(result.breaks).toHaveLength(1);
-    expect(result.breaks[0]!.discrepancy).toBe(-56_59);
+    expect(result.breaks).toHaveLength(0);
   });
 
   it("still catches genuinely missing money on an account with late settlers", () => {
@@ -486,39 +489,11 @@ describe("what it does with awkward input", () => {
  * the tests were green while it did.
  */
 describe("the edges of first-seen", () => {
-  const PROVENANCE_TRUSTED_FROM = "2026-08-20T07:13:00.000Z";
   const readings = [
     reading("2026-08-25T05:00:00.000Z", 100_00, "2026-08-25T06:00:00.000Z"),
     reading("2026-08-27T05:00:00.000Z", 90_00, "2026-08-27T06:00:00.000Z"),
   ];
 
-  // Fetched BEFORE the provenance instant, so that `firstSeenAt > fetchedAt`
-  // is satisfied either way and the only thing under test is the provenance
-  // comparison itself.
-  const fetchedBeforeProvenance = [
-    reading("2026-08-19T05:00:00.000Z", 100_00, "2026-08-19T06:00:00.000Z"),
-    reading("2026-08-21T05:00:00.000Z", 90_00, "2026-08-21T06:00:00.000Z"),
-  ];
-
-  it("counts a transaction first seen at the very instant provenance became trustworthy", () => {
-    // `>=`, not `>`. The first write after that instant is write-once and
-    // therefore true; excluding it would discard the earliest row the rule can
-    // legitimately use.
-    const result = reconcileAccount("acc-1", fetchedBeforeProvenance, [
-      settledLate("2026-08-18T00:00:00Z", -10_00, PROVENANCE_TRUSTED_FROM),
-    ]);
-    expect(result.breaks).toHaveLength(0);
-  });
-
-  it("ignores a transaction first seen one millisecond before it", () => {
-    // Below the instant the value records the LAST write, not the first, and
-    // the rolling ten-day refetch makes most recent rows look newly settled.
-    // Trusting those is exactly what took one break to six.
-    const result = reconcileAccount("acc-1", fetchedBeforeProvenance, [
-      settledLate("2026-08-18T00:00:00Z", -10_00, "2026-08-20T07:12:59.999Z"),
-    ]);
-    expect(result.breaks).toHaveLength(1);
-  });
 
   it("ignores a transaction first seen at the exact moment the older reading was fetched", () => {
     // `>`, not `>=`. Held at the instant the balance was taken means it was in
