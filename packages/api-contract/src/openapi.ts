@@ -23,6 +23,7 @@ import {
   // The leaf types too, for the same reason the helpers above are named.
   BookPositionView,
   BooksResponse,
+  ConsentView,
   RunningBalanceVerdict,
   DayCheck,
   SuspectTransaction,
@@ -108,6 +109,7 @@ const NAMED = {
   // become a $ref into another schema's properties, which generators reject.
   BookPositionView,
   BooksResponse,
+  ConsentView,
   RunningBalanceVerdict,
   DayCheck,
   SuspectTransaction,

@@ -215,7 +215,12 @@ describe("response envelopes", () => {
   it("wraps accounts in an object, leaving room to add to the response later", () => {
     // A bare array cannot grow a sibling field without breaking every client,
     // which matters more once one of them is installed on a phone.
-    expect(AccountsResponse.parse({ accounts: [] })).toEqual({ accounts: [] });
+    // `consents` arrived later and defaults, so a response from before it
+    // existed still parses. That is the room this envelope was left for.
+    expect(AccountsResponse.parse({ accounts: [] })).toEqual({
+      accounts: [],
+      consents: [],
+    });
     expect(AccountsResponse.safeParse([]).success).toBe(false);
   });
 });

@@ -11,6 +11,24 @@ export const TenantSettings = z.object({
   tenantId: TenantId,
   enrichment: EnrichmentMode,
   baseCurrency: Currency.default("GBP"),
+  /**
+   * How many days before a consent lapses to start saying so, and when to stop
+   * being polite about it.
+   *
+   * Defaulted rather than required, as `baseCurrency` is, so every row written
+   * before these existed reads without a migration.
+   *
+   * Thirty and ten rather than the alarm's ten alone. Renewal needs a person to
+   * sit down with three banks, so a warning that arrives with ten days left is
+   * a warning about next weekend. #69 makes the point that ten was inherited
+   * rather than chosen.
+   *
+   * **Nothing can change these yet** — `putSettings` has no caller outside
+   * tests, which is #151. Read through `getSettings` with a fallback anyway, so
+   * the day a settings screen exists these are already what it writes.
+   */
+  consentWarnDays: z.number().int().positive().default(30),
+  consentEscalateDays: z.number().int().positive().default(10),
   updatedAt: z.string().datetime(),
 });
 export type TenantSettings = z.infer<typeof TenantSettings>;

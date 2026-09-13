@@ -30,6 +30,7 @@ import type {
 } from "../index.js";
 import { Category } from "../categorisation/category.js";
 import { Categorisation } from "../categorisation/categorisation.js";
+import { Consent, consentHealth } from "../household/consent.js";
 import { parseRuleSets, type RuleSet } from "../categorisation/rules.js";
 import type { Adoptions } from "../categorisation/adoption.js";
 import type { Row } from "../ports/outbound/index.js";
@@ -446,6 +447,38 @@ export async function accounts(
     deps.ledger.listAccounts(tenantId),
     allHistory(deps, tenantId),
   ]);
+  // Read alongside, not in a second round trip: the dashboard needs both on
+  // every page and the banner has to appear with the tiles rather than after.
+  const [consentRows, settings] = await Promise.all([
+    deps.ledger.listConsents(tenantId),
+    deps.ledger.getSettings(tenantId),
+  ]);
+  const warnDays = settings?.consentWarnDays ?? 30;
+  const escalateDays = settings?.consentEscalateDays ?? 10;
+  const now = new Date();
+  const consents = consentRows
+    .map((r) => Consent.safeParse(r))
+    .flatMap((p) => (p.success ? [p.data] : []))
+    .map((c) => {
+      const { health, daysRemaining } = consentHealth(c, {
+        now,
+        warnDays,
+        escalateDays,
+      });
+      return {
+        consentId: c.consentId,
+        expiresAt: c.expiresAt,
+        providerStatus: c.providerStatus,
+        daysRemaining,
+        health,
+        ...(c.institutionName === undefined
+          ? {}
+          : { institutionName: c.institutionName }),
+      };
+    })
+    // Worst first: a screen shows the one that needs doing something about.
+    .sort((a, b) => a.daysRemaining - b.daysRemaining);
+
   const coverage = coverageFor(rows, all);
   const complete = completeFrom([...coverage.values()]);
   const movements = toMovements(all);
@@ -472,6 +505,7 @@ export async function accounts(
       };
     }),
     ...(complete !== undefined ? { completeFrom: complete } : {}),
+    consents,
   };
 }
 

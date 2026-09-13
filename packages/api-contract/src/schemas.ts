@@ -378,6 +378,26 @@ export const RunningBalanceResponse = z.object({
 });
 export type RunningBalanceResponse = z.infer<typeof RunningBalanceResponse>;
 
+export const ConsentView = z.object({
+  consentId: z.string().describe("The provider's own id for this connection"),
+  institutionName: z.string().optional(),
+  expiresAt: z.string().describe("When the provider says this consent lapses"),
+  providerStatus: z
+    .string()
+    .describe(
+      "The provider's own word for the state, shown and never branched on. Their API reference " +
+        "types it as a bare string and enumerates no values, so any list here would be a guess",
+    ),
+  daysRemaining: z.number().int(),
+  health: z
+    .enum(["ok", "warn", "escalate", "expired", "stale"])
+    .describe(
+      "Decided from the dates alone. `stale` means nothing has refreshed this row — a lapsed " +
+        "consent stops producing them, so a comfortable `expiresAt` on a frozen row is not good news",
+    ),
+});
+export type ConsentView = z.infer<typeof ConsentView>;
+
 export const AccountsResponse = z.object({
   accounts: z.array(AccountView),
   /**
@@ -397,6 +417,15 @@ export const AccountsResponse = z.object({
   completeFrom: IsoDate.optional().describe(
     "Earliest date a household total is complete; absent when unconstrained",
   ),
+  consents: z
+    .array(ConsentView)
+    .default([])
+    .describe(
+      "Each connection's consent, worst first. Served here rather than on a route of its own " +
+        "because a warning has to arrive with the page. Empty until a sync has run, which reads " +
+        "as 'nothing to say' rather than 'all well'. Defaulted, so a response from before this " +
+        "existed still parses — which is the whole reason the envelope is an object",
+    ),
 });
 export type AccountsResponse = z.infer<typeof AccountsResponse>;
 

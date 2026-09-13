@@ -112,6 +112,16 @@ export const asTransactions = (
  */
 export const asAccounts = (a: AccountsResult): AccountsResponse => ({
   ...(a.completeFrom === undefined ? {} : { completeFrom: a.completeFrom }),
+  consents: a.consents.map((c) => ({
+    consentId: c.consentId,
+    expiresAt: c.expiresAt,
+    providerStatus: c.providerStatus,
+    daysRemaining: c.daysRemaining,
+    health: c.health,
+    ...(c.institutionName === undefined
+      ? {}
+      : { institutionName: c.institutionName }),
+  })),
   accounts: a.accounts.map((x) => ({
     accountId: x.accountId,
     ...(x.displayName === undefined ? {} : { displayName: x.displayName }),

@@ -83,6 +83,10 @@ const deps: ApiDeps = {
         logged("listCategorisationHistory", () =>
           ledger.listCategorisationHistory(tenant, dedupKey),
         ),
+      listConsents: (tenant) =>
+        logged("listConsents", () => ledger.listConsents(tenant)),
+      getSettings: (tenant) =>
+        logged("getSettings", () => ledger.getSettings(tenant)),
     },
     // Its own dependency, not part of the read port: it is the one capability
     // that crosses a tenant boundary.

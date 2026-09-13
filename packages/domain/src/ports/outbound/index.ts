@@ -434,6 +434,10 @@ export interface LedgerReads extends TransactionReads {
     tenantId: string,
     dedupKey: string,
   ): Promise<Row[]>;
+  /** What the provider says about each connection's consent. */
+  listConsents(tenantId: string): Promise<Row[]>;
+  /** Household-wide choices. Null where none has ever been written. */
+  getSettings(tenantId: string): Promise<TenantSettings | null>;
   listAccounts(tenantId: string): Promise<Row[]>;
   /**
    * The rule sets, for their rules.

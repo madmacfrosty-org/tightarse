@@ -897,9 +897,9 @@ suite("control plane: settings, consents and the legacy rules row", () => {
       baseCurrency: "GBP",
       updatedAt: "2026-08-18T00:00:00Z",
     };
-    await store.putSettings({ ...settings, enrichment: "off" });
+    await store.putSettings({ ...settings, enrichment: "off" } as never);
     expect((await store.getSettings(TENANT))?.enrichment).toBe("off");
-    await store.putSettings({ ...settings, enrichment: "rules" });
+    await store.putSettings({ ...settings, enrichment: "rules" } as never);
     expect((await store.getSettings(TENANT))?.enrichment).toBe("rules");
   });
 

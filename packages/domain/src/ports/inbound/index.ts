@@ -16,6 +16,7 @@
 
 import type { CategoryNature } from "../../categorisation/category.js";
 import type { BookPosition } from "../../ledger/books.js";
+import type { ConsentHealth } from "../../household/consent.js";
 import type { DateRange } from "../index.js";
 import type { AccountId } from "../../ledger/account.js";
 import type { DescriptionSummary, Recurrence } from "../../categorisation/corpus.js";
@@ -165,6 +166,17 @@ export interface TransactionsResult {
   readonly transactions: readonly CategorisedTransaction[];
 }
 
+/** One connection's consent, judged. */
+export interface ConsentView {
+  readonly consentId: string;
+  readonly institutionName?: string | undefined;
+  readonly expiresAt: string;
+  /** The provider's own word, shown and never branched on. */
+  readonly providerStatus: string;
+  readonly daysRemaining: number;
+  readonly health: ConsentHealth;
+}
+
 /** Every account the household holds, with its latest known state. */
 export interface AccountsResult {
   readonly accounts: readonly AccountState[];
@@ -177,6 +189,15 @@ export interface AccountsResult {
    * wrong the first time a new account is opened.
    */
   readonly completeFrom?: string | undefined;
+  /**
+   * Each connection's consent, worst first.
+   *
+   * Here rather than on a route of its own because a warning has to appear with
+   * the page, not after a second request — and the dashboard already fetches
+   * this one. Empty until a sync has run, which is a real state and reads as
+   * "nothing to say" rather than "all well".
+   */
+  readonly consents: readonly ConsentView[];
 }
 
 /** Balances over time: one series per account, plus the household's net position. */

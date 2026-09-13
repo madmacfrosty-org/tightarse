@@ -56,3 +56,36 @@ export const Consent = z.object({
   fetchedAt: z.string(),
 });
 export type Consent = z.infer<typeof Consent>;
+
+/** How a consent is doing, decided from its dates and nothing else. */
+export type ConsentHealth = "ok" | "warn" | "escalate" | "expired" | "stale";
+
+/**
+ * What to make of a consent row.
+ *
+ * From the dates alone. The provider's status is carried for a reader to see
+ * and decides nothing — see `Consent.providerStatus`.
+ *
+ * `stale` is the case that is easy to miss and the reason it is here. A lapsed
+ * consent cannot be refreshed, so it stops producing rows: the row does not
+ * turn bad, it stops moving. A reader that looked only at `expiresAt` would go
+ * on showing a comfortable number about a feed that died weeks ago.
+ */
+export function consentHealth(
+  consent: Pick<Consent, "expiresAt" | "fetchedAt">,
+  opts: { now: Date; warnDays: number; escalateDays: number; staleAfterDays?: number },
+): { health: ConsentHealth; daysRemaining: number } {
+  const day = 864e5;
+  const daysRemaining = Math.floor(
+    (Date.parse(consent.expiresAt) - opts.now.getTime()) / day,
+  );
+  const sinceSeen = (opts.now.getTime() - Date.parse(consent.fetchedAt)) / day;
+  // Two days: the sync runs daily, so one missed run is a blip and two is a
+  // pattern. Deliberately shorter than any warning threshold — a feed that has
+  // stopped is already the thing being warned about.
+  if (sinceSeen > (opts.staleAfterDays ?? 2)) return { health: "stale", daysRemaining };
+  if (daysRemaining < 0) return { health: "expired", daysRemaining };
+  if (daysRemaining <= opts.escalateDays) return { health: "escalate", daysRemaining };
+  if (daysRemaining <= opts.warnDays) return { health: "warn", daysRemaining };
+  return { health: "ok", daysRemaining };
+}

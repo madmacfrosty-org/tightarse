@@ -5,12 +5,14 @@ import { Diagnostics } from "./Diagnostics";
 import { ConnectBank, Connected } from "./Connect";
 import { BalanceLine, CategoryBars, MonthlyFlow, money } from "./charts";
 import { Books } from "./Books";
+import { ConsentNotice } from "./ConsentNotice";
 import { netPosition, rangeFor, tileBalance } from "./positions";
 import {
   pathFor,
   type AccountView,
   type BalancesResponse,
   type BooksResponse,
+  type ConsentView,
   type Summary,
   type TransactionView,
 } from "@tightarse/api-contract";
@@ -79,6 +81,7 @@ export function App({ session, api }: { session: Session; api: Api }) {
   const [txns, setTxns] = useState<TransactionView[]>([]);
   const [balances, setBalances] = useState<BalancesResponse | null>(null);
   const [books, setBooks] = useState<BooksResponse | null>(null);
+  const [consents, setConsents] = useState<ConsentView[]>([]);
   // Range-independent, so it survives a range change and is known before "All
   // time" can be chosen. That is what lets that option ask for the window
   // itself rather than for everything and hoping the server trims it.
@@ -117,7 +120,7 @@ export function App({ session, api }: { session: Session; api: Api }) {
     setShown(PAGE);
     Promise.all([
       api.get<Summary>(`${pathFor("/summary")}${q}`),
-      api.get<{ accounts: AccountView[]; completeFrom?: string }>(pathFor("/accounts")),
+      api.get<{ accounts: AccountView[]; completeFrom?: string; consents?: ConsentView[] }>(pathFor("/accounts")),
       // No `limit`: the API has never honoured one (#28), so asking for 60 and
       // rendering everything in range is what has always happened. A limit
       // without a cursor truncates rather than paginates — it hides rows with
@@ -132,6 +135,7 @@ export function App({ session, api }: { session: Session; api: Api }) {
       .then(([s, a, t, b, bk]) => {
         setSummary(s);
         setAccounts(a.accounts ?? []);
+        setConsents(a.consents ?? []);
         setTxns(t.transactions ?? []);
         setBalances(b);
         setBooks(bk);
@@ -207,6 +211,13 @@ export function App({ session, api }: { session: Session; api: Api }) {
           ))}
         </div>
       </header>
+
+      {/*
+        Said before anything else, because it has a deadline and the numbers do
+        not. Consent lapses every ninety days and nothing renews it; if the feed
+        stops, every figure below goes quietly stale and still looks fine.
+      */}
+      <ConsentNotice consents={consents} />
 
       {/* The one number the dashboard leads with — a hero figure, not a chart. */}
       <div className="card">

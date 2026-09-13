@@ -34,6 +34,8 @@ const deps: ApiDeps = {
       listAccounts,
       listRuleSets,
       listCategorisationHistory: vi.fn(async () => []),
+      listConsents: vi.fn(async () => []),
+      getSettings: vi.fn(async () => null),
       getAdoptions: vi.fn(async () => []),
       listCategories,
     },
@@ -578,7 +580,7 @@ describe("routing, against the application rather than through it", () => {
     },
     accounts: async () => {
       called.push("accounts");
-      return { accounts: [] };
+      return { accounts: [], consents: [] };
     },
     balances: async (_t, range) => {
       called.push("balances");
@@ -622,7 +624,7 @@ describe("routing, against the application rather than through it", () => {
           ...fake,
           accounts: async (t) => {
             seen = t;
-            return { accounts: [] };
+            return { accounts: [], consents: [] };
           },
         },
       },
@@ -680,7 +682,7 @@ describe("events that are not shaped as expected", () => {
           range: { from: "", to: "" },
           transactions: [],
         }),
-        accounts: async () => ({ accounts: [] }),
+        accounts: async () => ({ accounts: [], consents: [] }),
         balances: async () => ({ range: { from: "", to: "" }, points: [] }),
       },
     };
@@ -924,7 +926,7 @@ describe("asking what the summary said at a past moment", () => {
       },
       transactions: async (_t, range) => ({ range, transactions: [] }),
       categories: async () => ({ categories: [] }),
-      accounts: async () => ({ accounts: [] }),
+      accounts: async () => ({ accounts: [], consents: [] }),
       balances: async (_t, range) => ({ range, points: [] }),
       runningBalanceCheck: async () => ({
         verdict: "insufficient" as const,
