@@ -1,12 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   OVERRIDES,
-  OVERRIDES_ORDER,
   overrideRule,
   overridesSet,
   reviewOverrides,
 } from "../src/categorisation/overrides.js";
-import { evaluate, inPrecedenceOrder } from "../src/categorisation/evaluate.js";
+import { evaluate } from "../src/categorisation/evaluate.js";
 import type { Rule, RuleSet } from "../src/categorisation/rules.js";
 import type { Candidate } from "../src/categorisation/taxonomy.js";
 
@@ -39,14 +38,12 @@ const asserts = (pattern: string, category: string): Rule => ({
 
 const set = (
   setId: string,
-  order: number,
   rules: Rule[],
   authored = false,
 ): RuleSet => ({
   setId,
   version: 1,
   name: setId,
-  order,
   authored,
   status: "effective",
   rules,
@@ -54,18 +51,20 @@ const set = (
 });
 
 const withOverrides = (rules: Rule[]) =>
-  set(OVERRIDES, OVERRIDES_ORDER, rules, true);
+  set(OVERRIDES, rules, true);
 
 describe("an override as a rule", () => {
   it("outranks a hand-written merchant rule", () => {
     // It is about ONE transaction, and whoever wrote it was looking at that
     // transaction. Nothing has better information.
+    // Corrections first: precedence is the caller's statement now, not a
+    // number sorted out of the sets (#121).
     const sets = [
-      set("household", 0, [asserts("somemart", "groceries")], true),
       withOverrides([overrideRule("d1", "fuel")]),
+      set("household", [asserts("somemart", "groceries")], true),
     ];
     expect(
-      evaluate(inPrecedenceOrder(sets), tx("d1", "SOMEMART FORECOURT"))
+      evaluate(sets, tx("d1", "SOMEMART FORECOURT"))
         .effective,
     ).toMatchObject({
       setId: OVERRIDES,
@@ -89,7 +88,7 @@ describe("an override as a rule", () => {
     ).toBeUndefined();
   });
 
-  it("starts a first set that is authored and outranks everything", () => {
+  it("starts a first set that is authored", () => {
     const first = overridesSet([], NOW);
     expect(first).toMatchObject({
       setId: OVERRIDES,
@@ -97,7 +96,6 @@ describe("an override as a rule", () => {
       version: 0,
       rules: [],
     });
-    expect(first.order).toBeLessThan(0);
   });
 
   it("returns the existing set rather than a fresh one", () => {
@@ -113,7 +111,7 @@ describe("an override as a rule", () => {
 });
 
 describe("reviewing overrides", () => {
-  const builtIn = set("built-in", 2, [
+  const builtIn = set("built-in", [
     asserts("somemart", "groceries"),
     asserts("forecourt", "fuel"),
   ]);
@@ -183,12 +181,7 @@ describe("reviewing overrides", () => {
   it("ignores a rule in the overrides set that names no transaction", () => {
     // Only a transaction matcher is an override. Anything else in there is
     // somebody using the set for something it is not for.
-    const odd = set(
-      OVERRIDES,
-      OVERRIDES_ORDER,
-      [asserts("somemart", "shopping")],
-      true,
-    );
+    const odd = set(OVERRIDES, [asserts("somemart", "shopping")], true);
     const review = reviewOverrides([odd, builtIn], [tx("d1", "SOMEMART")]);
     expect(review).toMatchObject({ total: 1, redundant: [], contradicted: [] });
   });

@@ -17,7 +17,7 @@
  * transaction. Nothing has better information.
  */
 
-import { evaluate, inPrecedenceOrder } from "./evaluate.js";
+import { evaluate } from "./evaluate.js";
 import type { Rule, RuleSet } from "./rules.js";
 import type { Candidate } from "./taxonomy.js";
 import type { CategoryId } from "./category.js";
@@ -30,7 +30,6 @@ export const OVERRIDES = "overrides";
  * Negative rather than renumbering everything below it: `order` is data that
  * stored rules reference, and shifting it is a migration for no gain.
  */
-export const OVERRIDES_ORDER = -1;
 
 /** The set an override lives in, or the shape a first one takes. */
 export function overridesSet(sets: readonly RuleSet[], now: Date): RuleSet {
@@ -40,7 +39,6 @@ export function overridesSet(sets: readonly RuleSet[], now: Date): RuleSet {
     setId: OVERRIDES,
     version: 0,
     name: "Corrections",
-    order: OVERRIDES_ORDER,
     // Never regenerated. Along with the household's rules, the only data here
     // that cannot be rebuilt.
     authored: true,
@@ -141,7 +139,7 @@ export function reviewOverrides(
       continue;
     }
 
-    const effective = evaluate(inPrecedenceOrder(without), candidate).effective;
+    const effective = evaluate(without, candidate).effective;
     if (effective === undefined) continue;
 
     if (effective.category === rule.contributes.category) {

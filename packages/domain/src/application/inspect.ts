@@ -19,7 +19,8 @@ import type {
   DescriptionSummary,
   Sighting,
 } from "../categorisation/corpus.js";
-import { evaluate, inPrecedenceOrder } from "../categorisation/evaluate.js";
+import { evaluate } from "../categorisation/evaluate.js";
+import { orderedSets } from "../categorisation/adoption.js";
 import { gatherEvidence } from "../categorisation/evidence.js";
 import type { Conflict, Gap } from "../categorisation/evidence.js";
 import { parseRuleSets } from "../categorisation/rules.js";
@@ -46,16 +47,19 @@ export async function backlog(
   tenantId: string,
   range: DateRange,
 ): Promise<Backlog> {
-  const [{ transactions }, setRows] = await Promise.all([
+  const [{ transactions }, setRows, adoptions] = await Promise.all([
     deps.transactions.listRange(tenantId, range),
     deps.ruleSets.listRuleSets(tenantId),
+    deps.ruleSets.getAdoptions(tenantId),
   ]);
-  const sets = parseRuleSets(setRows);
+  // Ordered once, by the adoption list, rather than per row. See `orderedSets`
+  // for what a tenant that has adopted nothing gets, which is nothing.
+  const sets = orderedSets(adoptions, parseRuleSets(setRows));
 
   const sightings: Sighting[] = [];
   for (const row of transactions) {
     const candidate = candidateOf(row);
-    const category = evaluate(inPrecedenceOrder(sets), candidate).effective
+    const category = evaluate(sets, candidate).effective
       ?.category;
     sightings.push({
       description: candidate.description,

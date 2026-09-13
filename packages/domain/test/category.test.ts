@@ -7,8 +7,7 @@ import {
   resolveCategory,
 } from "../src/categorisation/category.js";
 import {
-  BUILT_IN_ORDER,
-  HOUSEHOLD_ORDER,
+  seedAdoptions,
   SEED_CATEGORIES,
   seedRuleSets,
   slugFor,
@@ -236,15 +235,34 @@ describe("seeding the rules in service today", () => {
     // re-application must never regenerate it.
     const sets = seedRuleSets({ now: NOW, custom });
     const household = sets.find((s) => s.setId === "household");
-    expect(household?.order).toBe(HOUSEHOLD_ORDER);
     expect(household?.authored).toBe(true);
-    expect(HOUSEHOLD_ORDER).toBeLessThan(BUILT_IN_ORDER);
+
+    // Precedence is the adoption list's position, not a number on the set
+    // (#121). Hand-written rules outrank the shipped patterns, which outrank
+    // the provider's own labels.
+    expect(seedAdoptions("t1", sets, NOW).map((a) => a.setId)).toEqual([
+      "household",
+      "built-in",
+      "from-provider",
+    ]);
   });
 
-  it("leaves a gap in the ordering for rules proposed for review", () => {
-    // `assisted` belongs between household and built-in. Renumbering a set
-    // after rules reference it is the churn explicit ordering exists to avoid.
-    expect(BUILT_IN_ORDER - HOUSEHOLD_ORDER).toBeGreaterThan(1);
+  it("can take a set between two others without renumbering either", () => {
+    // `assisted` — rules proposed for review — belongs between household and
+    // built-in. The seed used to leave a numeric gap for it, because
+    // renumbering a set after rules reference it is the churn explicit
+    // ordering exists to avoid. A list needs no gap: inserting is a splice,
+    // and the entries either side are untouched (#121).
+    const adopted = seedAdoptions("t1", seedRuleSets({ now: NOW, custom }), NOW);
+    const assisted = { ...adopted[0]!, setId: "assisted" };
+    const withAssisted = [adopted[0]!, assisted, ...adopted.slice(1)];
+
+    expect(withAssisted.map((a) => a.setId)).toEqual([
+      "household",
+      "assisted",
+      "built-in",
+      "from-provider",
+    ]);
   });
 
   it("writes no household set when the household has no rules of its own", () => {

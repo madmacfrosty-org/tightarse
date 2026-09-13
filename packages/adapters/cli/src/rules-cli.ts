@@ -24,12 +24,12 @@ import { DynamoStore } from "@tightarse/dynamodb";
 import {
   decide,
   evaluate,
+  orderedSets,
   overrideRule,
   overridesSet,
   propose,
   RuleSet,
   type Rule,
-  inPrecedenceOrder,
 } from "@tightarse/domain";
 
 const usage = `usage:
@@ -51,7 +51,6 @@ function householdSet(sets: readonly RuleSet[]): RuleSet {
     setId: HOUSEHOLD,
     version: 0,
     name: "Hand-written",
-    order: 0,
     // Above everything shipped, and never regenerated: these are the only rules
     // here that cannot be rebuilt from code.
     authored: true,
@@ -84,6 +83,11 @@ async function main(): Promise<void> {
   const sets = (await ledger.listRuleSets(tenantId)).map((r) =>
     RuleSet.parse(r),
   );
+  // Precedence is the adoption list's, not the set's (#121). Read once here so
+  // `test` folds through exactly the order the ledger categorises in — a
+  // command that ranks them its own way tells you one thing and the ledger does
+  // another.
+  const adopted = orderedSets(await ledger.getAdoptions(tenantId), sets);
   const household = householdSet(sets);
 
   /** Record the change, and publish it unless asked to hold. */
@@ -204,7 +208,7 @@ async function main(): Promise<void> {
       if (!a) throw new Error(usage);
       // Through the real fold, over the real sets. A private copy of matching
       // is how a command tells you one thing and the ledger does another.
-      const result = evaluate(inPrecedenceOrder(sets), {
+      const result = evaluate(adopted, {
         dedupKey: "test",
         description: a,
         amount: -10_00,

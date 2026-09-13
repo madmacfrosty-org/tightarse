@@ -16,7 +16,7 @@
  * Pure. The corpus arrives as an argument, and nothing here writes.
  */
 
-import { evaluate, inPrecedenceOrder } from "./evaluate.js";
+import { evaluate } from "./evaluate.js";
 import type { RuleSet } from "./rules.js";
 import type { CategoryId } from "./category.js";
 import type { Candidate } from "./taxonomy.js";
@@ -168,8 +168,8 @@ export function preview(
   >();
 
   for (const candidate of corpus) {
-    const was = evaluate(inPrecedenceOrder(before), candidate);
-    const now = evaluate(inPrecedenceOrder(after), candidate);
+    const was = evaluate(before, candidate);
+    const now = evaluate(after, candidate);
     const from = was.effective?.category;
     const to = now.effective?.category;
     const change: Change = {

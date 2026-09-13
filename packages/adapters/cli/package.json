@@ -16,7 +16,8 @@
     "categorise": "tsx src/categorise-cli.ts",
     "optimise": "tsx src/optimise-cli.ts",
     "rules": "tsx src/rules-cli.ts",
-    "seed": "tsx src/seed-cli.ts"
+    "seed": "tsx src/seed-cli.ts",
+    "adopt": "tsx src/adopt-cli.ts"
   },
   "dependencies": {
     "@tightarse/domain": "*",

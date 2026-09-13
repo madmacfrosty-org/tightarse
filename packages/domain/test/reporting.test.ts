@@ -87,12 +87,13 @@ describe("which sets a report uses", () => {
     listRuleSets.mockResolvedValue([]);
   });
 
-  it("reads the tenant's own sets when it has adopted nothing", async () => {
-    // Every tenant today. The fallback exists so both forms coexist without a
-    // data migration, and goes when every tenant has a list.
+  it("uses no sets at all when a tenant has adopted nothing", async () => {
+    // The fallback to the sets' own `order` went with the field (#121). There
+    // is nothing left to rank a tenant's sets by, so an un-onboarded tenant
+    // reads none — visibly uncategorised rather than categorised by whatever
+    // order a scan returned.
     await summary(deps, "frost", { from: "2026-01-01", to: "2026-12-31" });
 
-    expect(listRuleSets).toHaveBeenCalledWith("frost");
     expect(getRuleSetVersion).not.toHaveBeenCalled();
   });
 

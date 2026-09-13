@@ -27,11 +27,10 @@ const asserts = (pattern: string, category: string): Rule => ({
   appliesTo: "debits",
 });
 
-const set = (setId: string, rules: Rule[], order = 2): RuleSet => ({
+const set = (setId: string, rules: Rule[]): RuleSet => ({
   setId,
   version: 1,
   name: setId,
-  order,
   authored: false,
   status: "effective",
   rules,

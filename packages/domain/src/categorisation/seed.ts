@@ -82,24 +82,24 @@ export const SEED_CATEGORIES: readonly Category[] = CATEGORIES.map((label) => ({
  * evaluation surface. The household's own become `household`, above them,
  * because a hand-written rule must never be outranked by one we shipped.
  *
- * Precedence runs low to high:
+ * Precedence is a position in the adopted list, most trusted first:
  *
- *   0  household   hand-written, authored, never regenerated
- *   2  built-in    shipped patterns
- *   3  provider    the provider's own transaction type
+ *   household      hand-written, authored, never regenerated
+ *   built-in       shipped patterns
+ *   from-provider  the provider's own transaction type
  *
- * 1 is left free deliberately: `assisted` — rules proposed for review — belongs
- * between the two, and renumbering a set after rules reference it is exactly the
- * churn explicit ordering exists to avoid.
+ * It is no longer a number on the set. A set shared between households sits
+ * above one tenant's rules and below another's, so the rank belongs to the
+ * decision to use it rather than to the thing used (#121). `seedAdoptions`
+ * writes that decision, and inserting `assisted` between two of these is now
+ * a splice rather than a renumbering.
  */
 
 import { PROVIDER_RULES, RULES } from "./merchant-rules.js";
 import type { CustomRule } from "./enrichment.js";
 import type { Rule, RuleSet } from "./rules.js";
+import type { Adoptions } from "./adoption.js";
 
-export const HOUSEHOLD_ORDER = 0;
-export const BUILT_IN_ORDER = 2;
-export const PROVIDER_ORDER = 3;
 
 /**
  * A shipped merchant pattern, as a rule.
@@ -191,7 +191,6 @@ export function seedRuleSets(options: SeedOptions): RuleSet[] {
       setId: "built-in",
       version: 1,
       name: "Shipped patterns",
-      order: BUILT_IN_ORDER,
       authored: false,
       status: "proposed" as const,
       rules: builtInRules(),
@@ -211,7 +210,6 @@ export function seedRuleSets(options: SeedOptions): RuleSet[] {
       setId: "from-provider",
       version: 1,
       name: "Categories from the provider's own labels",
-      order: PROVIDER_ORDER,
       authored: false,
       status: "proposed" as const,
       rules: providerRules(),
@@ -225,7 +223,6 @@ export function seedRuleSets(options: SeedOptions): RuleSet[] {
       setId: "household",
       version: 1,
       name: "Hand-written",
-      order: HOUSEHOLD_ORDER,
       // Authored: re-application never regenerates it. These are the only rules
       // here that cannot be rebuilt from code.
       authored: true,
@@ -236,4 +233,38 @@ export function seedRuleSets(options: SeedOptions): RuleSet[] {
   }
 
   return sets;
+}
+
+/**
+ * The adoption list a newly onboarded tenant gets.
+ *
+ * Onboarding has to write this. Precedence left the set in #121, so a tenant
+ * without a list adopts nothing and nothing categorises — `orderedSets` returns
+ * none rather than guessing an order, and this is the function that stops that
+ * being the state a new household starts in.
+ *
+ * Ordered most trusted first, and the order is the whole meaning: hand-written
+ * rules outrank shipped patterns, which outrank the provider's own labels. It
+ * is derived from the sets rather than written out, so a set that seeding did
+ * not produce — `household`, when a tenant has no custom rules — cannot be
+ * adopted by a list that names it anyway.
+ *
+ * Each tenant owns its own seeded sets, so `owner` is the tenant itself. A set
+ * from the shared catalogue is adopted by the same mechanism with a different
+ * owner; nothing here is special-cased for it.
+ */
+export function seedAdoptions(
+  tenantId: string,
+  sets: readonly { readonly setId: string; readonly version: number }[],
+  now: Date,
+): Adoptions {
+  const rank = ["household", "built-in", "from-provider"];
+  return [...sets]
+    .sort((a, b) => rank.indexOf(a.setId) - rank.indexOf(b.setId))
+    .map((set) => ({
+      owner: tenantId,
+      setId: set.setId,
+      version: set.version,
+      adoptedAt: now.toISOString(),
+    }));
 }

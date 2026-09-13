@@ -32,13 +32,13 @@ import { Category } from "../categorisation/category.js";
 import { Categorisation } from "../categorisation/categorisation.js";
 import { DEFAULT_WINDOW_DAYS, detectTransfers } from "../ledger/transfers.js";
 import { Consent, consentHealth } from "../household/consent.js";
-import { parseRuleSets, type RuleSet } from "../categorisation/rules.js";
+import { type RuleSet } from "../categorisation/rules.js";
 import type { Adoptions } from "../categorisation/adoption.js";
 import type { Row } from "../ports/outbound/index.js";
 import type { SetOrder } from "../categorisation/resolve.js";
 import { filterMatcher, matchesMatcher } from "../categorisation/evaluate.js";
 import { candidateOf } from "../application/candidate.js";
-import { effectiveCategories, precedenceFor } from "./categories.js";
+import { effectiveCategories } from "./categories.js";
 import { mergeCategories, summarise, toAccountState } from "./summary.js";
 import type { RecordedTransaction } from "../ledger/transaction.js";
 import {
@@ -90,10 +90,10 @@ export type Range = DateRange;
  * version. The sets come back in adoption order, so precedence is the order of
  * the list and nothing has to be ranked afterwards.
  *
- * **Fallback:** a tenant that has adopted nothing gets its own current sets,
- * ranked by the `order` they carry. That is every tenant today. It exists so
- * both forms can coexist without a data migration (#121) and goes when every
- * tenant has a list.
+ * **A tenant that has adopted nothing gets nothing.** The fallback that ranked
+ * a tenant's own sets by an `order` they carried is gone with the field (#121).
+ * Leaving it would have been worse than removing it: it returned every set with
+ * an empty precedence, so the sets were read and then ranked by nothing.
  *
  * An adoption naming a set that cannot be read is skipped rather than fatal. A
  * catalogue could retire a version, and a household losing one adopted set
@@ -101,17 +101,8 @@ export type Range = DateRange;
  */
 async function setsInForce(
   deps: Deps,
-  tenantId: string,
   adoptions: Adoptions,
 ): Promise<{ sets: RuleSet[]; precedence: SetOrder[] }> {
-  if (adoptions.length === 0) {
-    const rows = await deps.ledger.listRuleSets(tenantId);
-    return {
-      sets: parseRuleSets(rows),
-      precedence: precedenceFor([], rows),
-    };
-  }
-
   const fetched = await Promise.all(
     adoptions.map((a) =>
       deps.shared.getRuleSetVersion(a.owner, a.setId, a.version),
@@ -276,7 +267,7 @@ export async function summary(
       deps.ledger.getAdoptions(tenantId),
       deps.ledger.listCategories(tenantId),
     ]);
-  const { precedence } = await setsInForce(deps, tenantId, adoptions);
+  const { precedence } = await setsInForce(deps, adoptions);
   // The catalogue, so a book's `nature` can be read. #109: this argument not
   // existing is the whole of why `kind` claimed totals depended on it while
   // nothing branched on it.
@@ -329,7 +320,7 @@ export async function transactions(
       deps.ledger.getAdoptions(tenantId),
       deps.ledger.listAccounts(tenantId),
     ]);
-  const { precedence } = await setsInForce(deps, tenantId, adoptions);
+  const { precedence } = await setsInForce(deps, adoptions);
 
   // The position after each transaction, per account. `positionAtEach` needs the
   // account's own facts: a card is anchored on what is owed, a current account

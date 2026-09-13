@@ -22,7 +22,6 @@ const sets: RuleSet[] = [
     setId: "built-in",
     version: 4,
     name: "built-in",
-    order: 2,
     authored: false,
     status: "effective",
     rules: [rule("somemart", "groceries"), rule("MOTO |SHELL", "fuel")],

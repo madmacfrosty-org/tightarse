@@ -6,7 +6,6 @@ import {
   literalMatcher,
   matches,
   matchesMatcher,
-  inPrecedenceOrder,
 } from "../src/categorisation/evaluate.js";
 import { Matcher } from "../src/categorisation/rules.js";
 import type { Rule, RuleSet } from "../src/categorisation/rules.js";
@@ -44,7 +43,7 @@ const rule = (
 });
 
 const set = (
-  over: Partial<RuleSet> & { setId: string; order: number; rules: Rule[] },
+  over: Partial<RuleSet> & { setId: string; rules: Rule[] },
 ): RuleSet => ({
   version: 1,
   name: over.setId,
@@ -134,13 +133,12 @@ describe("folding one set", () => {
     // established.
     const s = set({
       setId: "built-in",
-      order: 2,
       rules: [
         rule(merchant("somemart"), asserts("groceries")),
         rule(merchant("forecourt"), refines("fuel")),
       ],
     });
-    const out = foldSet(s, candidate());
+    const out = foldSet(s, candidate(), 0);
     expect(out.category).toBe("fuel");
     expect(out.problems).toEqual([]);
   });
@@ -148,14 +146,13 @@ describe("folding one set", () => {
   it("leaves a plain supermarket purchase alone", () => {
     const s = set({
       setId: "built-in",
-      order: 2,
       rules: [
         rule(merchant("somemart"), asserts("groceries")),
         rule(merchant("forecourt"), refines("fuel")),
       ],
     });
     expect(
-      foldSet(s, candidate({ description: "SOMEMART SUPERSTORE 42" })).category,
+      foldSet(s, candidate({ description: "SOMEMART SUPERSTORE 42" }), 0).category,
     ).toBe("groceries");
   });
 
@@ -166,13 +163,12 @@ describe("folding one set", () => {
       rule(merchant("."), refines("fuel")),
     ];
     expect(
-      foldSet(set({ setId: "s", order: 1, rules }), candidate()).category,
+      foldSet(set({ setId: "s", rules }), candidate(), 0).category,
     ).toBe("fuel");
     expect(
       foldSet(
-        set({ setId: "s", order: 1, rules: [...rules].reverse() }),
-        candidate(),
-      ).category,
+        set({ setId: "s", rules: [...rules].reverse() }),
+        candidate(), 0).category,
     ).toBe("groceries");
   });
 
@@ -182,16 +178,15 @@ describe("folding one set", () => {
     // identified as a fuel purchase.
     const s = set({
       setId: "built-in",
-      order: 2,
       rules: [rule(merchant("forecourt"), refines("fuel"))],
     });
     // toStrictEqual, so the absent key stays absent: a set that concluded
     // nothing must not report a category of undefined, which reads as an answer
     // to anything checking whether the key is there.
-    expect(foldSet(s, candidate())).toStrictEqual({
+    expect(foldSet(s, candidate(), 0)).toStrictEqual({
       setId: "built-in",
       version: 1,
-      order: 2,
+      order: 0,
       problems: [{ kind: "inertRefine", category: "fuel" }],
     });
   });
@@ -201,13 +196,12 @@ describe("folding one set", () => {
     // nothing usable. This is the signal first-match-wins could not give.
     const s = set({
       setId: "household",
-      order: 0,
       rules: [
         rule(merchant("somemart"), asserts("groceries")),
         rule(merchant("forecourt"), asserts("fuel")),
       ],
     });
-    const out = foldSet(s, candidate());
+    const out = foldSet(s, candidate(), 0);
     expect(out.category).toBeUndefined();
     expect(out.problems).toEqual([
       { kind: "conflict", categories: ["groceries", "fuel"] },
@@ -217,38 +211,34 @@ describe("folding one set", () => {
   it("does not call one assert and one refine a conflict", () => {
     const s = set({
       setId: "built-in",
-      order: 2,
       rules: [
         rule(merchant("somemart"), asserts("groceries")),
         rule(merchant("forecourt"), refines("fuel")),
       ],
     });
-    expect(foldSet(s, candidate()).problems).toEqual([]);
+    expect(foldSet(s, candidate(), 0).problems).toEqual([]);
   });
 });
 
 describe("across sets", () => {
   const household = set({
     setId: "household",
-    order: 0,
     authored: true,
     rules: [rule(merchant("nowhere-at-all"), asserts("shopping"))],
   });
   const builtIn = set({
     setId: "built-in",
-    order: 2,
     rules: [rule(merchant("somemart"), asserts("groceries"))],
   });
 
-  it("takes the answer from the lowest order that produced one", () => {
+  it("takes the answer from the first set that produced one", () => {
     const withHousehold = set({
       ...household,
       rules: [rule(merchant("somemart"), asserts("shopping"))],
     });
-    const out = evaluate(
-      inPrecedenceOrder([builtIn, withHousehold]),
-      candidate(),
-    );
+    // Precedence is the caller's, so the list is already in it. There is no
+    // order field to sort by any more (#121).
+    const out = evaluate([withHousehold, builtIn], candidate());
     expect(out.effective).toEqual({
       setId: "household",
       version: 1,
@@ -284,35 +274,17 @@ describe("across sets", () => {
     expect(out.sets.map((s) => s.setId)).toEqual(["household", "built-in"]);
   });
 
-  it("evaluates in order regardless of the order it was handed", () => {
-    // A caller must not be able to change the answer by passing sets in the
-    // order a scan happened to return them.
-    const a = evaluate(inPrecedenceOrder([builtIn, household]), candidate());
-    const b = evaluate(inPrecedenceOrder([household, builtIn]), candidate());
-    expect(a).toEqual(b);
-  });
-
-  it("breaks a tie in order by set id, rather than by whatever order they arrived", () => {
-    // Two sets sharing an order is a data mistake, but it must not make the
-    // answer depend on how a scan happened to return them: the same ledger
-    // would categorise differently on two runs and the history would churn.
-    const a = set({
-      setId: "aaa",
-      order: 5,
-      rules: [rule(merchant("somemart"), asserts("shopping"))],
-    });
-    const b = set({
-      setId: "bbb",
-      order: 5,
-      rules: [rule(merchant("somemart"), asserts("groceries"))],
-    });
-    expect(
-      evaluate(inPrecedenceOrder([a, b]), candidate()).effective?.setId,
-    ).toBe("aaa");
-    expect(
-      evaluate(inPrecedenceOrder([b, a]), candidate()).effective?.setId,
-    ).toBe("aaa");
-  });
+  // Two tests stood here and are deliberately gone with #121. One asserted that
+  // evaluation normalised whatever order it was handed; the other that a tie on
+  // `order` broke by set id. Both described `inPrecedenceOrder`, and precedence
+  // is now a position in the adopted list — a list cannot express two sets at
+  // the same rank, so there is no tie to break, and normalising the caller's
+  // order is exactly what evaluation must NOT do now that the caller is the one
+  // holding precedence. The test below is what replaced them.
+  //
+  // The tie-break was not harmless while it existed: `provider` sorted before
+  // `from-provider`, and `provider` is the id discarded at read, so the legacy
+  // set won every tie and its answers were thrown away.
 
   it("applies the sets in the order it is given, and reads no order field", () => {
     // The contract that lets precedence move off the set (#121). Handed the

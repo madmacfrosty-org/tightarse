@@ -27,9 +27,9 @@ import { RuleSet } from "../categorisation/rules.js";
 import {
   evaluate,
   type Evaluation,
-  inPrecedenceOrder,
 } from "../categorisation/evaluate.js";
 import type { CategoryId } from "../categorisation/category.js";
+import { orderedSets } from "../categorisation/adoption.js";
 import type {
   Categorisations,
   RuleSets,
@@ -204,7 +204,15 @@ export async function categorise(
 
   // Ordered once, not per transaction: precedence is a property of the rule
   // state, not of the row being categorised.
-  const ordered = inPrecedenceOrder(sets);
+  //
+  // The order is the adoption list's. A tenant that has adopted nothing gets
+  // nothing, which categorises nothing — see `orderedSets`. That is the visible
+  // failure rather than the silent one: ranking the sets arbitrarily would
+  // categorise, and categorise differently between runs.
+  const ordered = orderedSets(
+    await deps.ruleSets.getAdoptions(tenantId),
+    sets,
+  );
 
   for (const row of transactions) {
     const candidate = candidateOf(row);

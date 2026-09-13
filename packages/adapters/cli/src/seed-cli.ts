@@ -17,7 +17,13 @@
  */
 
 import { DynamoStore } from "@tightarse/dynamodb";
-import { decide, propose, SEED_CATEGORIES, seedRuleSets } from "@tightarse/domain";
+import {
+  decide,
+  propose,
+  SEED_CATEGORIES,
+  seedAdoptions,
+  seedRuleSets,
+} from "@tightarse/domain";
 
 function required(name: string): string {
   const v = process.env[name];
@@ -42,7 +48,7 @@ async function main(): Promise<void> {
   console.log(`${SEED_CATEGORIES.length} categories`);
   for (const s of sets) {
     console.log(
-      `  ${String(s.order).padStart(2)}  ${s.setId.padEnd(12)} v${s.version}  ` +
+      `  ${s.setId.padEnd(14)} v${s.version}  ` +
         `${String(s.rules.length).padStart(3)} rules${s.authored ? "  (authored, never regenerated)" : ""}`,
     );
   }
@@ -86,6 +92,23 @@ async function main(): Promise<void> {
   }
   const decided = await decide({ ruleSets: ledger }, tenantId, recorded, { status: "effective" });
   for (const d of decided) console.log(`  ${d.setId.padEnd(12)} v${d.version} is now effective`);
+
+  // Precedence is the adoption list, and nothing else (#121). Writing the sets
+  // without it onboards a tenant that categorises nothing: `orderedSets` ranks
+  // only what was adopted, and deliberately does not guess an order for a
+  // tenant that has adopted nothing.
+  //
+  // Written from what `decide` published, so the pinned versions are the ones
+  // actually in force rather than the ones proposed.
+  const adoptions = seedAdoptions(
+    tenantId,
+    decided.map((d) => ({ setId: d.setId, version: d.version })),
+    new Date(),
+  );
+  await ledger.putAdoptions(tenantId, adoptions);
+  console.log(
+    `\nadopted, most trusted first: ${adoptions.map((a) => a.setId).join(" > ")}`,
+  );
 }
 
 main().catch((err: unknown) => {

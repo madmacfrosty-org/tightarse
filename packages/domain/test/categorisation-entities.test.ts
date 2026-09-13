@@ -83,12 +83,10 @@ describe("a rule set", () => {
       setId: "household",
       version: 3,
       name: "Household",
-      order: 100,
       authored: true,
       rules: [],
       createdAt: "2026-08-17T00:00:00Z",
     });
-    expect(s.order).toBe(100);
     expect(s.authored).toBe(true);
   });
 });

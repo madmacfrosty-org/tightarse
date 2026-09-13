@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   effectiveCategories,
-  precedenceFor,
 } from "../src/reporting/categories.js";
 import { recorded, type Overrides } from "./recorded.js";
 import type { RecordedTransaction } from "../src/ledger/transaction.js";
@@ -182,43 +181,5 @@ describe("what a report shows", () => {
       order,
     );
     expect(out[0]?.category).toBe("fuel");
-  });
-});
-
-describe("reading precedence from the sets", () => {
-  it("takes setId and order, and nothing else", () => {
-    expect(
-      precedenceFor(
-        [],
-        [{ setId: "household", order: 0, name: "x", rules: [] }],
-      ),
-    ).toEqual([{ setId: "household", order: 0 }]);
-  });
-
-  it("ignores a row that cannot supply both", () => {
-    // A malformed set must not become order NaN, which sorts unpredictably and
-    // would make the effective category depend on scan order.
-    expect(
-      precedenceFor([], [
-        { setId: "a" },
-        { order: 1 },
-        { setId: "b", order: 3 },
-      ] as Row[]),
-    ).toEqual([{ setId: "b", order: 0 }]);
-  });
-
-  it("returns a rank, not the number the set happened to carry", () => {
-    // Precedence is becoming a position (#121). What comes out is where a set
-    // sits relative to the others, so the gaps and the absolute values in the
-    // stored `order` stop meaning anything the moment they are read.
-    expect(
-      precedenceFor([], [
-        { setId: "low", order: 90 },
-        { setId: "high", order: 10 },
-      ] as Row[]),
-    ).toEqual([
-      { setId: "high", order: 0 },
-      { setId: "low", order: 1 },
-    ]);
   });
 });
