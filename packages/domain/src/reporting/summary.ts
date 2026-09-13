@@ -10,7 +10,7 @@ import type { Categorisation } from "../categorisation/categorisation.js";
 import type { RecordedTransaction } from "../ledger/transaction.js";
 import { bookFor, categoryLeg, tradeFor } from "../ledger/books.js";
 import { assertSingleCurrency } from "../index.js";
-import { detectTransfers, type TransferOptions } from "./transfers.js";
+import { detectTransfers, type TransferOptions } from "../ledger/transfers.js";
 import { isBalanceSheet } from "../ledger/books.js";
 import type { Category } from "../categorisation/category.js";
 
@@ -79,6 +79,20 @@ export function summarise(
      * about books should get.
      */
     catalogue?: readonly Category[];
+    /**
+     * Rows outside the range, present only so transfer pairing can see both
+     * legs. Never counted, never categorised, never reported.
+     *
+     * Pairing needs the pair. A transfer whose legs fall either side of a range
+     * boundary loses one of them to the cut, and the leg left inside finds no
+     * partner and counts as spending or income.
+     *
+     * Measured against a real ledger rather than assumed: most pairs are
+     * same-day and cannot straddle anything, but a minority span a day or more,
+     * and a few percent of possible range starts orphan one of those — the
+     * worst of them by a four-figure sum. Rare, and not small when it happens.
+     */
+    pairingContext?: readonly RecordedTransaction[];
   } = {},
 ): Summary {
   const currency = assertSingleCurrency(transactions);
@@ -90,7 +104,18 @@ export function summarise(
   const detection =
     opts.transfers === false
       ? { pairs: [], keys: new Set<string>(), totalMoved: 0 }
-      : detectTransfers(transactions, opts.transfers ?? {});
+      : detectTransfers(
+          // Detection sees the margin; everything below counts `transactions`
+          // alone. A row from the margin can only ever remove one of ours from
+          // the totals, never add itself to them.
+          [...transactions, ...(opts.pairingContext ?? [])],
+          opts.transfers ?? {},
+        );
+
+  // Which detected legs are actually ours. The margin exists to find a pair,
+  // not to be reported as part of this range.
+  const ours = new Set(transactions.map((t) => t.dedupKey));
+  const inRange = new Set([...detection.keys].filter((k) => ours.has(k)));
 
   // Mutable while accumulating; the port's result types are readonly, which is a
   // statement about what a caller may do with an answer rather than about how it
@@ -194,8 +219,13 @@ export function summarise(
     balanceSheetCount,
     balanceSheetTotal,
     internalTransfersNetted: opts.transfers !== false,
-    transferCount: detection.keys.size,
-    transferTotal: detection.totalMoved,
+    // Counted over the range, not over the margin. A leg the margin supplied was
+    // never in this range and reporting it would say more was netted here than
+    // there were rows to net.
+    transferCount: inRange.size,
+    transferTotal: detection.pairs
+      .filter((p) => inRange.has(p.out) || inRange.has(p.in))
+      .reduce((total, p) => total + p.amount, 0),
     enrichedCount: transactions.filter((t) => assigned.has(t.dedupKey)).length,
   };
 }

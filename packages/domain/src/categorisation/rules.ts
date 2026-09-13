@@ -109,7 +109,7 @@ export const Rule = z.object({
    * Which direction the rule may match.
    *
    * Credits are excluded by default: an employer sharing a name with a retailer
-   * once filed £62,868 of salary as Shopping, and no pattern can tell a refund
+   * once filed a year of salary as Shopping, and no pattern can tell a refund
    * from income.
    *
    * `credits` exists because direction sometimes decides the category outright —

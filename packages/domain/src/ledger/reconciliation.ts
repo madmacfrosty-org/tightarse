@@ -5,7 +5,7 @@
  *
  * That is the whole idea, and it needs no running balance on the transactions,
  * which is what makes it the only check covering cards — they carry none at all
- * (0 of 278 in this ledger, against 9,498 of 9,498 for accounts).
+ * (none at all in this ledger, against every settled account transaction).
  *
  * A break means a transaction is missing, or one is there that should not be.
  * Either way every balance derived before that point is wrong, and nothing

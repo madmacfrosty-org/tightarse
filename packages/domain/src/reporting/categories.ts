@@ -8,10 +8,10 @@
  * nobody can account for.
  *
  * The fallback existed while the two overlapped. It went once a real
- * application run covered the ledger: 6,586 of 6,616 enriched transactions are
- * categorised, and the 30 that are not are the four rule conflicts, where a set
- * claiming two answers produces none. Those now read as uncategorised, which is
- * what they are.
+ * application run covered the ledger: all but a handful of enriched
+ * transactions are categorised, and the remainder are rule conflicts, where a
+ * set claiming two answers produces none. Those now read as uncategorised,
+ * which is what they are.
  */
 
 import { resolve, type SetOrder } from "../categorisation/resolve.js";

@@ -30,6 +30,7 @@ import type {
 } from "../index.js";
 import { Category } from "../categorisation/category.js";
 import { Categorisation } from "../categorisation/categorisation.js";
+import { DEFAULT_WINDOW_DAYS } from "../ledger/transfers.js";
 import { Consent, consentHealth } from "../household/consent.js";
 import { parseRuleSets, type RuleSet } from "../categorisation/rules.js";
 import type { Adoptions } from "../categorisation/adoption.js";
@@ -263,9 +264,17 @@ export async function summary(
   range: Range,
   opts: SummaryOptions = {},
 ): Promise<Summary> {
-  const [{ transactions, categorisations }, adoptions, rows] =
+  // Widened at both ends so transfer pairing can see both legs; narrowed back
+  // before anything is counted. A pair straddling a boundary otherwise loses a
+  // leg to the cut, and the one left inside counts as spending. See
+  // `pairingContext` for what that costs when it happens.
+  const margin = {
+    from: shiftDays(range.from, -DEFAULT_WINDOW_DAYS),
+    to: shiftDays(range.to, DEFAULT_WINDOW_DAYS),
+  };
+  const [{ transactions: widened, categorisations }, adoptions, rows] =
     await Promise.all([
-      deps.ledger.listRange(tenantId, range),
+      deps.ledger.listRange(tenantId, margin),
       deps.ledger.getAdoptions(tenantId),
       deps.ledger.listCategories(tenantId),
     ]);
@@ -274,12 +283,16 @@ export async function summary(
   // existing is the whole of why `kind` claimed totals depended on it while
   // nothing branched on it.
   const catalogue = rows.map((r) => Category.parse(r));
+  const inRange = (t: { timestamp: string }): boolean =>
+    t.timestamp.slice(0, 10) >= range.from && t.timestamp.slice(0, 10) <= range.to;
+  const transactions = widened.filter(inRange);
   const known = await asKnownAt(deps, tenantId, categorisations, opts.asAt);
   return summarise(
     transactions,
     effectiveCategories(transactions, known, precedence, opts.asAt),
     range,
     {
+      pairingContext: widened.filter((t) => !inRange(t)),
       // `transfers: false` disables detection; the default enables it.
       ...(opts.nettingTransfers === false ? { transfers: false } : {}),
       catalogue,
@@ -664,4 +677,11 @@ function overallVerdict(
     informative.filter((a) => a.verdict !== "ambiguous").map((a) => a.verdict),
   );
   return decided.size === 1 ? [...decided][0]! : "inconsistent";
+}
+
+/** A `YYYY-MM-DD` shifted by whole days, for widening a range at its edges. */
+function shiftDays(date: string, days: number): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + days * 864e5)
+    .toISOString()
+    .slice(0, 10);
 }

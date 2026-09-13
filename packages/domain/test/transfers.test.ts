@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectTransfers } from "../src/reporting/transfers.js";
+import { detectTransfers } from "../src/ledger/transfers.js";
 import { summarise } from "../src/reporting/summary.js";
 import type { RecordedTransaction } from "../src/ledger/transaction.js";
 import { recorded, type Overrides } from "./recorded.js";

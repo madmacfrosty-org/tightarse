@@ -301,3 +301,62 @@ describe("categories that hold a position rather than a flow", () => {
     expect(s.balanceSheetCount).toBe(0);
   });
 });
+
+/**
+ * A transfer whose legs fall either side of a range boundary.
+ *
+ * Pairing needs the pair. Cut a range between two legs and the one left inside
+ * finds no partner, so it counts as spending or income that never happened.
+ *
+ * Measured before this was built rather than assumed. Most pairs are same-day
+ * and cannot straddle anything; a minority span a day or more, and a few per
+ * cent of possible range starts orphan one of those. Uncommon, and not small
+ * when it happens.
+ *
+ * Every figure here is invented.
+ */
+describe("a transfer straddling the edge of a range", () => {
+  const out = row({ dedupKey: "out", accountId: "cur", amount: -500_00, timestamp: "2026-02-27T00:00:00Z" });
+  const back = row({ dedupKey: "in", accountId: "sav", amount: 500_00, timestamp: "2026-03-01T00:00:00Z" });
+  const march = { from: "2026-03-01", to: "2026-03-31" };
+
+  it("counts the lone leg as spending when its pair is outside and unseen", () => {
+    // The bug, stated. Without the other leg there is nothing to pair with.
+    const s = summarise([back], [], march);
+    expect(s.income).toBe(500_00);
+    expect(s.transferCount).toBe(0);
+  });
+
+  it("nets it once the pair is supplied as context", () => {
+    const s = summarise([back], [], march, { pairingContext: [out] });
+    expect(s.income).toBe(0);
+    expect(s.transferCount).toBe(1);
+  });
+
+  it("does not count the context row itself, only ours", () => {
+    // A margin row can remove one of ours from the totals. It must never add
+    // itself: it is outside the range and is not being reported on.
+    const s = summarise([back], [], march, { pairingContext: [out] });
+    expect(s.transactionCount).toBe(1);
+    expect(s.spend).toBe(0);
+  });
+
+  it("reports one leg netted, not two, because only one was in the range", () => {
+    // `transferCount` says how many of this range's rows were netted. Counting
+    // the margin's leg would claim more was netted here than there were rows.
+    const s = summarise([back], [], march, { pairingContext: [out] });
+    expect(s.transferCount).toBe(1);
+    expect(s.transferTotal).toBe(500_00);
+  });
+
+  it("still nets a pair wholly inside the range, with no context at all", () => {
+    const s = summarise(
+      [row({ dedupKey: "a", accountId: "cur", amount: -500_00, timestamp: "2026-03-05T00:00:00Z" }),
+       row({ dedupKey: "b", accountId: "sav", amount: 500_00, timestamp: "2026-03-05T00:00:00Z" })],
+      [], march,
+    );
+    expect(s.income).toBe(0);
+    expect(s.spend).toBe(0);
+    expect(s.transferCount).toBe(2);
+  });
+});

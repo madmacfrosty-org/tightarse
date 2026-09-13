@@ -51,7 +51,7 @@ export * from "./reporting/summary.js";
 export * from "./reporting/categories.js";
 export * from "./reporting/balances.js";
 export * from "./reporting/coverage.js";
-export * from "./reporting/transfers.js";
+export * from "./ledger/transfers.js";
 export * from "./reporting/reporting.js";
 // Named rather than `export *`: `decide` and its argument type are the
 // module's internals, tested directly but not offered to a driver.
