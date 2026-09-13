@@ -6,9 +6,9 @@
  * access or to take it away. For a store holding a family's complete financial
  * history, that is the wrong shape.
  *
- *   npm run access -w @tightarse/dynamodb -- list
- *   npm run access -w @tightarse/dynamodb -- grant someone@example.com frost
- *   npm run access -w @tightarse/dynamodb -- revoke someone@example.com
+ *   npm run access -w @tightarse/cli -- list
+ *   npm run access -w @tightarse/cli -- grant someone@example.com frost
+ *   npm run access -w @tightarse/cli -- revoke someone@example.com
  *
  * The table comes from LEDGER_TABLE, and the AWS profile from the environment
  * as usual, so pointing this at the wrong account takes deliberate effort.

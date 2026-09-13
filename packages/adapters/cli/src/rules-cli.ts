@@ -1,11 +1,11 @@
 /**
  * Manage a household's own categorisation rules.
  *
- *   TABLE=<name> npm run rules -w @tightarse/schedule -- list
- *   TABLE=<name> npm run rules -w @tightarse/schedule -- add "<regex>" "<category-id>" ["note"]
- *   TABLE=<name> npm run rules -w @tightarse/schedule -- remove "<regex>"
- *   TABLE=<name> npm run rules -w @tightarse/schedule -- test "some description"
- *   TABLE=<name> npm run rules -w @tightarse/schedule -- override "<dedupKey>" "<category-id>"
+ *   TABLE=<name> npm run rules -w @tightarse/cli -- list
+ *   TABLE=<name> npm run rules -w @tightarse/cli -- add "<regex>" "<category-id>" ["note"]
+ *   TABLE=<name> npm run rules -w @tightarse/cli -- remove "<regex>"
+ *   TABLE=<name> npm run rules -w @tightarse/cli -- test "some description"
+ *   TABLE=<name> npm run rules -w @tightarse/cli -- override "<dedupKey>" "<category-id>"
  *   ... -- --propose            record the change without publishing it
  *
  * These live in the table, never in the repository. The shipped patterns are

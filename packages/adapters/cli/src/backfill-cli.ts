@@ -1,7 +1,7 @@
 /**
  * Command line for the replay. Wiring only — the work is in `backfill.ts`.
  *
- *   TENANT=frost BUCKET=<name> TABLE=<name> npm run backfill -w @tightarse/events
+ *   TENANT=frost BUCKET=<name> TABLE=<name> npm run backfill -w @tightarse/cli
  *   ... -- --dry-run
  *   DATASETS=truelayer.balance,truelayer.card_balance ...   only those datasets
  *

@@ -1,7 +1,7 @@
 /**
  * Seed the categorisation model: categories, and the rules in service today.
  *
- *   TENANT=frost TABLE=<name> npm run seed -w @tightarse/schedule
+ *   TENANT=frost TABLE=<name> npm run seed -w @tightarse/cli
  *   ... -- --write           record the proposal
  *   ... -- --write --accept  record it and publish it
  *

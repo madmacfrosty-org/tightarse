@@ -2,7 +2,7 @@
  * Run the reconciliation over a household. Wiring only — the work is the
  * `reconcile` use case in @tightarse/domain.
  *
- *   TENANT=frost TABLE=<name> npm run reconcile -w @tightarse/events
+ *   TENANT=frost TABLE=<name> npm run reconcile -w @tightarse/cli
  *
  * Point TABLE at a table replayed from the raw zone before pointing it at the
  * live one: this writes dirty marks, and a replayed table is the place to find

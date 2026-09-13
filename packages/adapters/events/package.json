@@ -6,10 +6,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "backfill": "tsx src/backfill-cli.ts",
     "build": "tsc --build",
-    "compare": "tsx src/compare-cli.ts",
-    "reconcile": "tsx src/reconcile-cli.ts",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:mutation": "stryker run"
