@@ -30,7 +30,7 @@ import type {
 } from "../index.js";
 import { Category } from "../categorisation/category.js";
 import { Categorisation } from "../categorisation/categorisation.js";
-import { DEFAULT_WINDOW_DAYS } from "../ledger/transfers.js";
+import { DEFAULT_WINDOW_DAYS, detectTransfers } from "../ledger/transfers.js";
 import { Consent, consentHealth } from "../household/consent.js";
 import { parseRuleSets, type RuleSet } from "../categorisation/rules.js";
 import type { Adoptions } from "../categorisation/adoption.js";
@@ -44,7 +44,6 @@ import type { RecordedTransaction } from "../ledger/transaction.js";
 import {
   daysBetween,
   derivedPosition,
-  isSettled,
   positionAtEach,
   netPositionSeries,
   openingPosition,
@@ -52,10 +51,9 @@ import {
   type Movement,
 } from "./balances.js";
 import {
-  categoryLeg,
   householdPosition,
   isBalanceSheet,
-  tradeFor,
+  tradesFrom,
   type BookPosition,
   type Nature,
 } from "../ledger/books.js";
@@ -426,13 +424,29 @@ export async function books(
   for (const m of movements)
     byAccount.set(m.accountId, [...(byAccount.get(m.accountId) ?? []), m]);
 
+  // One rule for every book, which is the whole claim of #108: a position is
+  // the running sum of the book's legs. An account is not computed one way and
+  // a category another — they are one list, and the only thing that differs is
+  // which book a leg names.
+  //
+  // Pending rows are excluded, as they always were for an account: the bank has
+  // not moved the money. Categories were summed over every row including pending
+  // ones, which is the drift that having two computations allowed.
+  //
+  // Detection runs over the whole history, so a pair is never cut by a range
+  // here and both legs are always in view.
+  const assigned = new Map(history.categorisations.map((c) => [c.dedupKey, c]));
+  const settled = all.filter((t) => t.status !== "pending");
+  const trades = tradesFrom(settled, assigned, detectTransfers(settled).pairs);
+
+  const byBook = new Map<string, number>();
+  for (const trade of trades)
+    for (const leg of trade.legs)
+      byBook.set(leg.book, (byBook.get(leg.book) ?? 0) + leg.amount);
+
   const accountBooks: BookPosition[] = accountRows.map(toAccountFacts).map(
     (facts) => {
-      const mine = byAccount.get(facts.accountId) ?? [];
-      const opening = openingPosition(facts, mine);
-      const total = mine
-        .filter(isSettled)
-        .reduce((sum, m) => sum + m.amount, 0);
+      const opening = openingPosition(facts, byAccount.get(facts.accountId) ?? []);
       // A card is a liability: what it holds is owed. Nothing else about an
       // account says so, and the provider's own flag is the only thing that
       // does.
@@ -442,21 +456,15 @@ export async function books(
         label: facts.accountId,
         nature,
         rollsUp: isBalanceSheet(nature),
-        position: (opening ?? 0) + total,
+        position: (opening ?? 0) + (byBook.get(facts.accountId) ?? 0),
       };
     },
   );
 
   // A category book accumulates the far side of every trade filed to it, which
   // is the negation of the account leg — see `tradeFor`. So an expense book's
-  // position is positive: it is what has passed through it.
-  // Free: categorisations arrive in the same read as the transactions.
-  const assigned = new Map(history.categorisations.map((c) => [c.dedupKey, c]));
-  const byBook = new Map<string, number>();
-  for (const row of all) {
-    const leg = categoryLeg(tradeFor(row, assigned.get(row.dedupKey)));
-    byBook.set(leg.book, (byBook.get(leg.book) ?? 0) + leg.amount);
-  }
+  // position is positive: it is what has passed through it. A transfer files
+  // nothing here at all: both its legs name accounts.
 
   const categoryBooks: BookPosition[] = catalogue
     .filter((c) => !c.retired)

@@ -8,7 +8,7 @@ import type {
 import { PROVIDER_SET } from "../categorisation/provider.js";
 import type { Categorisation } from "../categorisation/categorisation.js";
 import type { RecordedTransaction } from "../ledger/transaction.js";
-import { bookFor, categoryLeg, tradeFor } from "../ledger/books.js";
+import { bookFor, otherLeg, tradeFor } from "../ledger/books.js";
 import { assertSingleCurrency } from "../index.js";
 import { detectTransfers, type TransferOptions } from "../ledger/transfers.js";
 import { isBalanceSheet } from "../ledger/books.js";
@@ -117,6 +117,20 @@ export function summarise(
   const ours = new Set(transactions.map((t) => t.dedupKey));
   const inRange = new Set([...detection.keys].filter((k) => ours.has(k)));
 
+  // The book on the far side of each row, by dedup key.
+  //
+  // One lookup, because under #108 an account and a category are both just
+  // books and the far side may be either. A pairing names the other account; a
+  // rule names a category; the provider's own value names a book of last
+  // resort. This is the join #74 asked for: not detection becoming a
+  // categoriser, but both mechanisms finally answering one question instead of
+  // each holding a private notion of what a transfer is.
+  const farBook = new Map<string, string>();
+  for (const pair of detection.pairs) {
+    farBook.set(pair.out, pair.toAccount);
+    farBook.set(pair.in, pair.fromAccount);
+  }
+
   // Mutable while accumulating; the port's result types are readonly, which is a
   // statement about what a caller may do with an answer rather than about how it
   // is built. `-readonly` keeps the two from being separate declarations that can
@@ -130,11 +144,17 @@ export function summarise(
   // excluded, because the conservative direction is to leave a total inflated
   // and visible rather than to erase real spending invisibly. `transfers.ts`
   // argues the same trade and this follows it.
-  const balanceSheet = new Set(
-    (opts.catalogue ?? [])
+  //
+  // The household's own accounts are in it too. Every account is an asset or a
+  // liability, so money whose far side is one of them has moved rather than
+  // gone — which is the same statement detection makes, reached from the book
+  // rather than from the pairing.
+  const balanceSheet = new Set([
+    ...[...transactions, ...(opts.pairingContext ?? [])].map((t) => t.accountId),
+    ...(opts.catalogue ?? [])
       .filter((c) => isBalanceSheet(c.nature))
       .map((c) => c.id),
-  );
+  ]);
   let balanceSheetCount = 0;
   let balanceSheetTotal = 0;
 
@@ -144,20 +164,29 @@ export function summarise(
   let spend = 0;
 
   for (const row of transactions) {
-    if (detection.keys.has(row.dedupKey)) continue;
-
-    // The transaction's two sides, named. The second leg is what categorising
+    // The transaction's two sides, named. The far leg is what categorising
     // records, and grouping by the book it lands in is what `byCategory` has
     // always been — see #108, of which this is step 1.
-    const leg = categoryLeg(tradeFor(row, assigned.get(row.dedupKey)));
-    const category = leg.book;
+    const leg = otherLeg(tradeFor(row, assigned.get(row.dedupKey)));
+    const category = farBook.get(row.dedupKey) ?? leg.book;
 
+    // One test for the only question that matters here: is the far side a book
+    // the household holds? If it is, the money moved rather than went, whether
+    // pairing established that or a category's nature did. This is where two
+    // unrelated skips used to sit, each with its own idea of what a transfer
+    // was, able to disagree with nothing noticing — #74.
+    //
     // Counted and reported, never silently dropped. The money did move, and a
     // figure that quietly shrank would be indistinguishable from one that was
-    // right — which is the failure mode #109 warns this change can cause.
+    // right — which is the failure mode #109 warns this change can cause. Which
+    // of the two figures reports it depends on how it was established:
+    // `transferCount` for a matched pair, `balanceSheetCount` for a category
+    // whose nature says so. A row counted under both would be reported twice.
     if (balanceSheet.has(category)) {
-      balanceSheetCount += 1;
-      balanceSheetTotal += Math.abs(row.amount);
+      if (!detection.keys.has(row.dedupKey)) {
+        balanceSheetCount += 1;
+        balanceSheetTotal += Math.abs(row.amount);
+      }
       continue;
     }
 
