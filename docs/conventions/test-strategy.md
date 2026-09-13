@@ -116,7 +116,20 @@ Honest as of the funnel being written down:
 | 2 snapshot | none, and dropped on purpose — the infra assertion tests cover what has actually broken |
 | 3 DynamoDB Local | the inner loop; the same 13 ledger tests, on demand |
 | 4 real AWS | 13 ledger tests per CI run, on an ephemeral eu-west-2 table |
-| 5 canaries | none — still the gap that matters most |
+| 5 canaries | 3 Playwright tests against deployed dev, run by hand — see [e2e.md](e2e.md) |
 
-The gap that matters most is 5, because every incident this project has had was
+The gap that mattered most was 5, because every incident this project has had was
 infrastructure or wiring, and stages 1 to 3 cannot see any of it.
+
+It is no longer empty, and it earned its place on the first run. Before a single
+assertion passed it had found: a 500 that logged nothing, so no deployed failure
+could be attributed (#170); dev's category rows still carrying `kind` rather than
+`nature`, which had been returning 500 on every dashboard load for weeks with
+nobody watching; and an account Lambda concurrency limit of 5 against a dashboard
+that makes exactly five calls per load.
+
+None of those was reachable from stages 1 to 4. Two of them were invisible
+because the thing that would have reported them was the thing that was broken.
+
+Still run by hand rather than in CI. It needs a deployed environment and an
+identity, and putting it on every push is a separate decision from having it.

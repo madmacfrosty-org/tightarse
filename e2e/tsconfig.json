@@ -1,0 +1,14 @@
+{
+  "//": "Checked by the root typecheck like everything else. Without this the harness is the one place in the tree where a wrong type compiles, which is a poor property for the suite whose job is catching what the other suites cannot see.",
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "types": ["node"],
+    "lib": ["ES2023", "DOM"]
+  },
+  "include": ["**/*.ts"]
+}
