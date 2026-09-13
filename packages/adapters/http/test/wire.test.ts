@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   asAccounts,
   asBooks,
+  asTransactions,
   asSummary,
   asBacklog,
   asCategories,
@@ -397,6 +398,50 @@ describe("the summary on the wire", () => {
  *
  * Every figure and label is invented.
  */
+describe("the transactions on the wire", () => {
+  const row = {
+    dedupKey: "d1",
+    timestamp: "2026-03-01T00:00:00Z",
+    amount: -12_99,
+    currency: "GBP",
+    description: "SOMEMART 118",
+    accountId: "acc-1",
+    transactionType: "DEBIT",
+    category: "groceries",
+    setId: "household",
+    providerCategory: "PURCHASE",
+    balance: 487_01,
+  };
+
+  it("carries every field across, and no others", () => {
+    expect(
+      asTransactions({ range: RANGE, transactions: [row] } as never),
+    ).toEqual({ range: RANGE, transactions: [row] });
+  });
+
+  it("drops a field the domain grew that the contract never promised", () => {
+    // This was `[...t.transactions]`, which copies the domain's rows in whole —
+    // the same leak as spreading into an object, one level down where the lint
+    // rule cannot see it.
+    const grown = {
+      range: RANGE,
+      transactions: [{ ...row, tenantId: "leaked", runningBalance: 1 }],
+    } as never;
+    const out = asTransactions(grown).transactions[0]!;
+    expect(out).not.toHaveProperty("tenantId");
+    expect(out).not.toHaveProperty("runningBalance");
+  });
+
+  it("omits a balance for an account that cannot be anchored", () => {
+    const { balance: _b, ...bare } = row;
+    const out = asTransactions({
+      range: RANGE,
+      transactions: [bare],
+    } as never).transactions[0]!;
+    expect(out).not.toHaveProperty("balance");
+  });
+});
+
 describe("the books on the wire", () => {
   const result = {
     householdPosition: -178_000_00,

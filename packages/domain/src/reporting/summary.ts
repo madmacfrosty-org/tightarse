@@ -220,6 +220,15 @@ export function summarise(
 export function mergeCategories(
   transactions: readonly RecordedTransaction[],
   categorised: readonly Categorisation[],
+  /**
+   * The account's position after each transaction, by dedup key.
+   *
+   * Optional, and absent means no balance is reported rather than a wrong one.
+   * A caller that has not read the history before the range cannot know it, and
+   * inventing a figure from the rows in hand would be a running total that
+   * started in the middle.
+   */
+  balances?: ReadonlyMap<string, number>,
 ): CategorisedTransaction[] {
   const assigned = new Map(categorised.map((a) => [a.dedupKey, a]));
   return [...transactions]
@@ -235,6 +244,9 @@ export function mergeCategories(
       ...(row.providerCategory === undefined
         ? {}
         : { providerCategory: row.providerCategory }),
+      ...(balances?.get(row.dedupKey) === undefined
+        ? {}
+        : { balance: balances.get(row.dedupKey)! }),
       ...categoryOf(row, assigned),
     }));
 }

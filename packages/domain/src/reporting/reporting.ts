@@ -44,6 +44,7 @@ import {
   daysBetween,
   derivedPosition,
   isSettled,
+  positionAtEach,
   netPositionSeries,
   openingPosition,
   type AccountFacts,
@@ -306,12 +307,32 @@ export async function transactions(
   range: Range,
   filter?: TransactionFilter,
 ): Promise<TransactionsResult> {
-  const [{ transactions: txns, categorisations }, adoptions] =
+  // Everything up to the end of the range, and no further. A position is a
+  // running total, so the balance at a transaction needs every settled row
+  // before it — but nothing after, which is what keeps an older range cheaper
+  // than today's rather than always reading the whole ledger.
+  const [{ transactions: history }, { transactions: txns, categorisations }, adoptions, accountRows] =
     await Promise.all([
+      deps.ledger.listRange(tenantId, { from: "1970-01-01", to: range.to }),
       deps.ledger.listRange(tenantId, range),
       deps.ledger.getAdoptions(tenantId),
+      deps.ledger.listAccounts(tenantId),
     ]);
   const { precedence } = await setsInForce(deps, tenantId, adoptions);
+
+  // The position after each transaction, per account. `positionAtEach` needs the
+  // account's own facts: a card is anchored on what is owed, a current account
+  // on its first stated running balance.
+  const byAccount = new Map<string, Movement[]>();
+  for (const m of toMovements(history))
+    byAccount.set(m.accountId, [...(byAccount.get(m.accountId) ?? []), m]);
+  const balances = new Map<string, number>();
+  for (const facts of accountRows.map(toAccountFacts))
+    for (const [dedupKey, at] of positionAtEach(
+      facts,
+      byAccount.get(facts.accountId) ?? [],
+    ))
+      balances.set(dedupKey, at);
 
   const rows = txns;
   // Built once, not per row: escaping a term eleven thousand times to reach the
@@ -327,6 +348,7 @@ export async function transactions(
     transactions: mergeCategories(
       wanted,
       effectiveCategories(rows, categorisations, precedence),
+      balances,
     ),
   };
 }

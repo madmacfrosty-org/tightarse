@@ -261,3 +261,44 @@ export function netPositionSeries(
     return { date, net };
   });
 }
+
+/**
+ * The position after each transaction, in the order the ledger holds them.
+ *
+ * `positionsFor` answers by day, which is the right grain for a chart and the
+ * wrong one for a row. Every transaction here is stamped midnight — the ledger
+ * holds up to 47 sharing a single day — so "the balance on the 3rd" cannot say
+ * what the balance was *at* one of them.
+ *
+ * The order is the ledger's own, `timestamp` then `dedupKey`, which is what
+ * makes this answerable at all: within a day the timestamps are identical, so
+ * without the tiebreak "after this transaction" would mean whatever order the
+ * rows arrived in and the same request could give two answers.
+ *
+ * Settled rows only, matching `derivedPosition`. A pending transaction has an
+ * amount and no place in the provider's own chain, and interleaving one would
+ * make every figure after it disagree with the bank for a reason that has
+ * nothing to do with the ledger being wrong.
+ *
+ * Keyed by `dedupKey` because that is what a caller holds: it has a transaction
+ * and wants its balance, not a position in a list.
+ */
+export function positionAtEach(
+  account: AccountFacts,
+  movements: readonly Movement[],
+): Map<string, number> {
+  const opening = openingPosition(account, movements);
+  if (opening === undefined) return new Map();
+
+  // A card is a liability: what it holds is owed, and the wire reports that
+  // positive. Same flip `accountSeries` applies, for the same reason.
+  const sign = account.isCard === true ? -1 : 1;
+
+  const out = new Map<string, number>();
+  let running = opening;
+  for (const m of inLedgerOrder(movements).filter(isSettled)) {
+    running += m.amount;
+    out.set(m.dedupKey, sign * running);
+  }
+  return out;
+}

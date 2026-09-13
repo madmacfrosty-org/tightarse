@@ -99,7 +99,24 @@ export const asTransactions = (
   t: TransactionsResult,
 ): TransactionsResponse => ({
   range: t.range,
-  transactions: [...t.transactions],
+  // Projected element by element, not `[...t.transactions]`. Copying the array
+  // copies the domain's rows into it whole, which is the same leak as spreading
+  // into an object — one level down, where the lint rule cannot see it.
+  transactions: t.transactions.map((x) => ({
+    dedupKey: x.dedupKey,
+    timestamp: x.timestamp,
+    amount: x.amount,
+    currency: x.currency,
+    description: x.description,
+    accountId: x.accountId,
+    transactionType: x.transactionType,
+    category: x.category,
+    setId: x.setId,
+    ...(x.providerCategory === undefined
+      ? {}
+      : { providerCategory: x.providerCategory }),
+    ...(x.balance === undefined ? {} : { balance: x.balance }),
+  })),
 });
 
 /**
@@ -150,7 +167,7 @@ export const asAccounts = (a: AccountsResult): AccountsResponse => ({
 
 export const asBalances = (b: BalancesResult): BalancesResponse => ({
   range: b.range,
-  points: [...b.points],
+  points: b.points.map((p) => ({ date: p.date, net: p.net })),
 });
 
 /**
