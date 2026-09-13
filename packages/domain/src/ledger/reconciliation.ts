@@ -111,23 +111,6 @@ export interface ReconciliationResult {
   readonly breaks: readonly Break[];
 }
 
-/**
- * When `ingestedAt` started meaning "first seen".
- *
- * Before this, a plain put replaced the whole row on every write, so the value
- * recorded the LAST write. The rolling sync window refetches ten days daily, so
- * most recent rows carry a timestamp days after they actually arrived.
- *
- * Trusting those turned one break into six the moment this shipped: every
- * re-ingested row looked like a transaction that had just settled. A row first
- * seen before this instant is treated as one we already had, which is what the
- * check assumed before first-seen existed.
- *
- * It goes away when the ledger is next rebuilt from the raw zone (#34), because
- * a rebuild writes every row once and the value becomes true for all of them.
- */
-const PROVENANCE_TRUSTED_FROM = "2026-08-20T07:13:00.000Z";
-
 /** The day a timestamp falls on, which is the finest granularity we have. */
 const dayOf = (timestamp: string): string => timestamp.slice(0, 10);
 
@@ -175,11 +158,20 @@ export function reconcileAccount(
   //
   // Safe because the sync always requests at least ten days: a transaction that
   // had settled would have been returned, so one we did not hold had not settled.
+  //
+  // **`firstSeenAt` has to stay write-once for this to hold.** It once recorded
+  // the LAST write instead, and since the rolling window refetches ten days
+  // daily, every re-ingested row then looked like one that had just settled —
+  // which turned a single break into six and held an alarm open for three days
+  // over £56.59 that was fully accounted for. A cutoff date guarded against
+  // that until the ledger was rebuilt from the raw zone; the rebuild happened
+  // and every row in production now predates nothing, so the guard went (#70).
+  // If anything ever makes this field mean "last touched" again, that failure
+  // comes back and there is no date left to hide behind.
   const late = movements.filter(
     (m) =>
       dayOf(m.timestamp) <= dayOf(oldest.asOf) &&
       m.firstSeenAt !== undefined &&
-      m.firstSeenAt >= PROVENANCE_TRUSTED_FROM &&
       m.firstSeenAt > oldest.fetchedAt,
   );
 
