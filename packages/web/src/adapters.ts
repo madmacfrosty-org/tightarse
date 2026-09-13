@@ -17,4 +17,13 @@ export const cognitoSession: Session = {
   complete: completeSignIn,
 };
 
-export const httpApi: Api = { get: apiGet, post: apiPost };
+/**
+ * Parsed at the boundary, which is the only place the response is still
+ * untrusted. `api-contract` was a compile-time type and an OpenAPI document
+ * until now; this is where it starts earning its keep at run time (#41).
+ */
+export const httpApi: Api = {
+  get: (schema, path) => apiGet(path).then((body) => schema.parse(body)),
+  post: (schema, path, body) =>
+    apiPost(path, body).then((response) => schema.parse(response)),
+};

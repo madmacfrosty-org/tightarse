@@ -8,10 +8,13 @@ import { Books } from "./Books";
 import { ConsentNotice } from "./ConsentNotice";
 import { netPosition, rangeFor, tileBalance } from "./positions";
 import {
+  AccountsResponse,
+  BalancesResponse,
+  BooksResponse,
   pathFor,
+  SummaryResponse,
+  TransactionsResponse,
   type AccountView,
-  type BalancesResponse,
-  type BooksResponse,
   type ConsentView,
   type Summary,
   type TransactionView,
@@ -119,8 +122,8 @@ export function App({ session, api }: { session: Session; api: Api }) {
     setError(null);
     setShown(PAGE);
     Promise.all([
-      api.get<Summary>(`${pathFor("/summary")}${q}`),
-      api.get<{ accounts: AccountView[]; completeFrom?: string; consents?: ConsentView[] }>(pathFor("/accounts")),
+      api.get(SummaryResponse, `${pathFor("/summary")}${q}`),
+      api.get(AccountsResponse, pathFor("/accounts")),
       // No `limit`: the API has never honoured one (#28), so asking for 60 and
       // rendering everything in range is what has always happened. A limit
       // without a cursor truncates rather than paginates — it hides rows with
@@ -128,9 +131,9 @@ export function App({ session, api }: { session: Session; api: Api }) {
       // gaining a server-side implementation. If a client ever needs less than
       // the full range on the wire, that is cursor-based pagination and a
       // contract change, not a bare parameter.
-      api.get<{ transactions: TransactionView[] }>(`${pathFor("/transactions")}${q}`),
-      api.get<BalancesResponse>(`${pathFor("/balances")}${q}`),
-      api.get<BooksResponse>(pathFor("/books")),
+      api.get(TransactionsResponse, `${pathFor("/transactions")}${q}`),
+      api.get(BalancesResponse, `${pathFor("/balances")}${q}`),
+      api.get(BooksResponse, pathFor("/books")),
     ])
       .then(([s, a, t, b, bk]) => {
         setSummary(s);

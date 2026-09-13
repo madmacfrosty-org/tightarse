@@ -1,8 +1,10 @@
 import {
+  CategoriesResponse,
+  CategoryChoiceView,
   PROVIDER_CATEGORIES,
   pathFor,
-  type CategoryChoiceView,
-  type ProposalResponse,
+  ProposalResponse,
+  TransactionsResponse,
   type TransactionView,
 } from "@tightarse/api-contract";
 import { useEffect, useState } from "react";
@@ -120,10 +122,13 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
   const [applied, setApplied] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get<{ categories: CategoryChoiceView[] }>(pathFor("/categories"))
-      // Defensive at a boundary: a response without the field is a screen that
-      // cannot offer a category, not a screen that throws while rendering.
-      .then((r) => setCategories(r.categories ?? []))
+    api
+      .get(CategoriesResponse, pathFor("/categories"))
+      // The `?? []` that stood here is gone with the parse: a response without
+      // the field no longer reaches this line, it rejects and lands in the
+      // catch below. Which is the better of the two — an empty list looks
+      // exactly like a household with no categories, and said so silently (#41).
+      .then((r) => setCategories(r.categories))
       .catch(() => setError("Could not load categories"));
     // `api` is the injected port, bound once in main.tsx.
   }, [api]);
@@ -155,7 +160,7 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
       ...(wanted.max === undefined ? {} : { max: String(wanted.max) }),
     }).toString();
     try {
-      const r = await api.get<{ transactions: TransactionView[] }>(`${pathFor("/transactions")}?${q}`);
+      const r = await api.get(TransactionsResponse, `${pathFor("/transactions")}?${q}`);
       // Debits only. The API searches both directions because direction is the
       // rule's business, so the screen is where that choice is made.
       const debits = r.transactions.filter((t) => t.amount < 0);
@@ -191,7 +196,7 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
     setError(null);
     const q = new URLSearchParams({ from, to, commit: "preview" }).toString();
     try {
-      const r = await api.post<ProposalResponse>(`${pathFor("/categorisation/proposals")}?${q}`, body);
+      const r = await api.post(ProposalResponse, `${pathFor("/categorisation/proposals")}?${q}`, body);
       setPending({ body, what, prediction: r.prediction });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Could not work out what that would do");
@@ -207,7 +212,8 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
     setError(null);
     const q = new URLSearchParams({ from, to, commit: "apply" }).toString();
     try {
-      const r = await api.post<ProposalResponse>(
+      const r = await api.post(
+        ProposalResponse,
         `${pathFor("/categorisation/proposals")}?${q}`,
         pending.body,
       );
@@ -239,7 +245,7 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
     setBusy(true);
     setError(null);
     try {
-      const made = await api.post<CategoryChoiceView>(pathFor("/categories"), {
+      const made = await api.post(CategoryChoiceView, pathFor("/categories"), {
         label: newLabel.trim(),
         nature: newNature,
       });

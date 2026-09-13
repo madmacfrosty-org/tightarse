@@ -1,4 +1,6 @@
 import { pathFor } from "@tightarse/api-contract";
+import type { Parses } from "../src/ports";
+import { categoriesResponse, transactionsResponse } from "./responses";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -17,8 +19,13 @@ import userEvent from "@testing-library/user-event";
 const apiGet = vi.fn();
 const apiPost = vi.fn();
 const api = {
-  get: <T,>(p: string) => apiGet(p) as Promise<T>,
-  post: <T,>(p: string, b: unknown) => apiPost(p, b) as Promise<T>,
+  // Parses, exactly as the real adapter does (#41). A fixture that does not
+  // match the contract fails here rather than proving the component works
+  // against a shape the API never sends.
+  get: <T,>(schema: Parses<T>, p: string) =>
+    apiGet(p).then((body: unknown) => schema.parse(body)),
+  post: <T,>(schema: Parses<T>, p: string, b: unknown) =>
+    apiPost(p, b).then((body: unknown) => schema.parse(body)),
 };
 
 const tx = (over: Partial<Record<string, unknown>> = {}) => ({
@@ -51,12 +58,12 @@ beforeEach(() => {
   // The screen asks for the category catalogue as it mounts. Without a default
   // every test has to answer a call it is not about, and one that forgets gets
   // an error message instead of the thing it is testing.
-  apiGet.mockResolvedValue({ transactions: [], categories: [] });
+  apiGet.mockResolvedValue({ ...transactionsResponse(), ...categoriesResponse() });
 });
 
 describe("searching", () => {
   it("asks the server, which matches with the same matcher a rule uses", async () => {
-    apiGet.mockResolvedValue({ transactions: [tx()] });
+    apiGet.mockResolvedValue(transactionsResponse([tx()]));
     const Categorise = await load();
     render(<Categorise api={api} {...RANGE} />);
 
@@ -78,7 +85,7 @@ describe("searching", () => {
   });
 
   it("trims the term, so a stray space is not a different merchant", async () => {
-    apiGet.mockResolvedValue({ transactions: [] });
+    apiGet.mockResolvedValue(transactionsResponse());
     const Categorise = await load();
     render(<Categorise api={api} {...RANGE} />);
 
@@ -118,7 +125,7 @@ describe("searching", () => {
   });
 
   it("says so when nothing matches, rather than showing an empty table", async () => {
-    apiGet.mockResolvedValue({ transactions: [] });
+    apiGet.mockResolvedValue(transactionsResponse());
     const Categorise = await load();
     render(<Categorise api={api} {...RANGE} />);
 
@@ -224,7 +231,7 @@ describe("narrowing by type and amount", () => {
     [{ type: "DIRECT_DEBIT" }, /DIRECT_DEBIT/],
   ])("says what it searched for when nothing matches: %o", async (fields, expected) => {
     apiGet.mockImplementation(async (p: string) =>
-      p.includes("/categories") ? { categories: [] } : { transactions: [] },
+      p.includes("/categories") ? categoriesResponse() : transactionsResponse(),
     );
     const Categorise = await load();
     render(<Categorise api={api} {...RANGE} />);
@@ -250,9 +257,12 @@ describe("what the list shows", () => {
     // The API searches both directions — direction is the rule's business — so
     // this is where the choice is made. A refund on screen next to a
     // debits-only rule is the screen promising something the rule declines.
-    apiGet.mockResolvedValue({
-      transactions: [tx(), tx({ dedupKey: "d2", description: "SOMEMART REFUND", amount: 9_99 })],
-    });
+    apiGet.mockResolvedValue(
+      transactionsResponse([
+        tx(),
+        tx({ dedupKey: "d2", description: "SOMEMART REFUND", amount: 9_99 }),
+      ]),
+    );
     const Categorise = await load();
     render(<Categorise api={api} {...RANGE} />);
 
@@ -270,7 +280,7 @@ describe("what the list shows", () => {
   });
 
   it("counts what matched and what is selected", async () => {
-    apiGet.mockResolvedValue({ transactions: [tx(), tx({ dedupKey: "d2" })] });
+    apiGet.mockResolvedValue(transactionsResponse([tx(), tx({ dedupKey: "d2" })]));
     const Categorise = await load();
     render(<Categorise api={api} {...RANGE} />);
 
@@ -280,7 +290,7 @@ describe("what the list shows", () => {
   });
 
   it("shows the category a transaction already has", async () => {
-    apiGet.mockResolvedValue({ transactions: [tx({ category: "groceries", setId: "built-in" })] });
+    apiGet.mockResolvedValue(transactionsResponse([tx({ category: "groceries", setId: "built-in" })]));
     const Categorise = await load();
     render(<Categorise api={api} {...RANGE} />);
 
@@ -291,11 +301,11 @@ describe("what the list shows", () => {
 });
 
 describe("a long list", () => {
-  const many = {
-    transactions: Array.from({ length: 60 }, (_, i) =>
+  const many = transactionsResponse(
+    Array.from({ length: 60 }, (_, i) =>
       tx({ dedupKey: `d${i}`, description: `SOMEMART ${i}` }),
     ),
-  };
+  );
 
   it("caps what it renders, because a phone feels every row", async () => {
     apiGet.mockResolvedValue(many);
@@ -324,12 +334,10 @@ describe("a long list", () => {
 });
 
 describe("hiding what is already categorised", () => {
-  const mixed = {
-    transactions: [
-      tx({ dedupKey: "d1", description: "SOMEMART 118" }),
-      tx({ dedupKey: "d2", description: "SOMEMART 42", category: "groceries", setId: "built-in" }),
-    ],
-  };
+  const mixed = transactionsResponse([
+    tx({ dedupKey: "d1", description: "SOMEMART 118" }),
+    tx({ dedupKey: "d2", description: "SOMEMART 42", category: "groceries", setId: "built-in" }),
+  ]);
 
   const searched = async () => {
     apiGet.mockImplementation(async (p: string) =>
@@ -413,7 +421,7 @@ describe("hiding what is already categorised", () => {
 });
 
 describe("choosing", () => {
-  const two = { transactions: [tx(), tx({ dedupKey: "d2", description: "SOMEMART 42" })] };
+  const two = transactionsResponse([tx(), tx({ dedupKey: "d2", description: "SOMEMART 42" })]);
 
   it("starts with everything selected, because categorising the lot is the case", async () => {
     apiGet.mockResolvedValue(two);
@@ -479,7 +487,7 @@ describe("choosing", () => {
     await waitFor(() => expect(screen.getByLabelText("Select SOMEMART 118")).toBeDefined());
     await userEvent.click(screen.getByLabelText("Select SOMEMART 118"));
 
-    answer = { transactions: [tx({ dedupKey: "d9", description: "OTHERSHOP" })] };
+    answer = transactionsResponse([tx({ dedupKey: "d9", description: "OTHERSHOP" })]);
     await userEvent.clear(screen.getByLabelText("Merchant"));
     await searchFor("othershop");
 
@@ -490,7 +498,9 @@ describe("choosing", () => {
 describe("adding a category", () => {
   const withCategories = async () => {
     apiGet.mockImplementation(async (p: string) =>
-      p.includes("/categories") ? { categories: [{ id: "fuel", label: "Fuel", nature: "expense" }] } : { transactions: [tx()] },
+      p.includes("/categories")
+        ? categoriesResponse([{ id: "fuel", label: "Fuel", nature: "expense" }])
+        : transactionsResponse([tx()]),
     );
     const Categorise = await load();
     render(<Categorise api={api} {...RANGE} />);
@@ -618,7 +628,7 @@ describe("adding a category", () => {
 });
 
 describe("proposing", () => {
-  const two = { transactions: [tx(), tx({ dedupKey: "d2", description: "SOMEMART 42" })] };
+  const two = transactionsResponse([tx(), tx({ dedupKey: "d2", description: "SOMEMART 42" })]);
   const prediction = {
     gained: { transactions: 40, outgoing: 0, merchants: 1, entries: [], truncated: false },
     lost: { transactions: 0, outgoing: 0, merchants: 0, entries: [], truncated: false },

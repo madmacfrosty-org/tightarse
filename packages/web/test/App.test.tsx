@@ -1,7 +1,8 @@
 import { pathFor } from "@tightarse/api-contract";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { Identity } from "../src/ports";
+import type { Identity, Parses } from "../src/ports";
+import { transactionsResponse } from "./responses";
 
 const identity = { email: "someone@example.com", tenant: "frost" };
 
@@ -14,7 +15,7 @@ const summary = {
   spend: -110000_00,
   net: -10000_00,
   byCategory: [{ category: "Groceries", total: -75830, count: 12, provisional: false }],
-  byMonth: [{ month: "2026-07", income: 320000, spend: -280000, net: 40000 }],
+  byMonth: [{ month: "2026-07", income: 320000, spend: -280000, net: 40000, count: 31 }],
   internalTransfersNetted: true,
   transferCount: 40,
   transferTotal: 20000_00,
@@ -41,8 +42,22 @@ const accounts = [
   { accountId: "c2", displayName: "Travel card", institutionName: "CARD-CO", currentBalance: 500_00, isCard: true },
 ];
 
+// Every field `TransactionView` requires, which is more than this fixture used
+// to carry: `currency`, `accountId`, `transactionType` and `setId` were all
+// missing, and `provisional` is not a field the view has at all. Nothing
+// noticed until the ports began parsing (#41).
 const transactions = [
-  { dedupKey: "k1", timestamp: "2026-08-01T00:00:00Z", description: "SHOP", amount: -1299, category: "Groceries", provisional: false },
+  {
+    dedupKey: "k1",
+    timestamp: "2026-08-01T00:00:00Z",
+    amount: -1299,
+    currency: "GBP",
+    description: "SHOP",
+    accountId: "a1",
+    transactionType: "DEBIT",
+    category: "Groceries",
+    setId: "built-in",
+  },
 ];
 
 /**
@@ -87,7 +102,7 @@ const defaultApiGet = async (path: string): Promise<unknown> => {
   if (path.startsWith(pathFor("/books"))) return booksResponse;
   if (path.startsWith(pathFor("/summary"))) return summary;
   if (path.startsWith(pathFor("/accounts"))) return { accounts, completeFrom: "2024-01-01" };
-  if (path.startsWith(pathFor("/transactions"))) return { transactions };
+  if (path.startsWith(pathFor("/transactions"))) return transactionsResponse(transactions);
   if (path.startsWith(pathFor("/balances"))) return balances;
   throw new Error(`unexpected path ${path}`);
 };
@@ -109,8 +124,13 @@ const session = {
 };
 const apiPost = vi.fn();
 const api = {
-  get: <T,>(p: string) => apiGet(p) as Promise<T>,
-  post: <T,>(p: string, b: unknown) => apiPost(p, b) as Promise<T>,
+  // Parses, exactly as the real adapter does (#41). A fixture that does not
+  // match the contract fails here rather than proving the component works
+  // against a shape the API never sends.
+  get: <T,>(schema: Parses<T>, p: string) =>
+    apiGet(p).then((body: unknown) => schema.parse(body)),
+  post: <T,>(schema: Parses<T>, p: string, b: unknown) =>
+    apiPost(p, b).then((body: unknown) => schema.parse(body)),
 };
 const ports = { session, api };
 
@@ -124,14 +144,13 @@ describe("an account the sync has not finished describing", () => {
   // putBalances creates the account row when balances arrive before details, so
   // an account can legitimately appear mid-sync carrying a balance and nothing
   // else — no name, no institution, and no `isCard`. See #29.
-  const halfWritten = async (path: string) => {
-    if (path.startsWith(pathFor("/accounts"))) {
-      return { accounts: [{ accountId: "half-written", currentBalance: 1000 }] };
-    }
-    if (path.startsWith(pathFor("/summary"))) return summary;
-    if (path.startsWith(pathFor("/balances"))) return balances;
-    return { transactions: [] };
-  };
+  // Overrides `/accounts` and defers everything else. A catch-all return was
+  // what it had, and it answered `/books` with a transactions response —
+  // invisible until the ports started parsing (#41).
+  const halfWritten = async (path: string) =>
+    path.startsWith(pathFor("/accounts"))
+      ? { accounts: [{ accountId: "half-written", currentBalance: 1000 }] }
+      : defaultApiGet(path);
 
   it("shows a placeholder rather than a blank where the institution goes", async () => {
     // React renders undefined as nothing, which would leave the tile reading
@@ -280,13 +299,15 @@ describe("balance over time", () => {
   });
 
   it("explains a clamp, rather than quietly drawing less", async () => {
-    apiGet.mockImplementation(async (path: string) => {
-      if (path.startsWith(pathFor("/summary"))) return summary;
-      if (path.startsWith(pathFor("/accounts"))) return { accounts };
-      if (path.startsWith(pathFor("/transactions"))) return { transactions };
-      // Far later than the year the dashboard asks for by default.
-      return { range: { from: "2030-01-01", to: "2030-02-01" }, points: [{ date: "2030-01-01", net: 1 }] };
-    });
+    apiGet.mockImplementation(async (path: string) =>
+      path.startsWith(pathFor("/balances"))
+        ? // Far later than the year the dashboard asks for by default.
+          {
+            range: { from: "2030-01-01", to: "2030-02-01" },
+            points: [{ date: "2030-01-01", net: 1 }],
+          }
+        : defaultApiGet(path),
+    );
     const { App } = await import("../src/App");
     render(<App {...ports} />);
     expect(await screen.findByText(/as far back as every account has data/)).toBeDefined();
@@ -314,14 +335,13 @@ describe("the transaction list", () => {
       accountId: "a1",
       transactionType: "DEBIT",
       category: "Uncategorised",
-      provisional: false,
+      setId: "provider",
     }));
-    apiGet.mockImplementation(async (path: string) => {
-      if (path.startsWith(pathFor("/summary"))) return summary;
-      if (path.startsWith(pathFor("/accounts"))) return { accounts };
-      if (path.startsWith(pathFor("/balances"))) return balances;
-      return { transactions: many };
-    });
+    apiGet.mockImplementation(async (path: string) =>
+      path.startsWith(pathFor("/transactions"))
+        ? transactionsResponse(many)
+        : defaultApiGet(path),
+    );
     const { App } = await import("../src/App");
     render(<App {...ports} />);
 
@@ -385,7 +405,7 @@ describe("chrome", () => {
     apiGet.mockImplementation(async (path: string) => {
       if (path.startsWith(pathFor("/summary"))) return summary;
       if (path.startsWith(pathFor("/accounts"))) return { accounts };
-      if (path.startsWith(pathFor("/transactions"))) return { transactions };
+      if (path.startsWith(pathFor("/transactions"))) return transactionsResponse(transactions);
       if (path.startsWith(pathFor("/books"))) return booksResponse;
       return balances;
     });

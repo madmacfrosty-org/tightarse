@@ -39,10 +39,28 @@ export interface Session {
  * It read and nothing else until the dashboard could propose a rule. That is
  * the same identity and the same token doing something with effect, not a
  * different kind of access — which is why there is one port rather than two.
+ *
+ * **The schema is an argument, not a type parameter.** `get<Summary>(path)` was
+ * a promise to the compiler that nothing checked at run time: if the API and
+ * the dashboard disagreed about a field, no build and no test would notice and
+ * a number would simply be missing or wrong on screen (#41). Passing the schema
+ * means the response is parsed, and means a call cannot be written without
+ * saying what it expects — a path this file has never heard of cannot slip
+ * through unvalidated, which is what a path-to-schema lookup would have allowed.
  */
 export interface Api {
-  get<T>(path: string): Promise<T>;
-  post<T>(path: string, body: unknown): Promise<T>;
+  get<T>(schema: Parses<T>, path: string): Promise<T>;
+  post<T>(schema: Parses<T>, path: string, body: unknown): Promise<T>;
+}
+
+/**
+ * Anything that turns an unknown into a `T`, or throws.
+ *
+ * Structural rather than `ZodType`, so a test can hand over a plain object and
+ * so this file does not take a dependency on zod to describe what it needs.
+ */
+export interface Parses<T> {
+  parse(value: unknown): T;
 }
 
 export type { Identity };

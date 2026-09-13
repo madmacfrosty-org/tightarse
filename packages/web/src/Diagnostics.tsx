@@ -1,6 +1,6 @@
 import {
   pathFor,
-  type RunningBalanceResponse,
+  RunningBalanceResponse,
   type AccountBalanceCheck,
   type Displacement,
 } from "@tightarse/api-contract";
@@ -193,7 +193,7 @@ export function Diagnostics({ api }: { api: Api }) {
     setLoading(true);
     setError(null);
     api
-      .get<RunningBalanceResponse>(pathFor("/diagnostics/running-balance"))
+      .get(RunningBalanceResponse, pathFor("/diagnostics/running-balance"))
       .then(setReport)
       .catch((e: unknown) =>
         setError(e instanceof Error ? e.message : "Failed to run the check"),
