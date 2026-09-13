@@ -41,7 +41,7 @@ describe("brand names as they actually appear on statements", () => {
     // own transaction type is far more reliable than trying to read it.
     const provider = seedRuleSets({
       now: new Date("2026-01-01T00:00:00.000Z"),
-    }).find((s) => s.setId === "provider-types")!;
+    }).find((s) => s.setId === "from-provider")!;
     expect(
       evaluate([provider], {
         dedupKey: "d1",

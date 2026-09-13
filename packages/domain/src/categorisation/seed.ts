@@ -208,9 +208,9 @@ export function seedRuleSets(options: SeedOptions): RuleSet[] {
       // type. Sharing the name made `effectiveCategories` discard every one of
       // them as though nothing had matched, so an ATM withdrawal was
       // categorised as cash and then displayed as uncategorised.
-      setId: "provider-types",
+      setId: "from-provider",
       version: 1,
-      name: "Provider transaction types",
+      name: "Categories from the provider's own labels",
       order: PROVIDER_ORDER,
       authored: false,
       status: "proposed" as const,

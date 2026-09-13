@@ -60,14 +60,14 @@ describe("what a report shows", () => {
     // categorised as cash was displayed as uncategorised.
     const out = effectiveCategories(
       [tx("d1", { providerCategory: "ATM" })],
-      [cat("d1", "cash-withdrawal", { setId: "provider-types" })],
-      [{ setId: "provider-types", order: 3 }],
+      [cat("d1", "cash-withdrawal", { setId: "from-provider" })],
+      [{ setId: "from-provider", order: 3 }],
     );
 
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({
       category: "cash-withdrawal",
-      setId: "provider-types",
+      setId: "from-provider",
     });
   });
 

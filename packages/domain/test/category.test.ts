@@ -248,12 +248,12 @@ describe("seeding the rules in service today", () => {
   });
 
   it("writes no household set when the household has no rules of its own", () => {
-    // `provider-types`, never `provider`: that id is the sentinel for "nothing
+    // `from-provider`, never `provider`: that id is the sentinel for "nothing
     // categorised this", and a set sharing it had everything it asserted
     // discarded at read time.
     expect(seedRuleSets({ now: NOW }).map((s) => s.setId)).toEqual([
       "built-in",
-      "provider-types",
+      "from-provider",
     ]);
 
     // The collision, as a check. `provider` is the sentinel for "nothing
@@ -297,7 +297,7 @@ describe("seeding the rules in service today", () => {
 
   it("seeds interest as two rules, because direction decides the category", () => {
     const provider = seedRuleSets({ now: NOW }).find(
-      (s) => s.setId === "provider-types",
+      (s) => s.setId === "from-provider",
     );
     const interest = (provider?.rules ?? []).filter(
       (r) =>

@@ -83,6 +83,25 @@ export const RULES: readonly MerchantRule[] = [
  * rather than the description, which is far more reliable — an ATM withdrawal's
  * description is usually a location, not a merchant.
  */
+/**
+ * Provider labels that mean something, and deliberately no others.
+ *
+ * A rule here asserts a real category, so a transaction it matches stops being
+ * one that needs filing. That is right for `ATM` — a cash machine withdrawal is
+ * a cash withdrawal, whoever says so — and it would be wrong for almost
+ * everything else the provider says. Over three quarters of the real ledger is
+ * `PURCHASE` and `DIRECT_DEBIT`, which describe the rail the money travelled on
+ * and nothing about what it was for.
+ *
+ * So adding `PURCHASE: "Shopping"` here would not improve the categories. It
+ * would silently empty the list of transactions still waiting to be filed, by
+ * answering them with a guess that looks like a decision. The narrowness is the
+ * feature.
+ *
+ * Interest is handled in `providerRules` rather than here, because direction
+ * decides it: received is income, paid is a charge, and one label cannot say
+ * both.
+ */
 export const PROVIDER_RULES: Readonly<Record<string, CategoryLabel>> = {
   ATM: "Cash Withdrawal",
 };

@@ -53,7 +53,7 @@ describe("precedence is position", () => {
     // deterministic, meaningless, and it had already chosen the wrong set.
     const orders = precedenceOf([
       a("provider"),
-      a("provider-types"),
+      a("from-provider"),
       a("built-in"),
     ]).map((p) => p.order);
 
@@ -62,7 +62,7 @@ describe("precedence is position", () => {
 
   it("says nothing about a set that is not adopted", () => {
     expect(pinnedVersion([a("built-in", 4)], "built-in")).toBe(4);
-    expect(pinnedVersion([a("built-in", 4)], "provider-types")).toBeUndefined();
+    expect(pinnedVersion([a("built-in", 4)], "from-provider")).toBeUndefined();
   });
 });
 
@@ -99,11 +99,11 @@ describe("adopting", () => {
     // Adopting a successor is not a statement about wanting it ranked
     // differently, so it inherits the place of what it replaced.
     const before: Adoptions = [a("overrides"), a("provider"), a("built-in")];
-    const out = adopt(before, a("provider-types", 1, "provider"));
+    const out = adopt(before, a("from-provider", 1, "provider"));
 
     expect(out.map((x) => x.setId)).toEqual([
       "overrides",
-      "provider-types",
+      "from-provider",
       "built-in",
     ]);
   });
@@ -122,9 +122,9 @@ describe("adopting", () => {
   it("removes the superseded set in the same step", () => {
     // In two steps there is a window where both compete, which is exactly the
     // state that hid a category behind a payment rail.
-    const out = adopt([a("provider")], a("provider-types", 1, "provider"));
+    const out = adopt([a("provider")], a("from-provider", 1, "provider"));
 
-    expect(out.map((x) => x.setId)).toEqual(["provider-types"]);
+    expect(out.map((x) => x.setId)).toEqual(["from-provider"]);
     expect(out.some((x) => x.setId === "provider")).toBe(false);
   });
 
@@ -136,8 +136,8 @@ describe("adopting", () => {
   });
 
   it("supersedes a set that is not adopted, without inventing a position", () => {
-    const out = adopt([a("household")], a("provider-types", 1, "provider"));
-    expect(out.map((x) => x.setId)).toEqual(["household", "provider-types"]);
+    const out = adopt([a("household")], a("from-provider", 1, "provider"));
+    expect(out.map((x) => x.setId)).toEqual(["household", "from-provider"]);
   });
 });
 
