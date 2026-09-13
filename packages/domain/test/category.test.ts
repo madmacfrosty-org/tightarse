@@ -351,3 +351,53 @@ describe("books the seed keeps out of what the household is worth", () => {
     expect(others.every((c) => c.rollsUp === undefined)).toBe(true);
   });
 });
+
+describe("the adoption list onboarding writes", () => {
+  const NOW = new Date("2026-03-01T09:00:00.000Z");
+  const sets = [
+    { setId: "from-provider", version: 1 },
+    { setId: "built-in", version: 1 },
+    { setId: "household", version: 2 },
+  ];
+
+  it("ranks hand-written above shipped above the provider's own labels", () => {
+    expect(seedAdoptions("t1", sets, NOW).map((a) => a.setId)).toEqual([
+      "household",
+      "built-in",
+      "from-provider",
+    ]);
+  });
+
+  it("puts a set it does not recognise last, never first", () => {
+    // The bug this pins, found by running the migration against a real table
+    // rather than by any test: `indexOf` returns -1 for an unknown id, which
+    // sorts it ABOVE everything. The set it did that to was a legacy
+    // `provider`, whose answers are discarded at read (#119) — so the one set
+    // that contributes nothing would have outranked every other.
+    const withLegacy = [...sets, { setId: "provider", version: 1 }];
+
+    expect(seedAdoptions("t1", withLegacy, NOW).map((a) => a.setId)).toEqual([
+      "household",
+      "built-in",
+      "from-provider",
+      "provider",
+    ]);
+  });
+
+  it("orders two unrecognised sets the same way twice", () => {
+    // Otherwise the same table produces two different lists, and precedence
+    // depends on the order a scan happened to return.
+    const a = seedAdoptions("t1", [{ setId: "zzz", version: 1 }, { setId: "aaa", version: 1 }], NOW);
+    const b = seedAdoptions("t1", [{ setId: "aaa", version: 1 }, { setId: "zzz", version: 1 }], NOW);
+
+    expect(a.map((x) => x.setId)).toEqual(b.map((x) => x.setId));
+  });
+
+  it("pins the version each set is adopted at", () => {
+    expect(seedAdoptions("t1", sets, NOW)[0]).toMatchObject({
+      owner: "t1",
+      setId: "household",
+      version: 2,
+    });
+  });
+});

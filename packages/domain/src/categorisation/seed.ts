@@ -258,9 +258,21 @@ export function seedAdoptions(
   sets: readonly { readonly setId: string; readonly version: number }[],
   now: Date,
 ): Adoptions {
-  const rank = ["household", "built-in", "from-provider"];
+  const KNOWN = ["household", "built-in", "from-provider"];
+  // Anything not seeded ranks LAST, never first. `indexOf` returns -1 for an
+  // unknown id, which sorts it to the most trusted position — the opposite of
+  // what an unrecognised set deserves. Running the migration against a real
+  // table is what caught it: a legacy `provider` set, whose answers are
+  // discarded at read (#119), came out ranked above every shipped pattern.
+  //
+  // Ties break on the id so two unknown sets cannot make the same table produce
+  // two different lists.
+  const rank = (setId: string): number => {
+    const at = KNOWN.indexOf(setId);
+    return at === -1 ? KNOWN.length : at;
+  };
   return [...sets]
-    .sort((a, b) => rank.indexOf(a.setId) - rank.indexOf(b.setId))
+    .sort((a, b) => rank(a.setId) - rank(b.setId) || a.setId.localeCompare(b.setId))
     .map((set) => ({
       owner: tenantId,
       setId: set.setId,
