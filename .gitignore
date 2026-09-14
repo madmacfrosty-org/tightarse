@@ -64,3 +64,15 @@ web/.env.local
 .stryker/
 .stryker-tmp/
 reports/
+
+# Playwright, and everything a run leaves behind
+#
+# First because the first run is what creates these, and they look like
+# ordinary test output right up until one of them carries a screenshot of a
+# ledger. Traces and screenshots record whatever was on screen; storage state
+# is a live session.
+e2e/test-results/
+e2e/playwright-report/
+e2e/blob-report/
+e2e/.auth/
+playwright/.cache/

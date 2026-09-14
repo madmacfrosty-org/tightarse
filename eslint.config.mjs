@@ -40,6 +40,11 @@ function workspaceDirs() {
       if (existsSync(path.join(dir, name, "package.json"))) out.push(`${group}/${name}`);
     }
   }
+  // `e2e` is a workspace rather than a group, so the scan above cannot reach it.
+  // Named explicitly, because the alternative is the harness being the one place
+  // in the tree the linter does not look — which is what it was on first
+  // writing, along with the typechecker (#169).
+  if (existsSync(path.join(ROOT, "e2e", "package.json"))) out.push("e2e");
   return out;
 }
 
@@ -135,6 +140,11 @@ const INFRASTRUCTURE = [
  */
 const NOT_SHIPPED = [
   "**/test/**",
+  // The whole e2e workspace. It exports nothing and nothing imports it — it is
+  // a harness pointed at a deployment, so every dependency in it is a dev one.
+  // Its directories are `tests/` and `setup/` rather than `test/` because that
+  // is where Playwright's agents look (#169).
+  "e2e/**",
   "**/*.config.ts",
   "**/*.config.mts",
   "**/*.config.mjs",
