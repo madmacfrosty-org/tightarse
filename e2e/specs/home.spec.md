@@ -1,15 +1,13 @@
-# Dashboard
+# Home
 
 Behaviour of the page at `/`, against a deployed environment.
 
 It is becoming the glance — position, how it has moved, and three months of
 transactions you can search. Scenarios 1 to 5 describe the page as it is today;
 6 to 8 describe what it becomes when the routing in
-[`routing.spec.md`](routing.spec.md) lands. This file should be renamed
-`glance.spec.md` at that point, once `/spending`, `/categories` and
-`/operations` have specs of their own.
+[`routing.spec.md`](routing.spec.md) lands.
 
-Executed by [`dashboard.spec.ts`](../tests/dashboard.spec.ts). Each scenario names the
+Executed by [`home.spec.ts`](../tests/home.spec.ts). Each scenario names the
 job it serves, from [`docs/product/jobs.md`](../../docs/product/jobs.md), and
 says whether a test covers it today. A scenario with no test is a statement of
 intent, not a claim about what works.
@@ -183,7 +181,7 @@ bookkeeper's tool to answer "what was that forty pounds".
 
 ## Not behaviour
 
-`dashboard.spec.ts` also asserts that the browser made no request outside the
+`home.spec.ts` also asserts that the browser made no request outside the
 environment under test. That is a property of the harness rather than of the
 product, so it has no scenario here — but it belongs in the same file, because a
 confinement nothing checks is a claim rather than a guard.
