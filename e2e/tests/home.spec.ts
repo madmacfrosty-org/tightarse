@@ -1,7 +1,7 @@
 import { test, expect, blocked } from "./fixtures.js";
 
 /**
- * The behaviour described in `specs/dashboard.spec.md`, executed.
+ * The behaviour described in `specs/home.spec.md`, executed.
  *
  * The scenarios there name the job each one serves and say which are covered;
  * this file holds the covered ones. A scenario with no test here is intent
