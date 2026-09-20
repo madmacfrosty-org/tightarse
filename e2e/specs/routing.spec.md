@@ -25,6 +25,16 @@ application an unknown path is a route, not a missing file.
 does not say whether it is good news, and seeing the line is part of the glance
 rather than a deeper question about it.
 
+It is three months, ending at a date the page is pinned to. The pin defaults to
+today and is read from `?at=`; there is no control for it, deliberately. A
+glance answers without asking anything first, and "which window?" is a question.
+The parameter exists so the origin can move later, and so a test can assert on a
+fixed ledger rather than on whatever today happens to contain.
+
+`at` is not `asAt`. This moves the window; `asAt` in the reporting means what we
+believed at a moment, including which categorisations had been recorded by then.
+Two different questions that would be one word if nobody said otherwise.
+
 | Path | For | Mode | Jobs |
 | --- | --- | --- | --- |
 | `/` | Where do we stand, now, and how it has moved | glance | J-1, J-2 |
