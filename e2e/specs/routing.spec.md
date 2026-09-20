@@ -21,9 +21,13 @@ application an unknown path is a route, not a missing file.
 
 ## The pages
 
+`/` carries the balance over time as well as the position. A number on its own
+does not say whether it is good news, and seeing the line is part of the glance
+rather than a deeper question about it.
+
 | Path | For | Mode | Jobs |
 | --- | --- | --- | --- |
-| `/` | Where do we stand, now | glance | J-1, J-2 |
+| `/` | Where do we stand, now, and how it has moved | glance | J-1, J-2 |
 | `/spending` | Where the money went, and what changed | review | J-3, J-4, J-5, J-6 |
 | `/categories` | Keeping categories accurate | — | J-7, J-8 |
 | `/operations` | Connections, consents, and does the ledger match | — | J-9, J-10, J-11 |
