@@ -7,21 +7,7 @@ Every job here serves one of the three aims, defined in
 - **progress towards goals**
 - **planning goals**
 
-A job that serves none of them does not belong here, however good an idea it is.
-The aims are named here and defined there — one definition, one place.
-
-## What counts as a job
-
-One sitting, and you walk away having got what you came for. Cockburn's test:
-*can the primary actor go away happy having done this?*
-
-Too big is an aim. "Progress towards goals" is not something anyone sits down
-and finishes.
-
-Too small is a step. "Preview what a rule would do" is not why anyone opened
-the application; they are halfway through clearing a backlog. Steps are not
-written down here — they live in the code and the tests, where they cannot
-drift from what is true.
+A job that serves none of them does not belong here.
 
 ## Roles and modes
 
@@ -31,7 +17,7 @@ They vary independently, and the householder works in two modes.
 | Role | Doing what |
 | --- | --- |
 | **householder** | Asking a money question |
-| **bookkeeper** | Making the categories true, so the figures mean something |
+| **bookkeeper** | Keeping categories accurate, so the figures mean something |
 | **operator** | Keeping the feed alive and the ledger honest |
 
 | Mode | Triggered by | Succeeds when |
@@ -43,11 +29,6 @@ Good means opposite things in the two modes. A glance that takes thirty seconds
 has failed even when the figure is right; a review that answers with one big
 number has failed even when it is instant. One surface cannot be optimised for
 both, and the page that exists today is what happens when you try.
-
-## Fields
-
-`Today` is written honestly, including "not served". `Done when` is the
-observable outcome — a story without one cannot be argued with, and is a wish.
 
 ---
 
@@ -86,10 +67,6 @@ Serves:    where do we stand
 ---
 
 # Progress towards goals
-
-Finding and stopping waste is the lever on this aim, and most of the work is
-here. Every job below is either noticing something, judging it, or confirming
-that stopping it worked.
 
 ## J-2 — Notice a cost that has crept up
 
@@ -150,11 +127,7 @@ Done when: I am told when a thing I stopped charges me again — without having
            to remember to look.
 Serves:    progress towards goals
 
-## Making the categories true
-
-Waste is invisible without categories, so this is bought for the aim above
-rather than wanted for itself. The design question is how little of it is
-needed.
+## Keeping categories accurate
 
 ## J-8 — Make an uncategorised pile small enough to ignore
 
@@ -185,16 +158,7 @@ Serves:    progress towards goals
 
 # Planning goals
 
-**No jobs yet, and that is the finding rather than an omission.**
-
-Nothing forward-looking exists anywhere in the system. Every figure is derived
-from a transaction that already happened, which is the design's whole character
-and the reason it can be deterministic and rebuildable. A goal points the other
-way: a target, a date, a projection, a gap.
-
-Writing the jobs for this means deciding what a household actually does with a
-goal once it has one — which is a conversation that has not happened, not a
-backlog item.
+No jobs yet.
 
 ---
 
@@ -243,47 +207,3 @@ Today:     Served, and designed around this: the first sync starts immediately
 Done when: Years of history are present, and I never had to know there was a
            deadline.
 Serves:    all three
-
----
-
-# Steps, not jobs
-
-Kept here rather than deleted, because the reasoning is worth preserving and
-the call is arguable. None passes the test above: you do not set out to do any
-of them, and having done one you are still mid-task.
-
-- **Preview what a rule would do before applying it** — a step of clearing the
-  backlog. Already specified where it matters: `preview.test.ts` describes what
-  is gained, lost, recategorised, unchanged and outranked.
-- **Say what a category means** — a step of creating one, which happens inside
-  correcting or clearing.
-- **Know the figures are current** — a precondition for everything rather than
-  something anyone sets out to do. It belongs in how every view behaves, not in
-  one job.
-
----
-
-# What this says about the current design
-
-**One surface serves two modes that want opposite things.** Every job above is
-answered on the same scrolling page, in the order the features were written:
-householder, connect, categorise, diagnostics, transactions. A glance and a
-review get the same entry point, the same density, and the same five API calls
-on load.
-
-**Two of the three aims have nothing behind them.** `where do we stand` is
-mostly built and is the best part of the application. `progress towards goals`
-has no goals to progress against, and net worth is computable but not yet
-truthful — a mortgage falls only by what is repaid, because interest is never
-posted. `planning goals` has nothing at all.
-
-**The lever is built and pointed the wrong way.** `detectRecurring` already
-finds what repeats, and feeds rule-writing rather than a spending decision. The
-most compounding form of waste is already detectable and is not shown to the
-person who would act on it.
-
-**The best-built parts are bought for an aim that does not exist yet.**
-Preview, precedence, overrides and backlog are careful, tested and genuinely
-good. They make the categories true, and categories are for finding waste,
-which serves an aim with no goals in it. That was the right order to build in;
-it also means the most machinery sits behind the least interface.
