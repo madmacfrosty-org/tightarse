@@ -1,6 +1,12 @@
 import { test, expect, blocked } from "./fixtures.js";
 
 /**
+ * The behaviour described in `specs/dashboard.spec.md`, executed.
+ *
+ * The scenarios there name the job each one serves and say which are covered;
+ * this file holds the covered ones. A scenario with no test here is intent
+ * rather than a claim, and the markdown says so.
+ *
  * The one thing stages 1 to 3 cannot see: whether the deployed API and the
  * deployed dashboard agree.
  *
