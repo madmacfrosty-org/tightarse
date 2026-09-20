@@ -28,11 +28,19 @@ application an unknown path is a route, not a missing file.
 | `/categories` | Keeping categories accurate | — | J-7, J-8 |
 | `/connected` | Returning from a bank authorisation | — | J-11 |
 
-**Undecided:** J-9 (keep the feed alive), J-10 (does the ledger match the bank)
-and the act of connecting a bank have no page. They are operator work, they are
-rare, and they are currently on the main page. Options are a fourth path, or
-folding them into `/categories` as a settings area, or leaving them at `/`.
-This spec does not choose.
+Operator work has no page of its own, deliberately. It is event-driven rather
+than somewhere you go, and the three jobs are not alike:
+
+- **J-9, keeping the feed alive.** Consent interrupts. Nobody goes looking for
+  an expiry warning, so it appears on `/` when it becomes urgent — which is
+  already how it behaves, above the figures, because it has a deadline and they
+  do not.
+- **J-11, adding a bank.** A flow, entered by deciding to, once per account
+  ever. Reached from where accounts are shown, and it ends at `/connected`.
+- **J-10, does the ledger match the bank.** The only one anybody navigates to,
+  and it is triggered by doubting a figure rather than by wanting a tool. Still
+  undecided: it could hang off the figure it explains, or have a path that
+  nothing links to casually.
 
 ---
 
