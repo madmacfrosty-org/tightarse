@@ -11,6 +11,20 @@ export E2E_PASSWORD=<its password>
 npm run test:e2e -w @tightarse/e2e
 ```
 
+## Behaviour is written down first
+
+Each `tests/*.spec.ts` has a `specs/*.spec.md` describing the behaviour in
+scenarios: starting state, numbered steps, expected outcome, and what failing
+would mean. The format is the one Playwright's planner agent produces, so a
+generated plan and a hand-written one look the same.
+
+Each scenario names the job it serves, from `docs/product/jobs.md`, and says
+whether a test covers it. An uncovered scenario is intent rather than a claim —
+which makes the markdown a coverage report as well as a description.
+
+`specs/` and `tests/` are where Playwright's agents look by default, so a
+regenerated planner or generator needs no re-pointing.
+
 ## Dev, and only dev
 
 `playwright.config.ts` refuses any base URL that is not dev's, and the browser
