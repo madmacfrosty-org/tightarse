@@ -82,7 +82,7 @@ quietly short looks exactly like one that is right.
 
 ## 4. A consent near expiry is warned about before anything else
 
-Job: **J-12** — keep the feed alive · Covered: **no**
+Job: **J-9** — keep the feed alive · Covered: **no**
 
 1. Open the dashboard with a consent inside the warning threshold.
 2. Read the top of the page.
@@ -100,7 +100,7 @@ correct.
 
 ## 5. The transaction list shows more on request
 
-Job: **J-4** — understand what a charge was · Covered: **no**
+Job: **J-2** — understand what a charge was · Covered: **no**
 
 1. Open the dashboard with more than one hundred transactions in range.
 2. Scroll to the transaction list.

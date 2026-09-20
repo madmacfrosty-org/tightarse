@@ -48,7 +48,7 @@ Today:     Served. Net position leads the page, derived from every book that
 Done when: I get the number without scrolling, and I believe it.
 Serves:    where do we stand
 
-## J-4 — Understand what a charge actually was
+## J-2 — Understand what a charge actually was
 
 Role:      householder
 Mode:      glance
@@ -68,7 +68,7 @@ Serves:    where do we stand
 
 # Progress towards goals
 
-## J-2 — Notice a cost that has crept up
+## J-3 — Notice a cost that has crept up
 
 Role:      householder
 Mode:      review
@@ -84,7 +84,7 @@ Done when: I can name the thing that moved, and by how much, without comparing
            two screens myself.
 Serves:    progress towards goals
 
-## J-3 — Find money leaving on repeat
+## J-4 — Find money leaving on repeat
 
 Role:      householder
 Mode:      review
@@ -104,7 +104,7 @@ Serves:    progress towards goals
 
 Role:      householder
 Mode:      review
-Frequency: as prompted by J-2 or J-3 · minutes
+Frequency: as prompted by J-3 or J-4 · minutes
 Story:     When I am looking at something that might be waste, I want to see
            what it has cost over time and what it sits beside, so I can decide
            rather than guess.
@@ -129,7 +129,7 @@ Serves:    progress towards goals
 
 ## Keeping categories accurate
 
-## J-8 — Make an uncategorised pile small enough to ignore
+## J-7 — Make an uncategorised pile small enough to ignore
 
 Role:      bookkeeper
 Frequency: monthly · twenty minutes
@@ -142,7 +142,7 @@ Today:     Served, and it is the most developed part of the application: search,
 Done when: A month's new spending needs minutes, not an evening.
 Serves:    progress towards goals
 
-## J-9 — Correct one transaction without writing a rule about it
+## J-8 — Correct one transaction without writing a rule about it
 
 Role:      bookkeeper
 Frequency: weekly · seconds
@@ -167,7 +167,7 @@ No jobs yet.
 These serve all three aims, because none of them is worth anything if the
 ledger is stale or wrong.
 
-## J-12 — Keep the feed alive
+## J-9 — Keep the feed alive
 
 Role:      operator
 Frequency: every ninety days · minutes, but with a deadline
@@ -179,7 +179,7 @@ Today:     Partly served. Expiry is computed, surfaced above everything else,
 Done when: A lapse is something I am told about, not something I discover.
 Serves:    all three
 
-## J-13 — Satisfy myself the ledger matches reality
+## J-10 — Satisfy myself the ledger matches reality
 
 Role:      operator
 Frequency: occasionally, and after anything surprising · minutes
@@ -193,7 +193,7 @@ Today:     Served, and it found real defects: the running-balance check compares
 Done when: I can answer "does this match" and, if not, "which rows".
 Serves:    all three
 
-## J-14 — Add a bank without losing history
+## J-11 — Add a bank without losing history
 
 Role:      operator
 Frequency: once per account, ever · minutes, unrepeatable
