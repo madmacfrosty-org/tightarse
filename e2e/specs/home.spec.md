@@ -1,8 +1,13 @@
-# Dashboard
+# Home
 
-Behaviour of the household's main page, against a deployed environment.
+Behaviour of the page at `/`, against a deployed environment.
 
-Executed by [`dashboard.spec.ts`](../tests/dashboard.spec.ts). Each scenario names the
+It is becoming the glance — position, how it has moved, and three months of
+transactions you can search. Scenarios 1 to 5 describe the page as it is today;
+6 to 8 describe what it becomes when the routing in
+[`routing.spec.md`](routing.spec.md) lands.
+
+Executed by [`home.spec.ts`](../tests/home.spec.ts). Each scenario names the
 job it serves, from [`docs/product/jobs.md`](../../docs/product/jobs.md), and
 says whether a test covers it today. A scenario with no test is a statement of
 intent, not a claim about what works.
@@ -42,7 +47,10 @@ checking the page against something the page never saw.
 
 ## 2. The range selector changes what is reported
 
-Job: **J-1** — know where we stand · Covered: **no**
+Job: **J-1** — know where we stand · Covered: **no** · **Goes away**
+
+Describes today. Scenario 7 replaces it: the glance is pinned and has no
+control, and choosing a window becomes reviewing.
 
 1. Open the dashboard.
 2. Note the transaction count in the summary.
@@ -116,9 +124,64 @@ than deferring it.
 
 ---
 
+
+## 6. The glance covers three months, ending where it is pinned
+
+Job: **J-1** — know where we stand · Covered: **no**
+
+1. Open `/?at=2026-06-30` against a ledger with more than a year of history.
+2. Read the balance line and the transaction list.
+
+**Expected:** both cover the three months ending 30 June 2026. The position
+shown is the position at that date, not today's.
+
+**Succeeds when** every figure on the page describes the same moment.
+
+**Fails when** the position is current while the line and the list are
+historical. A page showing two different times is worse than one showing the
+wrong time, because nothing on it says which.
+
+---
+
+## 7. The window has no control
+
+Job: **J-1** — know where we stand · Covered: **no**
+
+1. Open `/`.
+2. Look for a way to change the period.
+
+**Expected:** there is none. The pin comes from `?at=`, defaulting to today.
+
+**Succeeds when** the page asks nothing before answering.
+
+**Fails when** a range selector appears. Choosing a window is reviewing, and
+reviewing has its own page — this is the control that turned the original
+single page into something you had to operate before you could read it.
+
+---
+
+## 8. The transactions on the glance are searchable
+
+Job: **J-2** — understand what a charge actually was · Covered: **no**
+
+1. Open `/`.
+2. Search the transaction list for a description you half-remember.
+
+**Expected:** the list narrows to matching transactions within the three
+months. Nothing about rules or categorisation is involved.
+
+**Succeeds when** you can find one transaction without leaving the page you
+landed on.
+
+**Fails when** finding a charge means entering the categorisation workflow,
+which is where search lives today. That asks a householder to enter a
+bookkeeper's tool to answer "what was that forty pounds".
+
+---
+
 ## Not behaviour
 
-`dashboard.spec.ts` also asserts that the browser made no request outside the
+`home.spec.ts` also asserts that the browser made no request outside the
 environment under test. That is a property of the harness rather than of the
 product, so it has no scenario here — but it belongs in the same file, because a
 confinement nothing checks is a claim rather than a guard.
