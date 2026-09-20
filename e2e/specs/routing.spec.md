@@ -26,21 +26,25 @@ application an unknown path is a route, not a missing file.
 | `/` | Where do we stand, now | glance | J-1, J-2 |
 | `/spending` | Where the money went, and what changed | review | J-3, J-4, J-5, J-6 |
 | `/categories` | Keeping categories accurate | — | J-7, J-8 |
+| `/operations` | Connections, consents, and does the ledger match | — | J-9, J-10, J-11 |
 | `/connected` | Returning from a bank authorisation | — | J-11 |
 
-Operator work has no page of its own, deliberately. It is event-driven rather
-than somewhere you go, and the three jobs are not alike:
+Operator work has a page, and also reaches out from it. The rule is **urgent
+comes to you, routine you go to**:
 
-- **J-9, keeping the feed alive.** Consent interrupts. Nobody goes looking for
-  an expiry warning, so it appears on `/` when it becomes urgent — which is
-  already how it behaves, above the figures, because it has a deadline and they
-  do not.
-- **J-11, adding a bank.** A flow, entered by deciding to, once per account
-  ever. Reached from where accounts are shown, and it ends at `/connected`.
-- **J-10, does the ledger match the bank.** The only one anybody navigates to,
-  and it is triggered by doubting a figure rather than by wanting a tool. Still
-  undecided: it could hang off the figure it explains, or have a path that
-  nothing links to casually.
+- **J-9, keeping the feed alive.** A consent close to lapsing appears on `/`,
+  above the figures, because it has a deadline and they do not. Nobody goes
+  looking for an expiry warning. The full list of connections and how long each
+  has left lives on `/operations`, for when you want to check rather than be
+  told.
+- **J-10, does the ledger match the bank.** Triggered by doubting a figure, so
+  it can be reached from the figure as well — but it is a tool, and
+  `/operations` is where a tool belongs.
+- **J-11, adding a bank.** Entered from `/operations`, and it ends at
+  `/connected`.
+
+`/operations` is also where the settings in #151 would go: consent thresholds
+and who has access are neither money nor categories.
 
 ---
 
@@ -63,14 +67,16 @@ step in the way of it.
 
 ## 2. Each page shows only its own work
 
-Job: **J-1**, **J-3**, **J-7** · Covered: **no**
+Job: **J-1**, **J-3**, **J-7**, **J-10** · Covered: **no**
 
 1. Visit `/`.
 2. Visit `/spending`.
 3. Visit `/categories`.
+4. Visit `/operations`.
 
 **Expected:** each shows what its row in the table above says and nothing from
-the others. `/` has no rule authoring on it; `/categories` has no net position.
+the others. `/` has no rule authoring on it; `/categories` has no net position;
+`/operations` has no spending on it.
 
 **Succeeds when** a page can be described in one sentence.
 
@@ -85,10 +91,12 @@ glance and a twenty-minute sitting shared one surface.
 Job: **J-1**, **J-3**, **J-7** · Covered: **no**
 
 1. Visit `/`.
-2. Navigate to `/spending`, then to `/categories`, then back to `/`.
+2. Navigate to `/spending`, then `/categories`, then `/operations`, then back
+   to `/`.
 
-**Expected:** navigation is present on all three, names the destination, and
-marks which one you are on.
+**Expected:** navigation is present on all four, names the destination, and
+marks which one you are on. `/operations` is reachable without typing an
+address, and is not given the same prominence as the three you use weekly.
 
 **Succeeds when** moving between them needs no typed URL and no back button.
 
