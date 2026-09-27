@@ -1,4 +1,8 @@
-import { NewCategoryRequest, ProposalRequest } from "@tightarse/api-contract";
+import {
+  NewCategoryRequest,
+  ProposalRequest,
+  RemoveConnectionRequest,
+} from "@tightarse/api-contract";
 import { DynamoStore } from "@tightarse/dynamodb";
 import type {
   Commit,
@@ -7,7 +11,12 @@ import type {
   ProposalOutcome,
   RuleSet,
 } from "@tightarse/domain";
-import { createCategory, inspection, proposeRules } from "@tightarse/domain";
+import {
+  createCategory,
+  inspection,
+  proposeRules,
+  removeConnection,
+} from "@tightarse/domain";
 import { ledgerConfig, tenantFrom } from "./handler.js";
 import { asBacklog, asProposalResponse } from "./wire.js";
 
@@ -43,6 +52,18 @@ interface HttpEvent {
 
 export interface CategorisationDeps {
   readonly inspection: Inspection;
+  /**
+   * Stop tracking a connection that has stopped working.
+   *
+   * Here rather than on the dashboard's function because that one stays
+   * read-only, which is the stated reason these are two Lambdas rather than
+   * one. The name says categorisation because that was its first job; what it
+   * is, is the function that writes.
+   */
+  readonly removeConnection: (
+    tenantId: string,
+    consentId: string,
+  ) => Promise<{ consentId: string; removedAt: string }>;
   /** Adding a category, which has to exist before a rule may name it. */
   readonly addCategory: (
     tenantId: string,
@@ -243,6 +264,15 @@ export async function route(deps: CategorisationDeps, event: HttpEvent) {
     const tenantId = tenantFrom(event);
     const path = event.rawPath ?? "/";
 
+    if (path.endsWith("/connections/remove")) {
+      const parsed = RemoveConnectionRequest.safeParse(jsonBody(event));
+      if (!parsed.success) throw badRequest(parsed.error.issues);
+      // Refusals carry their own status: a live connection is a 409 with the
+      // reason, not a 500. Whoever pressed the button needs to know it is
+      // still working rather than that something broke.
+      return json(200, await deps.removeConnection(tenantId, parsed.data.consentId));
+    }
+
     if (path.endsWith("/categorisation/gaps")) {
       const range = rangeFrom(event);
       return json(
@@ -332,6 +362,8 @@ export function realDeps(): CategorisationDeps {
     // without a table, and an unreachable line in the composition root is how
     // the routing itself went untested before.
     propose: proposeRules.bind(null, deps),
+    // Bound rather than wrapped, for the same reason as above.
+    removeConnection: removeConnection.bind(null, store),
   };
 }
 

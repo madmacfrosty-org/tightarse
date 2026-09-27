@@ -24,6 +24,8 @@ import {
   TransactionsResponse,
   RunningBalanceResponse,
   BooksResponse,
+  RemoveConnectionRequest,
+  RemoveConnectionResponse,
 } from "./schemas.js";
 
 /**
@@ -258,6 +260,23 @@ export const ROUTES: readonly Route[] = [
  * the product could not call its own API. The offline path can hold a household
  * token, or use the CLIs that reach the table directly.
  */
+export const CONNECTION_ROUTES: readonly Route[] = [
+  {
+    method: "post",
+    path: "/connections/remove",
+    summary: "Stop tracking a connection",
+    description:
+      "Marks a connection removed so it is no longer listed or reported on. The consent row is kept, " +
+      "because it is the only record that the connection existed and when it was granted, and every " +
+      "transaction it produced stays in the ledger. Refuses a connection that is still working: one " +
+      "reaches a removable state precisely because nothing is syncing it, so there is nothing at the " +
+      "provider to revoke. Disconnecting a live bank is a different operation.",
+    query: [],
+    request: { name: "RemoveConnectionRequest", schema: RemoveConnectionRequest },
+    response: { name: "RemoveConnectionResponse", schema: RemoveConnectionResponse },
+  },
+];
+
 export const CATEGORISATION_ROUTES: readonly Route[] = [
   {
     method: "post",

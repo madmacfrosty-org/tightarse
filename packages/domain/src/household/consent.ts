@@ -54,6 +54,17 @@ export const Consent = z.object({
    * and a reader ignoring this would show the last happy answer for ever.
    */
   fetchedAt: z.string(),
+  /**
+   * When the household stopped tracking this connection, if it has.
+   *
+   * Marked rather than deleted, for the same reason a category is retired
+   * rather than dropped: the row is the only record that this consent existed
+   * and when it was granted, and that is not ours to throw away because a
+   * connection stopped working.
+   *
+   * A removed consent is not shown and is not reported on. It is still there.
+   */
+  removedAt: z.string().optional(),
 });
 export type Consent = z.infer<typeof Consent>;
 

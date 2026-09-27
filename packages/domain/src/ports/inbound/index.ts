@@ -183,6 +183,14 @@ export interface ConsentView {
   readonly consentId: string;
   readonly institutionName?: string | undefined;
   readonly expiresAt: string;
+  /**
+   * When we last heard from the provider about this connection.
+   *
+   * Not when anything changed. A consent nothing syncs keeps reporting the last
+   * answer it got, so this is what separates a live connection from a frozen
+   * one — and it is what `health` reads to decide `stale`.
+   */
+  readonly fetchedAt: string;
   /** The provider's own word, shown and never branched on. */
   readonly providerStatus: string;
   readonly daysRemaining: number;

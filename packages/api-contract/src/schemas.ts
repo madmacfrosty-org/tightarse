@@ -409,6 +409,13 @@ export const ConsentView = z.object({
   consentId: z.string().describe("The provider's own id for this connection"),
   institutionName: z.string().optional(),
   expiresAt: z.string().describe("When the provider says this consent lapses"),
+  fetchedAt: z
+    .string()
+    .describe(
+      "When we last heard from the provider about this connection. Not when it " +
+        "changed — a consent nothing syncs keeps reporting the last answer it " +
+        "got, so this is what separates a live connection from a frozen one",
+    ),
   providerStatus: z
     .string()
     .describe(
@@ -881,3 +888,30 @@ export const ConnectCallbackResponse = z.object({
     .describe("ISO-8601. Roughly 90 days out, and the reason #69 exists."),
 });
 export type ConnectCallbackResponse = z.infer<typeof ConnectCallbackResponse>;
+
+// --------------------------------------------------------------- connections
+
+/**
+ * Stop tracking a connection that has stopped working.
+ *
+ * Only a connection nothing is syncing can be removed. One still feeding the
+ * ledger is refused rather than confirmed: the guard is a fact about the
+ * connection instead of a question about intent, and disconnecting a live bank
+ * is a different act that needs the provider.
+ */
+export const RemoveConnectionRequest = z.object({
+  consentId: z.string().min(1).describe("The connection to stop tracking"),
+});
+export type RemoveConnectionRequest = z.infer<typeof RemoveConnectionRequest>;
+
+export const RemoveConnectionResponse = z.object({
+  consentId: z.string().min(1),
+  removedAt: z
+    .string()
+    .describe(
+      "When it was removed. The consent row is kept — it is the only record " +
+        "that this connection existed and when it was granted — and every " +
+        "transaction it produced stays in the ledger",
+    ),
+});
+export type RemoveConnectionResponse = z.infer<typeof RemoveConnectionResponse>;

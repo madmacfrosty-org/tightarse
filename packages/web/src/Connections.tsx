@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
-import { AccountsResponse, pathFor, type ConsentView } from "@tightarse/api-contract";
+import {
+  AccountsResponse,
+  pathFor,
+  RemoveConnectionResponse,
+  type ConsentView,
+} from "@tightarse/api-contract";
 import type { Api } from "./ports";
 
 /**
@@ -26,25 +31,101 @@ const WORDS: Record<ConsentView["health"], string> = {
   stale: "Not reporting in",
 };
 
+/**
+ * When the provider was last asked about any of this.
+ *
+ * The most recent of them, because the sync asks about every connection in one
+ * run — so the newest answer is when the run last succeeded. A connection that
+ * is older than this has stopped being asked about, which is what its own row
+ * says.
+ *
+ * A time rather than a duration. Every healthy connection would read "0 days
+ * ago" every day, which says nothing; "at 06:00" tells you whether this morning
+ * happened.
+ */
+function lastRefreshed(consents: ConsentView[]): string | null {
+  const newest = consents
+    .map((c) => Date.parse(c.fetchedAt))
+    .filter((t) => Number.isFinite(t))
+    .sort((a, b) => b - a)[0];
+  if (newest === undefined) return null;
+  return new Date(newest).toLocaleString("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+/**
+ * What may be stopped, and what may not.
+ *
+ * Only a connection nothing is syncing. One still feeding the ledger is not
+ * offered rather than confirmed: the guard is a fact about the connection
+ * instead of a question about intent, and a dialog asking "are you sure" about
+ * something already dead teaches people to click through dialogs.
+ *
+ * Disconnecting a live bank is a different act — it needs the provider, and
+ * getting back means re-authorising, which is the flow with the history window.
+ */
+const REMOVABLE: ConsentView["health"][] = ["stale", "expired"];
+
 /** Ordered by urgency rather than by name: the one that needs attention first. */
 const ORDER: ConsentView["health"][] = ["expired", "stale", "escalate", "warn", "ok"];
 
 export function Connections({ api }: { api: Api }) {
   const [consents, setConsents] = useState<ConsentView[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Two errors, because they mean different things. Failing to read means
+  // there is no list to show; failing to remove means the list is still true
+  // and one action did not happen. Collapsing them made a refused removal
+  // replace the table, which tells the household the connection went — the
+  // opposite of what happened.
+  const [readError, setReadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const remove = async (consentId: string) => {
+    setBusy(consentId);
+    setActionError(null);
+    try {
+      await api.post(RemoveConnectionResponse, pathFor("/connections/remove"), {
+        consentId,
+      });
+      // Dropped from the list rather than re-read. The row is still there —
+      // it is the only record the connection existed — and the list is what
+      // stops showing it.
+      setConsents((c) => (c ?? []).filter((x) => x.consentId !== consentId));
+    } catch (e: unknown) {
+      setActionError(
+        e instanceof Error ? e.message : "Could not remove that connection",
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
 
   useEffect(() => {
     api
       .get(AccountsResponse, pathFor("/accounts"))
       .then((a) => setConsents(a.consents ?? []))
-      .catch(() => setError("Could not read the connections"));
+      .catch(() => setReadError("Could not read the connections"));
   }, [api]);
 
-  if (error) return <div className="card"><h2>Connections</h2><p className="note">{error}</p></div>;
+  if (readError) {
+    return (
+      <div className="card">
+        <h2>Connections</h2>
+        <p className="note">{readError}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="card">
       <h2>Connections</h2>
+      {actionError !== null && (
+        <p className="note" role="alert">
+          {actionError}
+        </p>
+      )}
       {consents === null && <p className="note">Reading…</p>}
       {consents !== null && consents.length === 0 && (
         <p className="note">No bank is connected yet.</p>
@@ -56,6 +137,7 @@ export function Connections({ api }: { api: Api }) {
               <th>Bank</th>
               <th>Consent</th>
               <th>Provider said</th>
+              <th />
             </tr>
           </thead>
           <tbody>
@@ -74,15 +156,40 @@ export function Connections({ api }: { api: Api }) {
                     <span className="subtle">{WORDS[c.health]}</span>
                   </td>
                   <td className="subtle">{c.providerStatus ?? "—"}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={!REMOVABLE.includes(c.health) || busy !== null}
+                      onClick={() => void remove(c.consentId)}
+                      // Says why it is unavailable rather than leaving a dead
+                      // control. A greyed button with no reason is a puzzle.
+                      title={
+                        REMOVABLE.includes(c.health)
+                          ? "Stop tracking this connection. Transactions are kept."
+                          : "Still working — only a connection that has stopped can be removed"
+                      }
+                    >
+                      {busy === c.consentId ? "Removing…" : "Remove"}
+                    </button>
+                  </td>
                 </tr>
               ))}
           </tbody>
         </table>
       )}
+      {consents !== null && consents.length > 0 && (
+        <p className="note">
+          Connection data was last refreshed at {lastRefreshed(consents)}. It is
+          asked for once a day; nothing retrieves it on demand.
+        </p>
+      )}
       <p className="note">
-        Renewing and removing a connection are not built yet. A connection that
-        is not reporting in has nothing syncing it — usually one replaced by a
-        later authorisation of the same bank, which nothing clears.
+        Removing stops a connection being listed and reported on. Its
+        transactions are kept, and so is the record that it existed. Only a
+        connection that has stopped reporting in can be removed — usually one
+        replaced by a later authorisation of the same bank. Renewing is not
+        built yet.
       </p>
     </div>
   );

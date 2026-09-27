@@ -7,7 +7,13 @@ import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
 import type * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import type { Identity } from "./data-stack.js";
-import { CATEGORISATION_ROUTES, CONNECT_PATHS, ROUTES, pathFor } from "@tightarse/api-contract";
+import {
+  CATEGORISATION_ROUTES,
+  CONNECT_PATHS,
+  CONNECTION_ROUTES,
+  ROUTES,
+  pathFor,
+} from "@tightarse/api-contract";
 import { Construct } from "constructs";
 import * as path from "node:path";
 import { config, type EnvSettings } from "./config.js";
@@ -191,7 +197,9 @@ export class ApiStack extends cdk.Stack {
     // request at all.
     table.grantReadWriteData(categorisation);
 
-    for (const route of CATEGORISATION_ROUTES) {
+    // Served by the same function, for the reason above: it is the one that
+    // writes. Removing a connection writes a consent row.
+    for (const route of [...CATEGORISATION_ROUTES, ...CONNECTION_ROUTES]) {
       const path = pathFor(route);
       this.api.addRoutes({
         path,
