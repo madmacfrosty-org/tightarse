@@ -502,6 +502,7 @@ export async function accounts(
       return {
         consentId: c.consentId,
         expiresAt: c.expiresAt,
+        fetchedAt: c.fetchedAt,
         providerStatus: c.providerStatus,
         daysRemaining,
         health,

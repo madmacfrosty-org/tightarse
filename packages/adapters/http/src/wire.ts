@@ -132,6 +132,7 @@ export const asAccounts = (a: AccountsResult): AccountsResponse => ({
   consents: a.consents.map((c) => ({
     consentId: c.consentId,
     expiresAt: c.expiresAt,
+    fetchedAt: c.fetchedAt,
     providerStatus: c.providerStatus,
     daysRemaining: c.daysRemaining,
     health: c.health,

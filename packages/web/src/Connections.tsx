@@ -26,6 +26,30 @@ const WORDS: Record<ConsentView["health"], string> = {
   stale: "Not reporting in",
 };
 
+/**
+ * When the provider was last asked about any of this.
+ *
+ * The most recent of them, because the sync asks about every connection in one
+ * run — so the newest answer is when the run last succeeded. A connection that
+ * is older than this has stopped being asked about, which is what its own row
+ * says.
+ *
+ * A time rather than a duration. Every healthy connection would read "0 days
+ * ago" every day, which says nothing; "at 06:00" tells you whether this morning
+ * happened.
+ */
+function lastRefreshed(consents: ConsentView[]): string | null {
+  const newest = consents
+    .map((c) => Date.parse(c.fetchedAt))
+    .filter((t) => Number.isFinite(t))
+    .sort((a, b) => b - a)[0];
+  if (newest === undefined) return null;
+  return new Date(newest).toLocaleString("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
 /** Ordered by urgency rather than by name: the one that needs attention first. */
 const ORDER: ConsentView["health"][] = ["expired", "stale", "escalate", "warn", "ok"];
 
@@ -78,6 +102,12 @@ export function Connections({ api }: { api: Api }) {
               ))}
           </tbody>
         </table>
+      )}
+      {consents !== null && consents.length > 0 && (
+        <p className="note">
+          Connection data was last refreshed at {lastRefreshed(consents)}. It is
+          asked for once a day; nothing retrieves it on demand.
+        </p>
       )}
       <p className="note">
         Renewing and removing a connection are not built yet. A connection that

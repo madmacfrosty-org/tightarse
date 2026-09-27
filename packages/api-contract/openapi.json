@@ -495,6 +495,10 @@
             "type": "string",
             "description": "When the provider says this consent lapses"
           },
+          "fetchedAt": {
+            "type": "string",
+            "description": "When we last heard from the provider about this connection. Not when it changed — a consent nothing syncs keeps reporting the last answer it got, so this is what separates a live connection from a frozen one"
+          },
           "providerStatus": {
             "type": "string",
             "description": "The provider's own word for the state, shown and never branched on. Their API reference types it as a bare string and enumerates no values, so any list here would be a guess"
@@ -517,6 +521,7 @@
         "required": [
           "consentId",
           "expiresAt",
+          "fetchedAt",
           "providerStatus",
           "daysRemaining",
           "health"

@@ -18,6 +18,7 @@ const consent = (over: Partial<ConsentView> = {}): ConsentView => ({
   consentId: "c1",
   institutionName: "Some Bank",
   expiresAt: "2026-11-09T00:00:00Z",
+  fetchedAt: "2026-09-27T05:00:00Z",
   providerStatus: "Authorised",
   daysRemaining: 56,
   health: "ok",

@@ -409,6 +409,13 @@ export const ConsentView = z.object({
   consentId: z.string().describe("The provider's own id for this connection"),
   institutionName: z.string().optional(),
   expiresAt: z.string().describe("When the provider says this consent lapses"),
+  fetchedAt: z
+    .string()
+    .describe(
+      "When we last heard from the provider about this connection. Not when it " +
+        "changed — a consent nothing syncs keeps reporting the last answer it " +
+        "got, so this is what separates a live connection from a frozen one",
+    ),
   providerStatus: z
     .string()
     .describe(

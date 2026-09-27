@@ -11,6 +11,7 @@ const consent = (over: Record<string, unknown> = {}) => ({
   consentId: "c-1",
   institutionName: "Example Bank",
   expiresAt: "2026-11-06T00:00:00.000Z",
+  fetchedAt: "2026-09-27T05:00:00.000Z",
   providerStatus: "Authorised",
   daysRemaining: 40,
   health: "ok",
@@ -95,5 +96,23 @@ describe("the connections list", () => {
     await waitFor(() =>
       expect(screen.getByText(/could not read the connections/i)).toBeDefined(),
     );
+  });
+
+  it("says when the connection data itself was last refreshed", async () => {
+    // One line for the panel, not a column. It answers "did this morning's
+    // sync happen", which is a different question from "is this connection
+    // alive" — that one each row answers for itself.
+    withConsents([
+      consent({ consentId: "a", fetchedAt: "2026-09-20T05:00:00.000Z" }),
+      consent({ consentId: "b", fetchedAt: "2026-09-27T05:00:00.000Z" }),
+    ]);
+    render(<Connections api={api} />);
+
+    // The newest, because the sync asks about every connection in one run — so
+    // the most recent answer is when the run last succeeded. Taking the oldest
+    // would report a frozen connection as the age of the whole feed.
+    const line = await screen.findByText(/last refreshed at/i);
+    expect(line.textContent).toContain("27 Sept 2026");
+    expect(line.textContent).not.toContain("20 Sept");
   });
 });
