@@ -2,13 +2,18 @@
 
 Which pages exist, what each is for, and how you move between them.
 
-To be executed by `tests/routing.spec.ts`, which does not exist yet. Each
-scenario names
-the job it serves, from [`docs/product/jobs.md`](../../docs/product/jobs.md),
-and says whether a test covers it today.
+Executed by [`routing.spec.ts`](../tests/routing.spec.ts). Each scenario
+names the job it serves, from
+[`docs/product/jobs.md`](../../docs/product/jobs.md), and says whether that
+behaviour is `implemented` or `proposed`.
 
-Nothing here is built. Every scenario is currently **Covered: no**, and the
-application serves one scrolling page.
+Nothing here records which tests exist. A spec describes behaviour; what covers
+it is a question for the test suite, answered by comparing the two rather than
+by keeping a tally in both places.
+
+The application serves one scrolling page. Every scenario here but the sixth
+is therefore `Status: proposed`, and each has a test that names what is missing
+rather than nothing at all.
 
 ## Starting state
 
@@ -64,7 +69,8 @@ and who has access are neither money nor categories.
 
 ## 1. Signing in lands on the glance
 
-Job: **J-1** — know where we stand · Covered: **no**
+Job: **J-1** — know where we stand
+Status: **proposed**
 
 1. Visit the site signed out.
 2. Sign in.
@@ -81,7 +87,8 @@ step in the way of it.
 
 ## 2. Each page shows only its own work
 
-Job: **J-1**, **J-3**, **J-7**, **J-10** · Covered: **no**
+Job: **J-1**, **J-3**, **J-7**, **J-10**
+Status: **proposed**
 
 1. Visit `/`.
 2. Visit `/spending`.
@@ -102,7 +109,8 @@ glance and a twenty-minute sitting shared one surface.
 
 ## 3. Every page can reach every other
 
-Job: **J-1**, **J-3**, **J-7** · Covered: **no**
+Job: **J-1**, **J-3**, **J-7**
+Status: **proposed**
 
 1. Visit `/`.
 2. Navigate to `/spending`, then `/categories`, then `/operations`, then back
@@ -120,7 +128,8 @@ address, and is not given the same prominence as the three you use weekly.
 
 ## 4. A page can be linked to, and comes back the same
 
-Job: **J-3** — notice a cost that has crept up · Covered: **no**
+Job: **J-3** — notice a cost that has crept up
+Status: **proposed**
 
 1. Visit `/spending` and choose a range other than the default.
 2. Copy the address.
@@ -139,7 +148,7 @@ the cost of doing one.
 
 ## 5. An unknown path is not a dead end
 
-Covered: **no**
+Status: **proposed**
 
 1. Visit a path that is not one of the pages.
 
@@ -156,7 +165,8 @@ asked for with no indication.
 
 ## 6. Returning from a bank authorisation still works
 
-Job: **J-11** — add a bank without losing history · Covered: **no**
+Job: **J-11** — add a bank without losing history
+Status: **implemented**
 
 1. Begin a bank connection.
 2. Complete the provider's consent screen.
@@ -175,7 +185,7 @@ ninety days of history remain available, for ever. A routing change that drops
 
 ## 7. A deep link while signed out arrives signed in
 
-Covered: **no**
+Status: **proposed**
 
 1. Sign out.
 2. Visit `/spending` directly.

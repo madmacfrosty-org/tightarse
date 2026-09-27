@@ -179,3 +179,24 @@ button.ghost {
   cursor: pointer;
 }
 button.ghost:hover { color: var(--text-primary); border-color: var(--text-muted); }
+
+/* Navigation.
+   The three pages a household uses weekly, as tabs. The current one is marked
+   by aria-current, which the router sets — so the styling and the screen
+   reader read the same attribute rather than two sources that can disagree. */
+.nav { display: flex; gap: 4px; }
+.nav a {
+  padding: 5px 12px; border-radius: 999px;
+  font-size: 13px; text-decoration: none;
+  color: var(--text-secondary); border: 1px solid transparent;
+}
+.nav a:hover { color: var(--text-primary); }
+.nav a[aria-current="page"] {
+  color: var(--text-primary);
+  background: var(--surface-1);
+  border-color: var(--border);
+}
+/* Operations: reachable without typing an address, and deliberately not one of
+   the tabs above. Sized and coloured as the rest of the subtle line it sits in. */
+a.quiet { color: var(--text-muted); text-decoration: none; }
+a.quiet:hover, a.quiet[aria-current="page"] { color: var(--in); }

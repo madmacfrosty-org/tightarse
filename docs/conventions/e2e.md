@@ -19,8 +19,14 @@ would mean. The format is the one Playwright's planner agent produces, so a
 generated plan and a hand-written one look the same.
 
 Each scenario names the job it serves, from `docs/product/jobs.md`, and says
-whether a test covers it. An uncovered scenario is intent rather than a claim —
-which makes the markdown a coverage report as well as a description.
+whether the behaviour is `implemented` or `proposed`. That is a fact about the
+product — a proposed scenario is what we intend, and one marked implemented is
+a claim that can be checked.
+
+**A spec never records which tests exist.** Behaviour should not know what
+covers it, and a tally kept in two places is one that disagrees within a month.
+To find out what is untested, compare the specs against the suite; do not read
+it off the specs.
 
 `specs/` and `tests/` are where Playwright's agents look by default, so a
 regenerated planner or generator needs no re-pointing.

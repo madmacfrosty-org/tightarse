@@ -5,9 +5,14 @@ Behaviour of the page at `/operations`, against a deployed environment.
 Connections, consents, and whether the ledger matches the bank. Rare work, and
 about trust rather than money.
 
-To be executed by `tests/operations.spec.ts`, which does not exist yet. Each
-scenario names the job it serves, from
-[`docs/product/jobs.md`](../../docs/product/jobs.md).
+Executed by [`operations.spec.ts`](../tests/operations.spec.ts). Each scenario
+names the job it serves, from
+[`docs/product/jobs.md`](../../docs/product/jobs.md), and says whether that
+behaviour is `implemented` or `proposed`.
+
+Nothing here records which tests exist. A spec describes behaviour; what covers
+it is a question for the test suite, answered by comparing the two rather than
+by keeping a tally in both places.
 
 ## Starting state
 
@@ -22,7 +27,8 @@ scenario asserts the browser leaves for the provider and stops there.
 
 ## 1. Every connection says how long it has left
 
-Job: **J-9** — keep the feed alive · Covered: **no**
+Job: **J-9** — keep the feed alive
+Status: **proposed**
 
 1. Open `/operations`.
 2. Read the connections.
@@ -41,7 +47,8 @@ when you want to check rather than be told.
 
 ## 2. Starting a connection leaves for the provider
 
-Job: **J-11** — add a bank without losing history · Covered: **no**
+Job: **J-11** — add a bank without losing history
+Status: **implemented**
 
 1. Open `/operations`.
 2. Begin connecting a bank.
@@ -58,7 +65,8 @@ one flow where completing it in a test would do real harm — see the note above
 
 ## 3. The ledger can be checked against the bank
 
-Job: **J-10** — satisfy myself the ledger matches reality · Covered: **no**
+Job: **J-10** — satisfy myself the ledger matches reality
+Status: **implemented**
 
 1. Open `/operations`.
 2. Run the check.
@@ -76,7 +84,8 @@ because it found real ones.
 
 ## 4. Nothing here is on the household's way
 
-Job: **J-9**, **J-10**, **J-11** · Covered: **no**
+Job: **J-9**, **J-10**, **J-11**
+Status: **proposed**
 
 1. Open `/`.
 
