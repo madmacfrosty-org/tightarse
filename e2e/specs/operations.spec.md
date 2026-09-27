@@ -28,20 +28,22 @@ scenario asserts the browser leaves for the provider and stops there.
 ## 1. Every connection says how long it has left
 
 Job: **J-9** — keep the feed alive
-Status: **proposed**
+Status: **implemented**
 
 1. Open `/operations`.
 2. Read the connections.
 
-**Expected:** each names its institution, when its consent lapses, and how many
-days that is.
+**Expected:** each names its institution, how many days its consent has left,
+and what the provider last said — together with whether we have heard from it
+recently. Ordered by urgency rather than by name.
 
 **Succeeds when** the state of every connection can be read in one place,
 whether or not any of them is urgent.
 
-**Fails when** a connection is missing, or its expiry is only shown once it is
-nearly too late. The warning on `/` is for when it becomes urgent; this is for
-when you want to check rather than be told.
+**Fails when** a connection is missing, or a connection nothing syncs looks
+like one that refreshed this morning. "Authorised" is what the provider said
+the last time we asked, and a page showing only the status cannot tell those
+apart — which is the state production is in.
 
 ---
 
@@ -85,7 +87,7 @@ because it found real ones.
 ## 4. Nothing here is on the household's way
 
 Job: **J-9**, **J-10**, **J-11**
-Status: **proposed**
+Status: **implemented**
 
 1. Open `/`.
 

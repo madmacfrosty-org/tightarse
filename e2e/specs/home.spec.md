@@ -2,10 +2,9 @@
 
 Behaviour of the page at `/`, against a deployed environment.
 
-It is becoming the glance — position, how it has moved, and three months of
-transactions you can search. Scenarios 1 to 5 describe the page as it is today;
-6 to 8 describe what it becomes when the routing in
-[`routing.spec.md`](routing.spec.md) lands.
+The glance: position, how it has moved, and the transactions behind it. It asks
+nothing before it answers — the range selector belongs to `/spending`, because a
+period is a question about reviewing and a position is a statement about now.
 
 Executed by [`home.spec.ts`](../tests/home.spec.ts). Each scenario
 names the job it serves, from
@@ -22,7 +21,6 @@ Every scenario assumes:
 
 - A signed-in session, established once by `auth.setup.ts` and reused
 - A ledger with at least one account and some settled transactions
-- The default range, twelve months
 
 Scenarios are independent and may run in any order. None writes anything, so
 none can disturb another.
@@ -50,33 +48,7 @@ checking the page against something the page never saw.
 
 ---
 
-## 2. The range selector changes what is reported
-
-Job: **J-1** — know where we stand
-Status: **implemented**
-
-Describes today. Scenario 7 replaces it: the glance is pinned and has no
-control, and choosing a window becomes reviewing.
-
-1. Open the dashboard.
-2. Note the transaction count in the summary.
-3. Choose **3 months**.
-4. Note the count again.
-
-**Expected:** the figures reload and describe the shorter window. Net position is
-a statement about now and does not change with the range; income, spending and
-the category breakdown do.
-
-**Succeeds when** the range-dependent figures change and the net position does
-not.
-
-**Fails when** net position moves with the range — it would mean a position is
-being computed from the window rather than from every transaction, which
-understates what the household holds.
-
----
-
-## 3. An incomplete history says so rather than understating
+## 2. An incomplete history says so rather than understating
 
 Job: **J-1** — know where we stand
 Status: **implemented**
@@ -95,7 +67,7 @@ quietly short looks exactly like one that is right.
 
 ---
 
-## 4. A consent near expiry is warned about before anything else
+## 3. A consent near expiry is warned about before anything else
 
 Job: **J-9** — keep the feed alive
 Status: **implemented**
@@ -114,7 +86,7 @@ correct.
 
 ---
 
-## 5. The transaction list shows more on request
+## 4. The transaction list shows more on request
 
 Job: **J-2** — understand what a charge was
 Status: **implemented**
@@ -134,7 +106,7 @@ than deferring it.
 ---
 
 
-## 6. The glance covers three months, ending where it is pinned
+## 5. The glance covers three months, ending where it is pinned
 
 Job: **J-1** — know where we stand
 Status: **proposed**
@@ -153,10 +125,10 @@ wrong time, because nothing on it says which.
 
 ---
 
-## 7. The window has no control
+## 6. The window has no control
 
 Job: **J-1** — know where we stand
-Status: **proposed**
+Status: **implemented**
 
 1. Open `/`.
 2. Look for a way to change the period.
@@ -166,12 +138,12 @@ Status: **proposed**
 **Succeeds when** the page asks nothing before answering.
 
 **Fails when** a range selector appears. Choosing a window is reviewing, and
-reviewing has its own page — this is the control that turned the original
-single page into something you had to operate before you could read it.
+reviewing has its own page — this was the control that turned one page into
+something you had to operate before you could read it.
 
 ---
 
-## 8. The transactions on the glance are searchable
+## 7. The transactions on the glance are searchable
 
 Job: **J-2** — understand what a charge actually was
 Status: **proposed**

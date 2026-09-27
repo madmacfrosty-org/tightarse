@@ -82,13 +82,16 @@ describe("the pages", () => {
     expect(screen.queryByText("Net position")).toBeNull();
   });
 
-  it("asks for nothing at all on the page nobody opens weekly", async () => {
+  it("asks only for the connections on the page nobody opens weekly", async () => {
     // The dev account's Lambda concurrency limit is five and the single page
-    // made five calls on load. The reconciliation is asked for by a button and
-    // a connection is a decision, so arriving here costs none of it.
+    // made five calls on load, so what each page asks for on arrival matters.
+    // This one asks for the connections and nothing else: the question it
+    // answers is "what state is everything in", and a page that made you press
+    // something first would not answer it. The reconciliation is still asked
+    // for by a button, and a connection is still a decision.
     await renderAt("/operations");
     await screen.findByText("Connect a bank");
-    expect(requested()).toEqual([]);
+    expect(requested()).toEqual(["/v1/accounts"]);
   });
 });
 
@@ -115,13 +118,14 @@ describe("moving between the pages", () => {
     expect(screen.getByRole("link", { name: "Home" }).getAttribute("aria-current")).toBeNull();
   });
 
-  it("keeps the operator's page reachable without giving it a tab", async () => {
-    // Urgent comes to you, routine you go to. It has to be one click from
-    // anywhere and must not sit beside the three a household uses weekly.
+  it("puts the operator's page last, in the nav with the rest", async () => {
+    // It was tucked beside the sign-out link, which made "where am I" and "who
+    // am I" one line and hid a page behind a convention nobody was told. Last
+    // rather than absent: routine operator work is rare, not secret.
     await renderAt("/");
     await screen.findByText("Net position");
     const nav = document.querySelector("nav.nav")!;
-    expect(nav.textContent).toBe("HomeSpendingCategories");
+    expect(nav.textContent).toBe("HomeSpendingCategoriesOperations");
     await userEvent.click(screen.getByRole("link", { name: "Operations" }));
     expect(await screen.findByText("Connect a bank")).toBeDefined();
   });

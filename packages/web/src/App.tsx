@@ -34,6 +34,7 @@ const PAGES = [
   { to: "/", label: "Home" },
   { to: "/spending", label: "Spending" },
   { to: "/categories", label: "Categories" },
+  { to: "/operations", label: "Operations" },
 ] as const;
 
 /**
@@ -64,6 +65,10 @@ function Nav() {
  * The range selector used to live here, which is how a glance came to have a
  * control on it. It belongs to `/spending` now, because a period is a question
  * about reviewing and a position is a statement about now.
+ *
+ * Operations sits in the nav with the rest, last. It was tucked beside the
+ * sign-out link, which made "where am I" and "who am I" the same line and hid a
+ * page behind a convention nobody was told.
  */
 function Chrome({ identity, session }: { identity: Identity; session: Session }) {
   return (
@@ -80,14 +85,6 @@ function Chrome({ identity, session }: { identity: Identity; session: Session })
             >
               sign out
             </button>
-            {" · "}
-            {/*
-              Reachable without typing an address, and not given the prominence
-              of the three above. Urgent operator work comes to you — a consent
-              near expiry is announced on `/` — and routine operator work is
-              something you go to, rarely, from here.
-            */}
-            <NavLink to="/operations" className="quiet">Operations</NavLink>
           </div>
         </div>
         <Nav />
