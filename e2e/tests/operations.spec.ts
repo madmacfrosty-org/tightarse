@@ -50,10 +50,28 @@ test("the ledger can be checked against the bank", async ({ page }) => {
   await expect(page.getByText(new RegExp(report.verdict, "i")).first()).toBeVisible();
 });
 
-test.skip("every connection says how long it has left", () => {
-  // specs/operations.spec.md scenario 1 — proposed. The page shows the connect
-  // flow and the reconciliation check; a list of connections with their expiry
-  // is not built. The urgent case is served on `/`, which is a different job.
+test("every connection says how long it has left", async ({ page }) => {
+  const accounts = page.waitForResponse(
+    (r) => r.url().includes("/accounts") && r.status() === 200,
+  );
+  await page.goto("/operations");
+  const { consents = [] } = (await (await accounts).json()) as {
+    consents?: { institutionName?: string; daysRemaining: number }[];
+  };
+
+  await expect(page.getByRole("heading", { name: "Connections" })).toBeVisible();
+
+  // Every connection the API knows about is on the page. A list that quietly
+  // omits one is worse than no list: the household would be checking, and
+  // getting a reassuring answer about a subset.
+  const rows = page.locator("tbody tr");
+  await expect(rows).toHaveCount(consents.length);
+
+  for (const c of consents) {
+    await expect(
+      page.getByText(c.institutionName ?? "Unknown bank").first(),
+    ).toBeVisible();
+  }
 });
 
 test.skip("starting a connection leaves for the provider", () => {

@@ -2,9 +2,8 @@
 
 Behaviour of the page at `/spending`, against a deployed environment.
 
-Review mode: sitting down, tens of minutes, deciding something. Most of it is
-moving from the single page; scenarios 5 and 6 are the jobs that make this aim
-worth having and are not built.
+Review mode: sitting down, tens of minutes, deciding something. The range lives
+here rather than on `/`, because choosing a period is part of reviewing.
 
 Executed by [`spending.spec.ts`](../tests/spending.spec.ts). Each scenario
 names the job it serves, from
