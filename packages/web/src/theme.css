@@ -198,5 +198,3 @@ button.ghost:hover { color: var(--text-primary); border-color: var(--text-muted)
 }
 /* Operations: reachable without typing an address, and deliberately not one of
    the tabs above. Sized and coloured as the rest of the subtle line it sits in. */
-a.quiet { color: var(--text-muted); text-decoration: none; }
-a.quiet:hover, a.quiet[aria-current="page"] { color: var(--in); }
