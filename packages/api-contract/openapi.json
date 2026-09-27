@@ -781,6 +781,38 @@
         ],
         "additionalProperties": false
       },
+      "RemoveConnectionRequest": {
+        "type": "object",
+        "properties": {
+          "consentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The connection to stop tracking"
+          }
+        },
+        "required": [
+          "consentId"
+        ],
+        "additionalProperties": false
+      },
+      "RemoveConnectionResponse": {
+        "type": "object",
+        "properties": {
+          "consentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "removedAt": {
+            "type": "string",
+            "description": "When it was removed. The consent row is kept — it is the only record that this connection existed and when it was granted — and every transaction it produced stays in the ledger"
+          }
+        },
+        "required": [
+          "consentId",
+          "removedAt"
+        ],
+        "additionalProperties": false
+      },
       "CategoryTallyView": {
         "type": "object",
         "properties": {
@@ -2024,6 +2056,45 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BacklogResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The range is missing, malformed, or `from` is after `to`"
+          },
+          "401": {
+            "description": "No bearer token, or one this API does not trust"
+          },
+          "403": {
+            "description": "A valid token carrying no household claim"
+          }
+        }
+      }
+    },
+    "/v1/connections/remove": {
+      "post": {
+        "operationId": "postConnectionsRemove",
+        "summary": "Stop tracking a connection",
+        "description": "Marks a connection removed so it is no longer listed or reported on. The consent row is kept, because it is the only record that the connection existed and when it was granted, and every transaction it produced stays in the ledger. Refuses a connection that is still working: one reaches a removable state precisely because nothing is syncing it, so there is nothing at the provider to revoke. Disconnecting a live bank is a different operation.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveConnectionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stop tracking a connection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveConnectionResponse"
                 }
               }
             }

@@ -44,14 +44,27 @@ const deps = (
   seen: string[];
   proposals: unknown[];
   categories: unknown[];
+  removed: string[];
 } => {
   const seen: string[] = [];
   const proposals: unknown[] = [];
   const categories: unknown[] = [];
+  const removed: string[] = [];
   return {
     seen,
     proposals,
     categories,
+    removed,
+    removeConnection: vi.fn(async (tenantId: string, consentId: string) => {
+      seen.push(tenantId);
+      if (consentId === "live") {
+        throw Object.assign(new Error("still working; disconnect it instead"), {
+          statusCode: 409,
+        });
+      }
+      removed.push(consentId);
+      return { consentId, removedAt: "2026-09-27T12:00:00.000Z" };
+    }),
     inspection: {
       backlog: vi.fn(async (tenantId: string) => {
         seen.push(tenantId);
@@ -78,6 +91,7 @@ const deps = (
     seen: string[];
     proposals: unknown[];
     categories: unknown[];
+    removed: string[];
   };
 };
 
@@ -782,5 +796,59 @@ describe("reading the commit mode on its own", () => {
     expect(res.statusCode).toBe(400);
     expect(body(res)["error"]).toContain("sets.0.version");
     expect(body(res)["error"]).toContain("sets.0.name");
+  });
+});
+
+describe("stopping tracking a connection", () => {
+  const remove = (over: Record<string, unknown> = {}) =>
+    event({
+      rawPath: "/v1/connections/remove",
+      queryStringParameters: undefined,
+      body: JSON.stringify({ consentId: "dead" }),
+      ...over,
+    });
+
+  it("removes the connection it was asked about, for the signed tenant", async () => {
+    const d = deps();
+
+    const res = await route(d, remove() as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(body(res)).toMatchObject({ consentId: "dead" });
+    expect(d.removed).toEqual(["dead"]);
+    // The tenant comes from the token, never the body — the same rule every
+    // other route here follows.
+    expect(d.seen).toEqual(["frost"]);
+  });
+
+  it("passes a refusal through with its own status", async () => {
+    // A live connection is a 409 with the reason. Flattened to a 500 it would
+    // read as a fault, and whoever pressed the button needs to know it is
+    // still working rather than that something broke.
+    const d = deps();
+
+    const res = await route(d, remove({ body: JSON.stringify({ consentId: "live" }) }) as never);
+
+    expect(res.statusCode).toBe(409);
+    expect(body(res)["error"]).toMatch(/still working/);
+    expect(d.removed).toEqual([]);
+  });
+
+  it("refuses a body that names no connection", async () => {
+    const d = deps();
+
+    const res = await route(d, remove({ body: JSON.stringify({}) }) as never);
+
+    expect(res.statusCode).toBe(400);
+    expect(d.removed).toEqual([]);
+  });
+
+  it("refuses a request with no body at all", async () => {
+    const d = deps();
+
+    const res = await route(d, remove({ body: undefined }) as never);
+
+    expect(res.statusCode).toBe(400);
+    expect(d.removed).toEqual([]);
   });
 });

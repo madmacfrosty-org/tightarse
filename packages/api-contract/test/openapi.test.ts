@@ -4,7 +4,14 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildOpenApiDocument, renderOpenApiDocument, schemasFrom } from "../src/openapi.js";
-import { API_VERSION, CATEGORISATION_ROUTES, CONNECT_PATHS, ROUTES, pathFor } from "../src/routes.js";
+import {
+  API_VERSION,
+  CATEGORISATION_ROUTES,
+  CONNECTION_ROUTES,
+  CONNECT_PATHS,
+  ROUTES,
+  pathFor,
+} from "../src/routes.js";
 
 const doc = buildOpenApiDocument();
 const text = JSON.stringify(doc);
@@ -91,7 +98,7 @@ describe("what must survive generation", () => {
     // functions, so the two lists overlap on the path and the document holds
     // one entry with two operations.
     expect(new Set(Object.keys(doc.paths))).toEqual(
-      new Set([...ROUTES, ...CATEGORISATION_ROUTES].map(pathFor)),
+      new Set([...ROUTES, ...CATEGORISATION_ROUTES, ...CONNECTION_ROUTES].map(pathFor)),
     );
     for (const path of Object.keys(doc.paths)) {
       expect(path.startsWith(`/${API_VERSION}/`), `${path} is not versioned`).toBe(true);

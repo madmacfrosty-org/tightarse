@@ -493,6 +493,11 @@ export async function accounts(
   const consents = consentRows
     .map((r) => Consent.safeParse(r))
     .flatMap((p) => (p.success ? [p.data] : []))
+    // A removed connection is not reported on. The row stays — it is the only
+    // record that this consent existed and when — but nothing asks about it,
+    // so its health would only ever decay and warn about something the
+    // household has already dealt with.
+    .filter((c) => c.removedAt === undefined)
     .map((c) => {
       const { health, daysRemaining } = consentHealth(c, {
         now,

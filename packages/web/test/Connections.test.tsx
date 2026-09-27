@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { pathFor } from "@tightarse/api-contract";
 import type { Parses } from "../src/ports";
 import { Connections } from "../src/Connections";
@@ -19,11 +20,15 @@ const consent = (over: Record<string, unknown> = {}) => ({
 });
 
 const apiGet = vi.fn(async (_p: string): Promise<unknown> => ({ accounts: [], consents: [] }));
+const apiPost = vi.fn(async (_p: string, _b: unknown): Promise<unknown> => ({
+  consentId: "c-1",
+  removedAt: "2026-09-27T12:00:00.000Z",
+}));
 const api = {
   get: <T,>(schema: Parses<T>, p: string) =>
     apiGet(p).then((body: unknown) => schema.parse(body)),
-  post: <T,>(schema: Parses<T>, _p: string, b: unknown) =>
-    Promise.resolve(schema.parse(b)),
+  post: <T,>(schema: Parses<T>, p: string, b: unknown) =>
+    apiPost(p, b).then((body: unknown) => schema.parse(body)),
 };
 
 const withConsents = (consents: unknown[]) => {
@@ -114,5 +119,65 @@ describe("the connections list", () => {
     const line = await screen.findByText(/last refreshed at/i);
     expect(line.textContent).toContain("27 Sept 2026");
     expect(line.textContent).not.toContain("20 Sept");
+  });
+
+  it("offers Remove only on a connection that has stopped", async () => {
+    // The guard is the disabled state, not a dialog. A live connection is
+    // still feeding the ledger, and getting it back means re-authorising.
+    withConsents([
+      consent({ consentId: "live", institutionName: "Live Bank", health: "ok" }),
+      consent({ consentId: "dead", institutionName: "Quiet Bank", health: "stale" }),
+    ]);
+    render(<Connections api={api} />);
+    await screen.findByText("Live Bank");
+
+    const buttons = screen.getAllByRole("button", { name: /remove/i });
+    const [dead, live] = [buttons[0]!, buttons[1]!]; // stale sorts first
+    expect(dead.hasAttribute("disabled")).toBe(false);
+    expect(live.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("says why it cannot be removed rather than leaving a dead control", async () => {
+    withConsents([consent({ health: "ok" })]);
+    render(<Connections api={api} />);
+    await screen.findByText("Example Bank");
+
+    expect(
+      screen.getByRole("button", { name: /remove/i }).getAttribute("title"),
+    ).toMatch(/still working/i);
+  });
+
+  it("stops listing one once it is removed", async () => {
+    withConsents([
+      consent({ consentId: "dead", institutionName: "Quiet Bank", health: "stale" }),
+      consent({ consentId: "live", institutionName: "Live Bank", health: "ok" }),
+    ]);
+    render(<Connections api={api} />);
+    await screen.findByText("Quiet Bank");
+
+    await userEvent.click(screen.getAllByRole("button", { name: /remove/i })[0]!);
+
+    await waitFor(() => expect(screen.queryByText("Quiet Bank")).toBeNull());
+    // Only the one asked for. The row is still stored — this is the list
+    // ceasing to show it, not the record going.
+    expect(screen.getByText("Live Bank")).toBeDefined();
+    expect(apiPost.mock.calls[0]?.[1]).toEqual({ consentId: "dead" });
+  });
+
+  it("reports a refusal instead of quietly leaving the row", async () => {
+    // A connection the server refuses to remove must stay on screen with the
+    // reason. Dropping the row optimistically and then failing would leave the
+    // household believing it had gone.
+    withConsents([consent({ consentId: "dead", health: "stale" })]);
+    render(<Connections api={api} />);
+    const button = await screen.findByRole("button", { name: /^remove$/i });
+
+    apiPost.mockImplementationOnce(() =>
+      Promise.reject(new Error("still working; disconnect it instead")),
+    );
+    await userEvent.click(button);
+
+    await waitFor(() => expect(screen.getByText(/still working/i)).toBeDefined());
+    expect(document.body.textContent).toContain("Example Bank");
   });
 });
