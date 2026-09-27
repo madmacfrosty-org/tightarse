@@ -7,10 +7,14 @@ transactions you can search. Scenarios 1 to 5 describe the page as it is today;
 6 to 8 describe what it becomes when the routing in
 [`routing.spec.md`](routing.spec.md) lands.
 
-Executed by [`home.spec.ts`](../tests/home.spec.ts). Each scenario names the
-job it serves, from [`docs/product/jobs.md`](../../docs/product/jobs.md), and
-says whether a test covers it today. A scenario with no test is a statement of
-intent, not a claim about what works.
+Executed by [`home.spec.ts`](../tests/home.spec.ts). Each scenario
+names the job it serves, from
+[`docs/product/jobs.md`](../../docs/product/jobs.md), and says whether that
+behaviour is `implemented` or `proposed`.
+
+Nothing here records which tests exist. A spec describes behaviour; what covers
+it is a question for the test suite, answered by comparing the two rather than
+by keeping a tally in both places.
 
 ## Starting state
 
@@ -27,7 +31,8 @@ none can disturb another.
 
 ## 1. The net position is the figure the API sent
 
-Job: **J-1** — know where we stand · Covered: **yes**
+Job: **J-1** — know where we stand
+Status: **implemented**
 
 1. Open the dashboard.
 2. Capture the response to `GET /books` that the page itself made.
@@ -47,7 +52,8 @@ checking the page against something the page never saw.
 
 ## 2. The range selector changes what is reported
 
-Job: **J-1** — know where we stand · Covered: **no** · **Goes away**
+Job: **J-1** — know where we stand
+Status: **implemented**
 
 Describes today. Scenario 7 replaces it: the glance is pinned and has no
 control, and choosing a window becomes reviewing.
@@ -72,7 +78,8 @@ understates what the household holds.
 
 ## 3. An incomplete history says so rather than understating
 
-Job: **J-1** — know where we stand · Covered: **no**
+Job: **J-1** — know where we stand
+Status: **implemented**
 
 1. Open the dashboard with a ledger where at least one account has shallower
    history than the range asked for.
@@ -90,7 +97,8 @@ quietly short looks exactly like one that is right.
 
 ## 4. A consent near expiry is warned about before anything else
 
-Job: **J-9** — keep the feed alive · Covered: **no**
+Job: **J-9** — keep the feed alive
+Status: **implemented**
 
 1. Open the dashboard with a consent inside the warning threshold.
 2. Read the top of the page.
@@ -108,7 +116,8 @@ correct.
 
 ## 5. The transaction list shows more on request
 
-Job: **J-2** — understand what a charge was · Covered: **no**
+Job: **J-2** — understand what a charge was
+Status: **implemented**
 
 1. Open the dashboard with more than one hundred transactions in range.
 2. Scroll to the transaction list.
@@ -127,7 +136,8 @@ than deferring it.
 
 ## 6. The glance covers three months, ending where it is pinned
 
-Job: **J-1** — know where we stand · Covered: **no**
+Job: **J-1** — know where we stand
+Status: **proposed**
 
 1. Open `/?at=2026-06-30` against a ledger with more than a year of history.
 2. Read the balance line and the transaction list.
@@ -145,7 +155,8 @@ wrong time, because nothing on it says which.
 
 ## 7. The window has no control
 
-Job: **J-1** — know where we stand · Covered: **no**
+Job: **J-1** — know where we stand
+Status: **proposed**
 
 1. Open `/`.
 2. Look for a way to change the period.
@@ -162,7 +173,8 @@ single page into something you had to operate before you could read it.
 
 ## 8. The transactions on the glance are searchable
 
-Job: **J-2** — understand what a charge actually was · Covered: **no**
+Job: **J-2** — understand what a charge actually was
+Status: **proposed**
 
 1. Open `/`.
 2. Search the transaction list for a description you half-remember.

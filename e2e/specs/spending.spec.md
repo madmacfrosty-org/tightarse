@@ -6,9 +6,14 @@ Review mode: sitting down, tens of minutes, deciding something. Most of it is
 moving from the single page; scenarios 5 and 6 are the jobs that make this aim
 worth having and are not built.
 
-To be executed by `tests/spending.spec.ts`, which does not exist yet. Each
-scenario names the job it serves, from
-[`docs/product/jobs.md`](../../docs/product/jobs.md).
+Executed by [`spending.spec.ts`](../tests/spending.spec.ts). Each scenario
+names the job it serves, from
+[`docs/product/jobs.md`](../../docs/product/jobs.md), and says whether that
+behaviour is `implemented` or `proposed`.
+
+Nothing here records which tests exist. A spec describes behaviour; what covers
+it is a question for the test suite, answered by comparing the two rather than
+by keeping a tally in both places.
 
 ## Starting state
 
@@ -20,7 +25,8 @@ defaults to twelve months.
 
 ## 1. Income and spending describe the chosen range
 
-Job: **J-3** — notice a cost that has crept up · Covered: **no**
+Job: **J-3** — notice a cost that has crept up
+Status: **implemented**
 
 1. Open `/spending`.
 2. Read income, spending and the net of the two.
@@ -37,7 +43,8 @@ means something — on `/` it does not exist, because a position is about now.
 
 ## 2. Transfers between our own accounts are netted, and said so
 
-Job: **J-3** — notice a cost that has crept up · Covered: **no**
+Job: **J-3** — notice a cost that has crept up
+Status: **implemented**
 
 1. Open `/spending` over a period containing a transfer between two accounts
    the household holds.
@@ -57,7 +64,8 @@ that was right.
 
 ## 3. Money that moved rather than went is excluded and counted
 
-Job: **J-3** — notice a cost that has crept up · Covered: **no**
+Job: **J-3** — notice a cost that has crept up
+Status: **implemented**
 
 1. Open `/spending` over a period containing transactions filed to a category
    whose nature is an asset or a liability.
@@ -77,7 +85,8 @@ side.
 
 ## 4. Categories are ordered by what they cost, and unfinished ones marked
 
-Job: **J-5** — judge whether a cost is worth it · Covered: **no**
+Job: **J-5** — judge whether a cost is worth it
+Status: **implemented**
 
 1. Open `/spending`.
 2. Read the category breakdown.
@@ -96,7 +105,8 @@ worth looking at.
 
 ## 5. What changed since the period before
 
-Job: **J-3** — notice a cost that has crept up · Covered: **no** · **Not built**
+Job: **J-3** — notice a cost that has crept up
+Status: **proposed**
 
 1. Open `/spending`.
 2. Read the category breakdown.
@@ -114,7 +124,8 @@ another, so a category that doubled looks like any other.
 
 ## 6. What is being paid for on repeat
 
-Job: **J-4** — find money leaving on repeat · Covered: **no** · **Not built**
+Job: **J-4** — find money leaving on repeat
+Status: **proposed**
 
 1. Open `/spending`.
 2. Read what recurs.

@@ -5,9 +5,14 @@ Behaviour of the page at `/categories`, against a deployed environment.
 Keeping categories accurate. All of it exists today, inside the single page;
 none of it is tested in a browser.
 
-To be executed by `tests/categories.spec.ts`, which does not exist yet. Each
-scenario names the job it serves, from
-[`docs/product/jobs.md`](../../docs/product/jobs.md).
+Executed by [`categories.spec.ts`](../tests/categories.spec.ts). Each scenario
+names the job it serves, from
+[`docs/product/jobs.md`](../../docs/product/jobs.md), and says whether that
+behaviour is `implemented` or `proposed`.
+
+Nothing here records which tests exist. A spec describes behaviour; what covers
+it is a question for the test suite, answered by comparing the two rather than
+by keeping a tally in both places.
 
 ## Starting state
 
@@ -21,7 +26,8 @@ change anything, and they are the reason the dev environment is synthetic.
 
 ## 1. Searching finds what a rule would match
 
-Job: **J-7** — make an uncategorised pile small enough to ignore · Covered: **no**
+Job: **J-7** — make an uncategorised pile small enough to ignore
+Status: **implemented**
 
 1. Open `/categories`.
 2. Search for a merchant, optionally narrowing by amount or by type.
@@ -41,7 +47,8 @@ another, which is only discovered after it has been applied.
 
 ## 2. A proposal says what it would do before it does it
 
-Job: **J-7** — make an uncategorised pile small enough to ignore · Covered: **no**
+Job: **J-7** — make an uncategorised pile small enough to ignore
+Status: **implemented**
 
 1. Search, select rows, and choose a category.
 2. Ask what the change would do, without applying it.
@@ -60,7 +67,8 @@ somebody had already made sense of.
 
 ## 3. Applying writes a version and recategorises
 
-Job: **J-7** — make an uncategorised pile small enough to ignore · Covered: **no**
+Job: **J-7** — make an uncategorised pile small enough to ignore
+Status: **implemented**
 
 1. From a preview, confirm the change.
 2. Read what the page reports afterwards.
@@ -77,7 +85,8 @@ worse than none, because it was trusted.
 
 ## 4. One transaction can be named without writing a rule about it
 
-Job: **J-8** — correct one transaction · Covered: **no**
+Job: **J-8** — correct one transaction
+Status: **implemented**
 
 1. Find a single transaction filed wrongly, where nothing general explains it.
 2. Correct it directly.
@@ -94,7 +103,8 @@ how a mis-filing spreads.
 
 ## 5. Creating a category asks what it does to the money
 
-Job: **J-7** — make an uncategorised pile small enough to ignore · Covered: **no**
+Job: **J-7** — make an uncategorised pile small enough to ignore
+Status: **implemented**
 
 1. Create a new category from this page.
 
