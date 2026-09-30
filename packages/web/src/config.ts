@@ -29,14 +29,17 @@ export interface AppConfig {
   hostedUiDomain: string;
   apiUrl: string;
   /**
-   * Which TrueLayer the backend talks to, and so which deployment this is.
+   * Whether this deployment may renew a consent.
    *
-   * Optional, and absent means `live`. A deployment predating this field is a
-   * live one, and defaulting the other way would hide the renewal control on
-   * the deployment that actually needs it — with three consents lapsing in
-   * November, that is the failure worth avoiding.
+   * A permission rather than an environment name, so the page is not deriving
+   * policy from which provider is behind it — that is how a dashboard ends up
+   * encoding a rule the API owns, and the two drift the first time one moves.
+   *
+   * Optional, and absent means no. A page served by a deployment that predates
+   * this field cannot know, and offering an action that then fails is worse
+   * than not offering it.
    */
-  providerEnvironment?: "sandbox" | "live";
+  canRenewConnections?: boolean;
 }
 
 let cached: AppConfig | null = null;
@@ -60,8 +63,8 @@ export async function loadConfig(): Promise<AppConfig> {
     userPoolClientId: import.meta.env.VITE_USER_POOL_CLIENT_ID,
     hostedUiDomain: import.meta.env.VITE_HOSTED_UI_DOMAIN,
     apiUrl: import.meta.env.VITE_API_URL,
-    ...(import.meta.env.VITE_PROVIDER_ENVIRONMENT === "sandbox"
-      ? { providerEnvironment: "sandbox" as const }
+    ...(import.meta.env.VITE_CAN_RENEW_CONNECTIONS === "true"
+      ? { canRenewConnections: true }
       : {}),
   };
   if (fromEnv.userPoolId && fromEnv.userPoolClientId && fromEnv.hostedUiDomain && fromEnv.apiUrl) {

@@ -196,17 +196,17 @@ vi.mock("../src/config", () => ({
     userPoolClientId: "c",
     hostedUiDomain: "d",
     apiUrl: "https://api.example.invalid",
-    providerEnvironment: environment,
+    canRenewConnections: canRenew,
   })),
 }));
 
-let environment: "sandbox" | "live" = "live";
+let canRenew = true;
 
 describe("renewing a connection", () => {
   it("is not offered where the deployment does not own the connections", async () => {
-    // Dev talks to the sandbox and the API refuses it there. Offering a
-    // control that always fails is worse than not offering one.
-    environment = "sandbox";
+    // The API refuses there. Offering a control that always fails is worse
+    // than not offering one.
+    canRenew = false;
     withConsents([consent({ health: "ok" })]);
     render(<Connections api={api} />);
     await screen.findByText("Example Bank");
@@ -219,7 +219,7 @@ describe("renewing a connection", () => {
   it("is offered on a live connection and refused on a lapsed one", async () => {
     // The exact complement of Remove: every connection gets one action,
     // decided by its state. A lapsed consent has nothing left to extend.
-    environment = "live";
+    canRenew = true;
     withConsents([
       consent({ consentId: "live", institutionName: "Live Bank", health: "ok" }),
       consent({ consentId: "gone", institutionName: "Lapsed Bank", health: "expired" }),
@@ -236,7 +236,7 @@ describe("renewing a connection", () => {
   it("re-reads the page when the provider renews, rather than guessing the date", async () => {
     // The new expiry is the provider's answer and the server has it. Computing
     // one here would put a date on screen that nothing else agrees with.
-    environment = "live";
+    canRenew = true;
     let remaining = 12;
     apiGet.mockImplementation(async (p: string) => {
       if (p.startsWith(pathFor("/accounts"))) {
@@ -259,7 +259,7 @@ describe("renewing a connection", () => {
   it("sends the household onward when the provider wants a person", async () => {
     // Not reported as renewed: it is not renewed until they finish, and the
     // page could not take that back.
-    environment = "live";
+    canRenew = true;
     const assign = vi.fn();
     Object.defineProperty(window, "location", {
       value: { assign, href: "http://localhost/" },

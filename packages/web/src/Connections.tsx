@@ -98,17 +98,16 @@ export function Connections({ api }: { api: Api }) {
   /**
    * Whether this deployment may renew at all.
    *
-   * Sandbox means dev, which does not own the household's connections and is
-   * refused by the API. Hiding the control keeps the page honest rather than
-   * offering something that always fails — and the API refuses regardless,
-   * because a control that is not rendered is not a control that cannot be
-   * called.
+   * Asked of the deployment rather than worked out here. The API refuses
+   * regardless — a control that is not rendered is not a control that cannot
+   * be called — so this only keeps the page from offering something that
+   * cannot work.
    */
   const [mayRenew, setMayRenew] = useState(false);
 
   useEffect(() => {
     loadConfig()
-      .then((cfg) => setMayRenew(cfg.providerEnvironment !== "sandbox"))
+      .then((cfg) => setMayRenew(cfg.canRenewConnections === true))
       // A failed read leaves the control hidden, which is the safe way round:
       // the API would refuse anyway, and an offered action that cannot work is
       // worse than one that is absent.

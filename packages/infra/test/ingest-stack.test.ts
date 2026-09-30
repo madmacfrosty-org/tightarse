@@ -5,6 +5,7 @@ import {
   connectRedirectUri,
   envSettings,
   liveSyncIsProdAlone,
+  ownsConnections,
   SETTINGS,
   type EnvSettings,
 } from "../lib/config.js";
@@ -124,16 +125,17 @@ describe("sync ownership", () => {
     // second deployment refreshing the same credential writes back a token the
     // first has already spent, and the connection dies days later.
     //
-    // Dev stays off, and is now also on the sandbox. Both are pinned because
-    // the danger is the *pairing*: refreshing is only costly in company with
-    // `live`, and either value alone says nothing about whether a deployment
-    // is safe.
+    // Dev refreshes too, from 30 September 2026 — against the sandbox, where
+    // the tokens are a mock bank's and prod holds nothing reachable. So the
+    // fact worth pinning is the *pairing*: refreshing is only costly in
+    // company with `live`, and either value alone says nothing about whether a
+    // deployment is safe.
     //
     // If this fails, ownership has moved. That is a decision, not a detail:
     // change it here on purpose, or find out why something changed it for you.
     expect(syncEnabledOf(prod.ingest)).toBe("true");
     expect(envOf(prod.ingest, "RAW_BUCKET")["TL_ENV"]).toBe("live");
-    expect(syncEnabledOf(ingest)).toBe("false");
+    expect(syncEnabledOf(ingest)).toBe("true");
     expect(envOf(ingest, "RAW_BUCKET")["TL_ENV"]).toBe("sandbox");
   });
 
@@ -457,12 +459,12 @@ describe("the daily sync schedule", () => {
       }),
     )[0] as { Properties: Record<string, unknown> } | undefined;
 
-  it("is disabled in dev, which may not refresh a connection", () => {
-    expect(devSettings.syncEnabled).toBe(false);
-    expect(ruleFor(ingest)?.Properties["State"]).toBe("DISABLED");
-  });
-
-  it("is enabled in prod, which is the only deployment that may", () => {
+  it("fires in both deployments, each against its own provider", () => {
+    // Dev syncs the mock bank so the Connections page has consent rows to
+    // show — without them there is nothing on screen to renew, and the
+    // renewal flow cannot be exercised anywhere but prod.
+    expect(devSettings.syncEnabled).toBe(true);
+    expect(ruleFor(ingest)?.Properties["State"]).toBe("ENABLED");
     expect(ruleFor(prod.ingest)?.Properties["State"]).toBe("ENABLED");
   });
 
@@ -538,5 +540,27 @@ describe("only one deployment may refresh a live consent", () => {
 
   it("holds for the table that actually ships", () => {
     expect(() => liveSyncIsProdAlone(SETTINGS)).not.toThrow();
+  });
+});
+
+describe("who may renew a consent", () => {
+  // Distinct from who may sync. The two were briefly the same flag, and dev
+  // was refused renewal because it does not run a daily sync — which is not
+  // the question. What matters is whose connections they are.
+  it("lets a sandbox deployment renew its own mock connections", () => {
+    expect(envOf(ingest, "CONNECT_REDIRECT_URI")["CONNECTIONS_OWNED"]).toBe("true");
+  });
+
+  it("lets prod renew the household's", () => {
+    expect(envOf(prod.ingest, "CONNECT_REDIRECT_URI")["CONNECTIONS_OWNED"]).toBe("true");
+  });
+
+  it("refuses a non-prod deployment pointed at live", () => {
+    // The combination that must never renew: somebody else's live consent,
+    // from a deployment that does not own it. `ownsConnections` is the rule and
+    // it is checked here rather than trusted.
+    expect(ownsConnections({ name: "dev", providerEnvironment: "live" } as EnvSettings)).toBe(false);
+    expect(ownsConnections({ name: "prod", providerEnvironment: "live" } as EnvSettings)).toBe(true);
+    expect(ownsConnections({ name: "dev", providerEnvironment: "sandbox" } as EnvSettings)).toBe(true);
   });
 });

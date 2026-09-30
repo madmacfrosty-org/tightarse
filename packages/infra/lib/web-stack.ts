@@ -7,7 +7,7 @@ import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import type { Identity } from "./data-stack.js";
 import { Construct } from "constructs";
 import * as path from "node:path";
-import { config, type EnvSettings } from "./config.js";
+import { config, ownsConnections, type EnvSettings } from "./config.js";
 import { fileURLToPath } from "node:url";
 
 /** ESM has no `__dirname`; this is it. */
@@ -128,11 +128,11 @@ export class WebStack extends cdk.Stack {
         // From the same object as the pool, so the two cannot disagree.
         hostedUiDomain: identity.hostedUiDomain,
         apiUrl,
-        // Which deployment this is, so the page knows whether renewing a
-        // consent is something it may offer. Dev does not own the household's
-        // connections and the API refuses it there; the control is hidden to
-        // match rather than to enforce.
-        providerEnvironment: settings.providerEnvironment,
+        // What the page may offer, rather than which provider is behind it.
+        // The page should not be deriving policy from an environment name —
+        // that is how the dashboard ends up encoding a rule the API owns, and
+        // the two drift the first time one changes.
+        canRenewConnections: ownsConnections(settings),
       }),
     ];
 
