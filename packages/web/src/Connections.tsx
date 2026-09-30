@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { loadConfig } from "./config";
 import {
   AccountsResponse,
   pathFor,
   RemoveConnectionResponse,
+  ReconfirmConnectionResponse,
   type ConsentView,
 } from "@tightarse/api-contract";
 import type { Api } from "./ports";
@@ -68,6 +70,17 @@ function lastRefreshed(consents: ConsentView[]): string | null {
  */
 const REMOVABLE: ConsentView["health"][] = ["stale", "expired"];
 
+/**
+ * Which connections can be renewed: the ones that have not gone yet.
+ *
+ * The exact complement of REMOVABLE, and deliberately so — every connection
+ * gets one action, decided by its state rather than by what the household
+ * feels like doing. A lapsed consent cannot be extended: there is nothing
+ * left to extend, and the remedy is connecting again, which costs a trip
+ * through the bank.
+ */
+const RENEWABLE: ConsentView["health"][] = ["ok", "warn", "escalate"];
+
 /** Ordered by urgency rather than by name: the one that needs attention first. */
 const ORDER: ConsentView["health"][] = ["expired", "stale", "escalate", "warn", "ok"];
 
@@ -81,6 +94,26 @@ export function Connections({ api }: { api: Api }) {
   const [readError, setReadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+
+  /**
+   * Whether this deployment may renew at all.
+   *
+   * Sandbox means dev, which does not own the household's connections and is
+   * refused by the API. Hiding the control keeps the page honest rather than
+   * offering something that always fails — and the API refuses regardless,
+   * because a control that is not rendered is not a control that cannot be
+   * called.
+   */
+  const [mayRenew, setMayRenew] = useState(false);
+
+  useEffect(() => {
+    loadConfig()
+      .then((cfg) => setMayRenew(cfg.providerEnvironment !== "sandbox"))
+      // A failed read leaves the control hidden, which is the safe way round:
+      // the API would refuse anyway, and an offered action that cannot work is
+      // worse than one that is absent.
+      .catch(() => setMayRenew(false));
+  }, []);
 
   const remove = async (consentId: string) => {
     setBusy(consentId);
@@ -102,12 +135,47 @@ export function Connections({ api }: { api: Api }) {
     }
   };
 
+  const read = useCallback(
+    () =>
+      api
+        .get(AccountsResponse, pathFor("/accounts"))
+        .then((a) => setConsents(a.consents ?? []))
+        .catch(() => setReadError("Could not read the connections")),
+    [api],
+  );
+
   useEffect(() => {
-    api
-      .get(AccountsResponse, pathFor("/accounts"))
-      .then((a) => setConsents(a.consents ?? []))
-      .catch(() => setReadError("Could not read the connections"));
-  }, [api]);
+    void read();
+  }, [read]);
+
+  const reconfirm = async (consentId: string) => {
+    setBusy(consentId);
+    setActionError(null);
+    try {
+      const out = await api.post(
+        ReconfirmConnectionResponse,
+        pathFor("/connections/reconfirm"),
+        { consentId },
+      );
+      if (out.action !== "renewed" && out.continueAt !== undefined) {
+        // The provider wants a person. Leave rather than report success: the
+        // consent is not renewed until they finish, and saying otherwise here
+        // would be a lie the page could not take back.
+        window.location.assign(out.continueAt);
+        return;
+      }
+      // Re-read rather than patch the row. The new expiry is the provider's
+      // answer and the server has it; computing one here would show a date
+      // nothing agrees with.
+      await read();
+    } catch (e: unknown) {
+      setActionError(
+        e instanceof Error ? e.message : "Could not renew that connection",
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
 
   if (readError) {
     return (
@@ -157,6 +225,21 @@ export function Connections({ api }: { api: Api }) {
                   </td>
                   <td className="subtle">{c.providerStatus ?? "—"}</td>
                   <td>
+                    {mayRenew && (
+                      <button
+                        type="button"
+                        className="ghost"
+                        disabled={!RENEWABLE.includes(c.health) || busy !== null}
+                        onClick={() => void reconfirm(c.consentId)}
+                        title={
+                          RENEWABLE.includes(c.health)
+                            ? "Confirm with the provider that this connection may continue"
+                            : "Already lapsed — connect the bank again rather than renewing"
+                        }
+                      >
+                        {busy === c.consentId ? "Renewing…" : "Reconfirm"}
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="ghost"

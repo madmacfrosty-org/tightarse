@@ -28,6 +28,15 @@ export interface AppConfig {
   /** Cognito hosted-UI domain, without scheme. */
   hostedUiDomain: string;
   apiUrl: string;
+  /**
+   * Which TrueLayer the backend talks to, and so which deployment this is.
+   *
+   * Optional, and absent means `live`. A deployment predating this field is a
+   * live one, and defaulting the other way would hide the renewal control on
+   * the deployment that actually needs it — with three consents lapsing in
+   * November, that is the failure worth avoiding.
+   */
+  providerEnvironment?: "sandbox" | "live";
 }
 
 let cached: AppConfig | null = null;
@@ -51,6 +60,9 @@ export async function loadConfig(): Promise<AppConfig> {
     userPoolClientId: import.meta.env.VITE_USER_POOL_CLIENT_ID,
     hostedUiDomain: import.meta.env.VITE_HOSTED_UI_DOMAIN,
     apiUrl: import.meta.env.VITE_API_URL,
+    ...(import.meta.env.VITE_PROVIDER_ENVIRONMENT === "sandbox"
+      ? { providerEnvironment: "sandbox" as const }
+      : {}),
   };
   if (fromEnv.userPoolId && fromEnv.userPoolClientId && fromEnv.hostedUiDomain && fromEnv.apiUrl) {
     cached = fromEnv as AppConfig;

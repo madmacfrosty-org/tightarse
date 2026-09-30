@@ -128,6 +128,11 @@ export class WebStack extends cdk.Stack {
         // From the same object as the pool, so the two cannot disagree.
         hostedUiDomain: identity.hostedUiDomain,
         apiUrl,
+        // Which deployment this is, so the page knows whether renewing a
+        // consent is something it may offer. Dev does not own the household's
+        // connections and the API refuses it there; the control is hidden to
+        // match rather than to enforce.
+        providerEnvironment: settings.providerEnvironment,
       }),
     ];
 
