@@ -45,6 +45,31 @@ const client = () => {
 /** Network, against somebody else's service. Generous, but not unbounded. */
 const NETWORK = 30_000;
 
+/**
+ * Fail on a credential the sandbox does not recognise, saying so.
+ *
+ * Written after watching it happen. A live client id against the sandbox host
+ * is refused with `invalid_client` before the grant is even considered, so the
+ * test below saw "not a consent problem" and reported `expected false to be
+ * true` — an assertion failure that says nothing about the actual cause.
+ *
+ * The mistake it catches is an easy one, and was made here: a live client id
+ * put into `TL_SANDBOX_CLIENT_ID` looks entirely reasonable until the sandbox
+ * refuses it, because the two are told apart by the console they came from
+ * rather than by anything visible in the value. Nothing is spent when that
+ * happens — the host is pinned, so a live credential can only fail here — but
+ * the reader deserves to be told which of the two problems they have.
+ */
+function assertCredentialAccepted(error: TrueLayerError): void {
+  if (error.code === "invalid_client") {
+    throw new Error(
+      "The sandbox does not recognise this client id (invalid_client). This is a " +
+        "credential problem, not a consent one — check TL_SANDBOX_CLIENT_ID is the " +
+        "sandbox application's, not the live one.",
+    );
+  }
+}
+
 suite("the provider's token endpoint", () => {
   it("reports a dead consent as one a human must fix, not as a failure to retry", async () => {
     // The single most important error shape in the integration, and testable
@@ -62,6 +87,7 @@ suite("the provider's token endpoint", () => {
       .catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(TrueLayerError);
+    assertCredentialAccepted(error as TrueLayerError);
     expect((error as TrueLayerError).isConsentExpired).toBe(true);
     expect((error as TrueLayerError).isNotApplicable).toBe(false);
   }, NETWORK);
