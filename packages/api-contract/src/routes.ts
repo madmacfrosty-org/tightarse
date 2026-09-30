@@ -26,6 +26,8 @@ import {
   BooksResponse,
   RemoveConnectionRequest,
   RemoveConnectionResponse,
+  ReconfirmConnectionRequest,
+  ReconfirmConnectionResponse,
 } from "./schemas.js";
 
 /**
@@ -274,6 +276,37 @@ export const CONNECTION_ROUTES: readonly Route[] = [
     query: [],
     request: { name: "RemoveConnectionRequest", schema: RemoveConnectionRequest },
     response: { name: "RemoveConnectionResponse", schema: RemoveConnectionResponse },
+  },
+];
+
+
+/**
+ * Connection routes served by the connect function rather than the read API.
+ *
+ * Separate because of what they need, not because of what they are about.
+ * Renewing a consent needs the TrueLayer client and the connection secrets,
+ * and the connect function already holds both — it is the one that mints them.
+ * Serving this from the categorisation function instead would grant the read
+ * and categorisation API access to every refresh token the household has,
+ * which is the one secret whose loss costs five years of history.
+ *
+ * POST, where the other connect routes are GET, so the gateway registers them
+ * from the method in the contract rather than assuming.
+ */
+export const CONNECT_WRITE_ROUTES: readonly Route[] = [
+  {
+    method: "post",
+    path: "/connections/reconfirm",
+    summary: "Renew a connection before it lapses",
+    description:
+      "Asks the provider to extend a consent. UK rules require reconfirmation with the AISP every " +
+      "90 days, which is lighter than a fresh bank authorisation, but whether a given connection " +
+      "qualifies is the provider's decision and is returned at the moment of asking — so the " +
+      "response says which of three journeys applies rather than promising one. Refuses a consent " +
+      "that has already lapsed: there is nothing left to extend, and the remedy is connecting again.",
+    query: [],
+    request: { name: "ReconfirmConnectionRequest", schema: ReconfirmConnectionRequest },
+    response: { name: "ReconfirmConnectionResponse", schema: ReconfirmConnectionResponse },
   },
 ];
 
