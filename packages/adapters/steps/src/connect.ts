@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { TrueLayerClient, LIVE, SANDBOX, TrueLayerError } from "@tightarse/truelayer";
 import { Connections, consentExpiry, type Connection } from "./connections.js";
 import { AwsSecrets, startExecution } from "@tightarse/aws";
+import { ReconfirmConnectionRequest } from "@tightarse/api-contract";
 
 /**
  * The connect flow: turn a bank authorisation into a stored connection.
@@ -34,6 +35,19 @@ export interface ConnectDeps {
    * Undefined where no state machine is configured.
    */
   readonly startSync?: ((connectionId: string) => Promise<void>) | undefined;
+  /**
+   * Whether this deployment owns the household's connections.
+   *
+   * Renewal spends and replaces a refresh token, so only the deployment
+   * holding them may do it — the same ownership `syncEnabled` states for the
+   * daily refresh, and the same failure if two deployments both act: the
+   * loser writes back a token the winner has already spent and the connection
+   * dies days later.
+   *
+   * Gated here rather than only in the dashboard. A control that is not
+   * rendered is not a control that cannot be called.
+   */
+  readonly ownsConnections: boolean;
 }
 
 /**
@@ -127,6 +141,8 @@ export async function completeConnect(
 
 export interface ConnectEvent {
   rawPath?: string;
+  body?: string;
+  isBase64Encoded?: boolean;
   queryStringParameters?: Record<string, string | undefined> | null;
   requestContext?: { authorizer?: { jwt?: { claims?: Record<string, unknown> } } };
 }
@@ -149,6 +165,9 @@ export async function realConnectDeps(): Promise<ConnectDeps> {
     connections: new Connections(required("CONNECTION_SECRET_PREFIX"), secrets),
     redirectUri: required("CONNECT_REDIRECT_URI"),
     providers: process.env["TL_PROVIDERS"] ?? "uk-ob-all uk-oauth-all",
+    // Default false. A deployment that has not said it owns the connections
+    // does not, and the safe answer is the one you get by omission.
+    ownsConnections: process.env["CONNECTIONS_OWNED"] === "true",
     clientId: creds.clientId,
     authBase: sandbox ? SANDBOX.auth : LIVE.auth,
     ...(machine
@@ -161,6 +180,107 @@ export async function realConnectDeps(): Promise<ConnectDeps> {
         }
       : {}),
   };
+}
+
+export class ConsentNotRenewable extends Error {
+  readonly statusCode = 409;
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+export class ConsentUnknown extends Error {
+  readonly statusCode = 404;
+  constructor(consentId: string) {
+    super(`No connection matches consent ${consentId}`);
+  }
+}
+
+/**
+ * Find the connection behind a consent id, filling in the link if absent.
+ *
+ * The dashboard knows a consent by the provider's `credentials_id`; the stored
+ * secrets are keyed by our own connection id, and until renewal needed it
+ * nothing recorded which was which. Resolving costs one `/me` call per
+ * connection lacking the link, and the answer is stored, so it is paid once
+ * per connection rather than once per renewal.
+ *
+ * Connections that already carry the link are matched without any call at all,
+ * which is what keeps this off the unattended allowance in the normal case.
+ */
+export async function connectionForConsent(
+  deps: Pick<ConnectDeps, "truelayer" | "connections">,
+  tenantId: string,
+  consentId: string,
+): Promise<Connection> {
+  const all = await deps.connections.list(tenantId);
+
+  const known = all.find((c) => c.credentialsId === consentId);
+  if (known) return known;
+
+  for (const connection of all.filter((c) => c.credentialsId === undefined)) {
+    const { accessToken } = await deps.truelayer.refresh(connection.refreshToken);
+    const { body } = await deps.truelayer.get(accessToken, "/data/v1/me");
+    const credentialsId = (
+      (body as { results?: { credentials_id?: string }[] }).results ?? []
+    )[0]?.credentials_id;
+    if (credentialsId === undefined) continue;
+
+    // Stored whatever the outcome, so a connection is probed once ever rather
+    // than once per attempt at renewing a different one.
+    await deps.connections.update({ ...connection, credentialsId });
+    if (credentialsId === consentId) return { ...connection, credentialsId };
+  }
+
+  throw new ConsentUnknown(consentId);
+}
+
+/**
+ * Renew a consent before it lapses.
+ *
+ * Refuses one that has already gone: there is nothing left to extend and the
+ * remedy is connecting again, which is a different act with a different cost.
+ *
+ * When the provider renews without asking anything, the new refresh token is
+ * stored BEFORE the answer is returned. That ordering is the whole risk in
+ * this function — the old token stops working at the moment the new one is
+ * issued, so a failure between the two loses the connection, and the only way
+ * back is a consent that buys ninety days and no history.
+ */
+export async function reconfirmConnection(
+  deps: ConnectDeps,
+  tenantId: string,
+  consentId: string,
+  now: Date = new Date(),
+): Promise<{ consentId: string; action: "renewed" | "consent" | "authentication"; continueAt?: string; expiresAt?: string }> {
+  const connection = await connectionForConsent(deps, tenantId, consentId);
+
+  if (Date.parse(connection.consentExpiresAt) <= now.getTime()) {
+    throw new ConsentNotRenewable(
+      "This consent has already lapsed; connect the bank again rather than renewing",
+    );
+  }
+
+  const { accessToken } = await deps.truelayer.refresh(connection.refreshToken);
+  const outcome = await deps.truelayer.extendConnection(accessToken, {
+    refreshToken: connection.refreshToken,
+    redirectUri: deps.redirectUri,
+    user: { id: tenantId },
+  });
+
+  if (outcome.action !== "renewed") {
+    return { consentId, action: outcome.action, continueAt: outcome.continueAt };
+  }
+
+  // Stored first. See the note above: between issuing and storing there is a
+  // window in which the connection is lost, and it is made as small as the
+  // code can make it.
+  await deps.connections.update({
+    ...connection,
+    refreshToken: outcome.tokens.refreshToken,
+    consentExpiresAt: outcome.tokens.expiresAt,
+  });
+  return { consentId, action: "renewed", expiresAt: outcome.tokens.expiresAt };
 }
 
 /** Both routes, against dependencies the caller supplies. */
@@ -220,6 +340,31 @@ export async function connectRoutes(deps: ConnectDeps, event: ConnectEvent) {
     }
   }
 
+  if (path.endsWith("/connections/reconfirm")) {
+    if (!deps.ownsConnections) {
+      // 403 rather than 404: the route exists and the request was well formed.
+      // Saying "not here" would send somebody looking for a deployment bug.
+      return json(403, {
+        error: "This deployment does not own the household's connections and may not renew them",
+      });
+    }
+
+    const body = parseBody(event);
+    const parsed = ReconfirmConnectionRequest.safeParse(body);
+    if (!parsed.success) return json(400, { error: "A consentId is required" });
+
+    try {
+      return json(200, await reconfirmConnection(deps, tenantId, parsed.data.consentId));
+    } catch (err) {
+      if (err instanceof ConsentNotRenewable) return json(409, { error: err.message });
+      if (err instanceof ConsentUnknown) return json(404, { error: err.message });
+      if (err instanceof TrueLayerError) {
+        return json(502, { error: `Provider refused the renewal (${err.status} ${err.code ?? ""})` });
+      }
+      throw err;
+    }
+  }
+
   return json(404, { error: `No route for ${path}` });
 }
 
@@ -234,6 +379,23 @@ export async function connectRoutes(deps: ConnectDeps, event: ConnectEvent) {
  */
 export async function handler(event: ConnectEvent) {
   return connectRoutes(await realConnectDeps(), event);
+}
+
+/**
+ * The request body, or undefined.
+ *
+ * API Gateway hands a string, base64-encoded when it decides to. Parsing
+ * failures are undefined rather than thrown: the caller validates the shape
+ * anyway and a malformed body is a 400 either way.
+ */
+function parseBody(event: ConnectEvent): unknown {
+  const raw = event.body;
+  if (typeof raw !== "string") return undefined;
+  try {
+    return JSON.parse(event.isBase64Encoded === true ? Buffer.from(raw, "base64").toString("utf8") : raw);
+  } catch {
+    return undefined;
+  }
 }
 
 function json(statusCode: number, body: unknown) {
