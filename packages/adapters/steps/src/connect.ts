@@ -77,7 +77,16 @@ export function authorisationUrl(
  * where someone is sent to enter bank credentials, and that is not a value to
  * accept unchecked from a query string.
  */
-export const ALLOWED_PROVIDERS = ["ob-first-direct", "ob-amex", "uk-ob-all uk-oauth-all"];
+export const ALLOWED_PROVIDERS = [
+  "ob-first-direct",
+  "ob-amex",
+  "uk-ob-all uk-oauth-all",
+  // TrueLayer's mock bank, which exists only in sandbox. Allowed here rather
+  // than gated on the environment: a live deployment asked for it would send
+  // somebody to a provider that is not there, which fails visibly at the
+  // provider rather than silently here.
+  "uk-cs-mock",
+];
 
 export interface ConnectResult {
   connectionId: string;

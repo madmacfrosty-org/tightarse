@@ -94,6 +94,47 @@ That role is deliberately not the deploy role. The deploy role's one power is
 assuming the CDK bootstrap roles, which carry admin, and the test job runs on
 every pull request — merging them would hand a deployment path to any branch.
 
+### 4b. Integration against the provider's sandbox
+
+The same stage, aimed at the other external dependency. `map.ts` and
+`transform.ts` are otherwise tested against `generateRawWorld` — fixtures
+written to match what we believe TrueLayer sends, which cannot tell us the
+belief is still true. A field renamed upstream passes every unit test in the
+package, because the fixtures were written from the old name.
+
+Runs against `api.truelayer-sandbox.com` and a mock bank, never against live.
+That isolation is structural rather than configured: `resolveSandboxTarget`
+returns `SANDBOX` always and offers no way to ask for `LIVE`, so the hazard is
+unreachable from the type rather than avoided by care.
+
+The hazard is worth stating, because it is not the usual one. Nothing here can
+corrupt data. But `refresh` spends a refresh token and may be handed a new one,
+invalidating the old — and prod holds the household's connections. A suite that
+reached live TrueLayer with prod's stored token would leave prod holding a spent
+token, and the connection dies days later with no remedy but the household
+re-authorising at the bank. Data calls would also spend the unattended
+allowance, which is four per account, endpoint and consent per 24 hours.
+
+Two tiers, because they cost differently. Most of it needs only the application
+credential: the error classifications, and `isConsentExpired` in particular,
+which is the one that decides whether a sync retries or asks a human. The
+refresh path additionally needs a consent, and minting one costs a single
+interactive authorisation at `uk-cs-mock` — after which it is headless and
+repeatable.
+
+```sh
+# The tier that needs no consent
+TL_SANDBOX_CLIENT_ID=… TL_SANDBOX_CLIENT_SECRET=… npm test -w @tightarse/truelayer
+# Adding a consent unlocks the refresh and data-shape tests
+TL_SANDBOX_REFRESH_TOKEN=… npm test -w @tightarse/truelayer
+```
+
+Skipped when unset, which is the failure mode to watch: the DynamoDB suites
+once skipped silently on every push for weeks, and a green tick meant nothing.
+The answer there was setting the variable statically in the workflow so they
+cannot skip in CI, and it is the answer here too once a sandbox credential
+exists.
+
 ### 5. Synthetic canaries against the deployed system
 
 The narrowest and most expensive stage, and the only one that tests the thing
@@ -116,6 +157,7 @@ Honest as of the funnel being written down:
 | 2 snapshot | none, and dropped on purpose — the infra assertion tests cover what has actually broken |
 | 3 DynamoDB Local | the inner loop; the same 13 ledger tests, on demand |
 | 4 real AWS | 13 ledger tests per CI run, on an ephemeral eu-west-2 table |
+| 4b provider sandbox | 7 tests, skipped until a sandbox credential exists — see #178 |
 | 5 canaries | 3 Playwright tests against deployed dev, run by hand — see [e2e.md](e2e.md) |
 
 The gap that mattered most was 5, because every incident this project has had was

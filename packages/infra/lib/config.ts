@@ -192,6 +192,21 @@ export interface EnvSettings {
    * which is safe precisely because the durable answer lives here.
    */
   readonly syncEnabled: boolean;
+  /**
+   * Which TrueLayer to talk to.
+   *
+   * `sandbox` reaches a mock bank and mints consents that are not a real
+   * household's. That is the whole point of it: the connect flow cannot be
+   * exercised against `live` without spending a real consent, and roughly an
+   * hour after one is granted only ninety days of history remain available,
+   * for ever. A flow whose mistakes are unrecoverable needs somewhere to be
+   * got wrong.
+   *
+   * Dev is sandbox and prod is live, and that pairing is not a coincidence:
+   * dev is the account with `RemovalPolicy.DESTROY` on everything, and a
+   * credential reaching a real bank does not belong in it. See ADR-0003.
+   */
+  readonly providerEnvironment: "sandbox" | "live";
   /** How long raw landing-zone objects are kept. See the retention notes on #15. */
   readonly rawRetentionDays: number;
   /**
@@ -204,7 +219,7 @@ export interface EnvSettings {
   readonly rawTransitionToIaDays?: number;
 }
 
-const SETTINGS: Record<EnvName, EnvSettings> = {
+export const SETTINGS: Record<EnvName, EnvSettings> = {
   dev: {
     name: "dev",
     githubEnvironment: "dev",
@@ -220,7 +235,15 @@ const SETTINGS: Record<EnvName, EnvSettings> = {
     // is the only deployment that may refresh them; a dev refresh would spend a
     // token prod is holding, and the connection would die days later. See the
     // reasoning on EnvSettings.syncEnabled and #43.
+    //
+    // Sandbox does not change this on its own. Renewal is exercised against the
+    // provider directly, in the adapter's own suite, which needs no deployment
+    // refreshing anything on a schedule. `liveSyncIsProdAlone` below is what
+    // would make turning this on safe, if there is ever a reason to.
     syncEnabled: false,
+    // Sandbox, so the connect flow and the reconsent that follows it can be
+    // exercised without spending anything a household would miss.
+    providerEnvironment: "sandbox",
     rawRetentionDays: 30,
     // No IA transition: 30 days is inside IA's minimum billing duration.
   },
@@ -248,11 +271,39 @@ const SETTINGS: Record<EnvName, EnvSettings> = {
      */
     siteUrl: "https://tightarse.madmacfrosty.co.uk",
     syncEnabled: true,
+    providerEnvironment: "live",
     // Long enough to survive a transform rewrite, not indefinite.
     rawRetentionDays: 365,
     rawTransitionToIaDays: 30,
   },
 };
+
+/**
+ * Only one deployment may ever refresh a live consent.
+ *
+ * `syncEnabled` and `providerEnvironment` are safe in three of their four
+ * combinations and catastrophic in the fourth, and nothing about reading either
+ * one alone says which you are in. Dev syncing is fine because dev is on
+ * sandbox; the day somebody moves it to live to chase a bug, that same `true`
+ * becomes a second deployment spending prod's tokens — the failure ADR-0003
+ * and #43 are both about, which shows up days later as a dead connection.
+ *
+ * Checked over the whole table rather than the selected environment, so `cdk
+ * deploy` fails whichever one is being deployed. A synth-time throw is the
+ * point: this cannot become a review comment somebody misses.
+ */
+export function liveSyncIsProdAlone(settings: Record<string, EnvSettings>): void {
+  const live = Object.values(settings).filter(
+    (s) => s.syncEnabled && s.providerEnvironment === "live",
+  );
+  if (live.length > 1 || (live[0] !== undefined && live[0].name !== "prod")) {
+    throw new Error(
+      `Only prod may sync against live TrueLayer; found ${live.map((s) => s.name).join(", ")}`,
+    );
+  }
+}
+
+liveSyncIsProdAlone(SETTINGS);
 
 /**
  * Resolved from CDK context: `cdk deploy -c env=prod`. Defaults to dev, so the
