@@ -296,6 +296,60 @@ withConsent("refreshing a sandbox consent", () => {
     expect(Math.sign(mapped.amount)).toBe(results[0]!.transaction_type === "CREDIT" ? 1 : -1);
   }, { timeout: NETWORK, ...RETRY });
 
+  it("answers a renewal request with which of three journeys is needed", async () => {
+    // The question #69 could not answer without this: does TrueLayer offer a
+    // reconfirmation that is not a fresh authorisation journey?
+    //
+    // Measured: it offers all three, and which one you get is a property of
+    // the connection returned at runtime rather than something knowable in
+    // advance. `action_needed` discriminates:
+    //
+    //   no_action_needed                 — renewed, tokens in the response
+    //   reconfirmation_of_consent_needed — the light path the rules permit
+    //   authentication_needed            — back to the bank
+    //
+    // So a renewal path cannot assume the light one. It has to branch on this
+    // field, and the heavy branch is a browser journey a person must complete.
+    // That is the finding: the regulation permits a confirmation, and whether
+    // this particular connection gets one is the provider's call, not ours.
+    //
+    // Asserted as "one of the three, and a link whenever a journey is needed"
+    // rather than pinned to a value. Which branch a mock connection minted
+    // minutes ago takes says nothing about a real one near ninety days, and a
+    // test pinned to today's answer would fail on a correct change.
+    const t = target();
+    const c = client();
+    const { accessToken } = await c.refresh(t.refreshToken!);
+
+    const res = await fetch(`${t.environment.api}/connections/extend`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({
+        user_has_reconfirmed_consent: true,
+        client_id: t.credentials.clientId,
+        client_secret: t.credentials.clientSecret,
+        // Invented, and required by the endpoint. No real person.
+        user: { id: "sandbox-user-1", name: "Test User", email: "test@example.invalid" },
+        refresh_token: t.refreshToken,
+        redirect_uri: "http://localhost:3000/callback",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { action_needed?: string; user_input_link?: string };
+    expect([
+      "no_action_needed",
+      "reconfirmation_of_consent_needed",
+      "authentication_needed",
+    ]).toContain(body.action_needed);
+
+    // A journey that needs a person needs somewhere to send them. Without the
+    // link there is no renewal path at all, only a status.
+    if (body.action_needed !== "no_action_needed") {
+      expect(body.user_input_link).toMatch(/^https:\/\//);
+    }
+  }, { timeout: NETWORK, ...RETRY });
+
   it("classifies an endpoint the provider does not offer as not applicable", async () => {
     // 404, 403 and 501 all mean "not here" and none is worth retrying.
     // Treating 404 as a failure once cost five redundant fetches of an entire
