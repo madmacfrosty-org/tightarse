@@ -18,7 +18,13 @@ import type * as kms from "aws-cdk-lib/aws-kms";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import * as path from "node:path";
-import { config, connectRedirectUri, secretPrefix, type EnvSettings } from "./config.js";
+import {
+  config,
+  connectRedirectUri,
+  ownsConnections,
+  secretPrefix,
+  type EnvSettings,
+} from "./config.js";
 import { fileURLToPath } from "node:url";
 
 /** ESM has no `__dirname`; this is it. */
@@ -689,6 +695,11 @@ export class IngestStack extends cdk.Stack {
         CONNECT_REDIRECT_URI: connectRedirectUri(settings),
         SYNC_STATE_MACHINE_ARN: syncMachine.stateMachineArn,
         TL_ENV: settings.providerEnvironment,
+        // Who may renew a consent: whoever owns the connections. Not read off
+        // `syncEnabled`, which answers a different question — whether this
+        // deployment refreshes on a schedule. A sandbox deployment owns its own
+        // mock connections and may renew them without going near prod's.
+        CONNECTIONS_OWNED: String(ownsConnections(settings)),
         // Sandbox has none of the real banks in it. Offering the mock is what
         // makes the flow exercisable; offering `uk-ob-all` there would send
         // somebody to a picker with nothing in it they could sign in to.

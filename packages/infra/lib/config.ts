@@ -231,16 +231,21 @@ export const SETTINGS: Record<EnvName, EnvSettings> = {
     googleClientId: "242040418333-3re7ehr425qst2ghgf8eh1qk263noe19.apps.googleusercontent.com",
     hostedUiPrefixV2: "tightarse-dev-068475-b",
     siteUrl: "https://d235jlz4kj7lqs.cloudfront.net",
-    // False since the cutover on 23 August 2026. Prod holds the connections and
-    // is the only deployment that may refresh them; a dev refresh would spend a
-    // token prod is holding, and the connection would die days later. See the
-    // reasoning on EnvSettings.syncEnabled and #43.
+    // True from 30 September 2026, and only because of the line below it.
     //
-    // Sandbox does not change this on its own. Renewal is exercised against the
-    // provider directly, in the adapter's own suite, which needs no deployment
-    // refreshing anything on a schedule. `liveSyncIsProdAlone` below is what
-    // would make turning this on safe, if there is ever a reason to.
-    syncEnabled: false,
+    // False from the cutover on 23 August because dev held a copy of prod's
+    // *live* credential: a dev refresh spent a token prod was holding, and the
+    // connection died days later (#43, ADR-0003). The hazard was the shared
+    // live credential rather than the act of refreshing, and it went when the
+    // credential did.
+    //
+    // On sandbox there is no such token — the connections are a mock bank's
+    // and nothing prod holds is reachable from here. It has to be true for the
+    // renewal flow to be exercisable at all: the Connections page reads consent
+    // rows, and the sync is what writes them, so a deployment that never syncs
+    // shows an empty page with nothing to renew. `liveSyncIsProdAlone` fails
+    // the build if anyone ever points a syncing dev at live.
+    syncEnabled: true,
     // Sandbox, so the connect flow and the reconsent that follows it can be
     // exercised without spending anything a household would miss.
     providerEnvironment: "sandbox",
@@ -301,6 +306,24 @@ export function liveSyncIsProdAlone(settings: Record<string, EnvSettings>): void
       `Only prod may sync against live TrueLayer; found ${live.map((s) => s.name).join(", ")}`,
     );
   }
+}
+
+/**
+ * Whether a deployment may act on the connections it holds.
+ *
+ * Distinct from `syncEnabled`, which says whether it refreshes them on a
+ * schedule. This says whether it owns them at all — and the answer is the same
+ * rule `liveSyncIsProdAlone` enforces: the live connections belong to prod, and
+ * a sandbox deployment owns its own, which are a mock bank's and cost nothing
+ * to spend.
+ *
+ * Named rather than folded into `syncEnabled` because reading renewal
+ * permission off a flag called "sync" is how the two get conflated. They were,
+ * briefly: dev was refused renewal because it does not run a daily sync, which
+ * is not the question.
+ */
+export function ownsConnections(settings: EnvSettings): boolean {
+  return settings.providerEnvironment === "sandbox" || settings.name === "prod";
 }
 
 liveSyncIsProdAlone(SETTINGS);

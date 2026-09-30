@@ -915,3 +915,44 @@ export const RemoveConnectionResponse = z.object({
     ),
 });
 export type RemoveConnectionResponse = z.infer<typeof RemoveConnectionResponse>;
+
+/**
+ * Renewing a connection before it lapses.
+ *
+ * UK rules require consent to be reconfirmed with the AISP every 90 days,
+ * which is lighter than sending somebody back to their bank. Whether a given
+ * connection qualifies for the light path is the provider's call, returned at
+ * the moment of asking — so this cannot be decided here and the response says
+ * which of three journeys applies.
+ */
+export const ReconfirmConnectionRequest = z.object({
+  consentId: z.string().min(1).describe("The connection to renew"),
+});
+export type ReconfirmConnectionRequest = z.infer<typeof ReconfirmConnectionRequest>;
+
+export const ReconfirmAction = z
+  .enum(["renewed", "consent", "authentication"])
+  .describe(
+    "What the provider says is needed. `renewed` is done and nothing more is " +
+      "required. `consent` needs the household to reconfirm in the provider's " +
+      "dialog. `authentication` sends them back to the bank. The last two both " +
+      "carry a link and differ only in how long they take",
+  );
+export type ReconfirmAction = z.infer<typeof ReconfirmAction>;
+
+export const ReconfirmConnectionResponse = z.object({
+  consentId: z.string().min(1),
+  action: ReconfirmAction,
+  continueAt: z
+    .string()
+    .optional()
+    .describe(
+      "Where to send the household to finish. Present whenever `action` is not " +
+        "`renewed`, absent when it is",
+    ),
+  expiresAt: z
+    .string()
+    .optional()
+    .describe("The renewed expiry, when the provider renewed without asking anything"),
+});
+export type ReconfirmConnectionResponse = z.infer<typeof ReconfirmConnectionResponse>;

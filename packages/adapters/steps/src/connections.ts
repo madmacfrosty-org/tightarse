@@ -20,6 +20,20 @@ export interface Connection {
   consentExpiresAt: string;
   connectedAt: string;
   lastSyncedAt?: string;
+  /**
+   * The provider's own id for this consent — `credentials_id` from `/me`.
+   *
+   * What links a stored connection to the consent row the dashboard shows.
+   * Nothing recorded it before renewal needed it: the raw object key carries
+   * tenant, dataset and account but no connection, so the transform that
+   * writes consent rows genuinely cannot know which connection produced one.
+   *
+   * Optional because connections made before this existed do not have it.
+   * `resolveCredentialsId` fills it in on first use and stores it, which costs
+   * one data call once rather than a change to the ingest path — and the
+   * ingest path is the one that can cost five years of history.
+   */
+  credentialsId?: string;
 }
 
 export class Connections {

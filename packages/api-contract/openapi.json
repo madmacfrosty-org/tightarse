@@ -813,6 +813,54 @@
         ],
         "additionalProperties": false
       },
+      "ReconfirmConnectionRequest": {
+        "type": "object",
+        "properties": {
+          "consentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The connection to renew"
+          }
+        },
+        "required": [
+          "consentId"
+        ],
+        "additionalProperties": false
+      },
+      "ReconfirmConnectionResponse": {
+        "type": "object",
+        "properties": {
+          "consentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "action": {
+            "$ref": "#/components/schemas/ReconfirmAction"
+          },
+          "continueAt": {
+            "type": "string",
+            "description": "Where to send the household to finish. Present whenever `action` is not `renewed`, absent when it is"
+          },
+          "expiresAt": {
+            "type": "string",
+            "description": "The renewed expiry, when the provider renewed without asking anything"
+          }
+        },
+        "required": [
+          "consentId",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "ReconfirmAction": {
+        "type": "string",
+        "enum": [
+          "renewed",
+          "consent",
+          "authentication"
+        ],
+        "description": "What the provider says is needed. `renewed` is done and nothing more is required. `consent` needs the household to reconfirm in the provider's dialog. `authentication` sends them back to the bank. The last two both carry a link and differ only in how long they take"
+      },
       "CategoryTallyView": {
         "type": "object",
         "properties": {
@@ -2095,6 +2143,45 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RemoveConnectionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The range is missing, malformed, or `from` is after `to`"
+          },
+          "401": {
+            "description": "No bearer token, or one this API does not trust"
+          },
+          "403": {
+            "description": "A valid token carrying no household claim"
+          }
+        }
+      }
+    },
+    "/v1/connections/reconfirm": {
+      "post": {
+        "operationId": "postConnectionsReconfirm",
+        "summary": "Renew a connection before it lapses",
+        "description": "Asks the provider to extend a consent. UK rules require reconfirmation with the AISP every 90 days, which is lighter than a fresh bank authorisation, but whether a given connection qualifies is the provider's decision and is returned at the moment of asking — so the response says which of three journeys applies rather than promising one. Refuses a consent that has already lapsed: there is nothing left to extend, and the remedy is connecting again.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReconfirmConnectionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Renew a connection before it lapses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconfirmConnectionResponse"
                 }
               }
             }

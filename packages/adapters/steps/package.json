@@ -12,6 +12,7 @@
     "test:mutation": "stryker run"
   },
   "dependencies": {
+    "@tightarse/api-contract": "*",
     "@tightarse/aws": "*",
     "@tightarse/domain": "*",
     "@tightarse/metrics": "*",
