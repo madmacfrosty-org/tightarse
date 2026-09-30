@@ -1,7 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { Match } from "aws-cdk-lib/assertions";
 import { templates, policyStatements } from "./harness.js";
-import { connectRedirectUri, envSettings } from "../lib/config.js";
+import {
+  connectRedirectUri,
+  envSettings,
+  liveSyncIsProdAlone,
+  SETTINGS,
+  type EnvSettings,
+} from "../lib/config.js";
 import * as cdk from "aws-cdk-lib";
 
 const { ingest } = templates();
@@ -91,6 +97,17 @@ describe("schedules", () => {
   });
 });
 
+/** The environment of the one Lambda identified by a variable only it carries. */
+const envOf = (t: ReturnType<typeof templates>["ingest"], marker: string) => {
+  const fn = Object.values(t.findResources("AWS::Lambda::Function")).find((f) =>
+    JSON.stringify(
+      (f as { Properties?: { Environment?: { Variables?: unknown } } }).Properties?.Environment
+        ?.Variables ?? {},
+    ).includes(marker),
+  ) as { Properties: { Environment: { Variables: Record<string, string> } } };
+  return fn.Properties.Environment.Variables;
+};
+
 describe("sync ownership", () => {
   /** SYNC_ENABLED as the deployed steps function would read it. */
   function syncEnabledOf(t: ReturnType<typeof templates>["ingest"]): string | undefined {
@@ -101,17 +118,23 @@ describe("sync ownership", () => {
     return steps?.Properties?.Environment?.Variables?.SYNC_ENABLED;
   }
 
-  it("nominates prod, and only prod, to refresh the connections", () => {
+  it("nominates prod, and only prod, to refresh a live connection", () => {
     // Which deployment owns the household's connections, stated where a change
-    // to it cannot be incidental. Prod took them over on 23 August 2026; dev
-    // holds copies of the same secrets and must never spend one, because a
-    // refresh token can rotate on use and the loser writes back a token the
-    // winner has already spent.
+    // to it cannot be incidental. Prod took them over on 23 August 2026; a
+    // second deployment refreshing the same credential writes back a token the
+    // first has already spent, and the connection dies days later.
+    //
+    // Dev stays off, and is now also on the sandbox. Both are pinned because
+    // the danger is the *pairing*: refreshing is only costly in company with
+    // `live`, and either value alone says nothing about whether a deployment
+    // is safe.
     //
     // If this fails, ownership has moved. That is a decision, not a detail:
     // change it here on purpose, or find out why something changed it for you.
-    expect(syncEnabledOf(ingest)).toBe("false");
     expect(syncEnabledOf(prod.ingest)).toBe("true");
+    expect(envOf(prod.ingest, "RAW_BUCKET")["TL_ENV"]).toBe("live");
+    expect(syncEnabledOf(ingest)).toBe("false");
+    expect(envOf(ingest, "RAW_BUCKET")["TL_ENV"]).toBe("sandbox");
   });
 
   it("carries the setting through rather than hard-coding it", () => {
@@ -441,5 +464,79 @@ describe("the daily sync schedule", () => {
 
   it("is enabled in prod, which is the only deployment that may", () => {
     expect(ruleFor(prod.ingest)?.Properties["State"]).toBe("ENABLED");
+  });
+
+  it("stops when the setting says so, which is the emergency brake", () => {
+    // The schedule has to follow the setting rather than be enabled outright:
+    // turning a deployment off is how a runaway sync is stopped durably, and a
+    // hard-coded ENABLED would make the next deploy quietly undo it.
+    const off = templates({}, { syncEnabled: false });
+    expect(ruleFor(off.ingest)?.Properties["State"]).toBe("DISABLED");
+  });
+});
+
+/**
+ * #178: which TrueLayer each deployment talks to.
+ *
+ * The prod assertion is the one that earns its place. Pointing prod at the
+ * sandbox would leave every figure describing a mock bank while the dashboard
+ * looked entirely normal — a failure with no symptom until somebody noticed
+ * their own transactions had stopped arriving.
+ */
+describe("which provider a deployment reaches", () => {
+  it("sends dev to the sandbox, in both the connect flow and the sync", () => {
+    expect(envOf(ingest, "CONNECT_REDIRECT_URI")["TL_ENV"]).toBe("sandbox");
+    expect(envOf(ingest, "RAW_BUCKET")["TL_ENV"]).toBe("sandbox");
+  });
+
+  it("sends prod to the live provider", () => {
+    expect(envOf(prod.ingest, "CONNECT_REDIRECT_URI")["TL_ENV"]).toBe("live");
+    expect(envOf(prod.ingest, "RAW_BUCKET")["TL_ENV"]).toBe("live");
+  });
+
+  it("offers the mock bank in the sandbox and never in prod", () => {
+    // Sandbox holds none of the real banks, so the default provider filter
+    // would send somebody to a picker with nothing they could sign in to.
+    expect(envOf(ingest, "CONNECT_REDIRECT_URI")["TL_PROVIDERS"]).toBe("uk-cs-mock");
+    expect(envOf(prod.ingest, "CONNECT_REDIRECT_URI")["TL_PROVIDERS"]).toBeUndefined();
+  });
+});
+
+describe("only one deployment may refresh a live consent", () => {
+  // The rule the table is checked against at synth. Exercised through the
+  // exported guard rather than by mutating SETTINGS, which is frozen config a
+  // test has no business editing.
+  const env = (over: Partial<EnvSettings>): EnvSettings =>
+    ({ name: "dev", syncEnabled: false, providerEnvironment: "sandbox", ...over }) as EnvSettings;
+
+  it("allows dev to sync, because dev is on the sandbox", () => {
+    expect(() =>
+      liveSyncIsProdAlone({
+        dev: env({ syncEnabled: true }),
+        prod: env({ name: "prod", syncEnabled: true, providerEnvironment: "live" }),
+      }),
+    ).not.toThrow();
+  });
+
+  it("refuses a second deployment pointed at live", () => {
+    // The combination that killed connections after the cutover: two
+    // deployments spending tokens against one credential.
+    expect(() =>
+      liveSyncIsProdAlone({
+        dev: env({ syncEnabled: true, providerEnvironment: "live" }),
+        prod: env({ name: "prod", syncEnabled: true, providerEnvironment: "live" }),
+      }),
+    ).toThrow(/Only prod may sync against live/);
+  });
+
+  it("refuses a lone non-prod deployment on live, not merely a pair", () => {
+    // Prod being switched off does not make dev the one allowed to sync live.
+    expect(() =>
+      liveSyncIsProdAlone({ dev: env({ syncEnabled: true, providerEnvironment: "live" }) }),
+    ).toThrow(/dev/);
+  });
+
+  it("holds for the table that actually ships", () => {
+    expect(() => liveSyncIsProdAlone(SETTINGS)).not.toThrow();
   });
 });

@@ -170,6 +170,9 @@ export class IngestStack extends cdk.Stack {
         // the TrueLayer environment — "live" — while every alarm below watches
         // the deployment, so none of them could fire.
         ENVIRONMENT: settings.name,
+        // Which TrueLayer. Set from the settings rather than defaulted in the
+        // code, so a deployment cannot reach the live provider by omission.
+        TL_ENV: settings.providerEnvironment,
       },
       logGroup: new logs.LogGroup(this, "SyncLogs", {
         retention: settings.name === "prod" ? logs.RetentionDays.ONE_YEAR : logs.RetentionDays.ONE_WEEK,
@@ -685,6 +688,13 @@ export class IngestStack extends cdk.Stack {
         // the provider matches this exactly and nothing in CDK can register it.
         CONNECT_REDIRECT_URI: connectRedirectUri(settings),
         SYNC_STATE_MACHINE_ARN: syncMachine.stateMachineArn,
+        TL_ENV: settings.providerEnvironment,
+        // Sandbox has none of the real banks in it. Offering the mock is what
+        // makes the flow exercisable; offering `uk-ob-all` there would send
+        // somebody to a picker with nothing in it they could sign in to.
+        ...(settings.providerEnvironment === "sandbox"
+          ? { TL_PROVIDERS: "uk-cs-mock" }
+          : {}),
       },
       logGroup: new logs.LogGroup(this, "ConnectLogs", {
         retention: logs.RetentionDays.ONE_WEEK,
