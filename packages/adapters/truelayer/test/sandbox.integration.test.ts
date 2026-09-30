@@ -200,6 +200,13 @@ withConsent("refreshing a sandbox consent", () => {
     // "it differs from the input" — whether it rotates on every call is the
     // provider's business, and a test demanding rotation would fail the day
     // they stop, telling us nothing about our own correctness.
+    //
+    // Measured 30 September 2026: the sandbox does NOT rotate. The same token
+    // comes back every time. So this suite cannot exercise the rotation path,
+    // and the hazard the client documents — a new refresh token returned, the
+    // old one dead, the caller still holding the original — stays untested
+    // here however green it is. Only live does that, which is the one place
+    // nobody wants to find out. Worth knowing before trusting a pass.
     const t = target();
     const tokens = await client().refresh(t.refreshToken!);
 
