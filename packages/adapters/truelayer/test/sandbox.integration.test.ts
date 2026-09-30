@@ -46,51 +46,116 @@ const client = () => {
 const NETWORK = 30_000;
 
 /**
- * Fail on a credential the sandbox does not recognise, saying so.
+ * Retries, because the flakiness is the provider's rather than ours.
  *
- * Written after watching it happen. A live client id against the sandbox host
- * is refused with `invalid_client` before the grant is even considered, so the
- * test below saw "not a consent problem" and reported `expected false to be
- * true` — an assertion failure that says nothing about the actual cause.
- *
- * The mistake it catches is an easy one, and was made here: a live client id
- * put into `TL_SANDBOX_CLIENT_ID` looks entirely reasonable until the sandbox
- * refuses it, because the two are told apart by the console they came from
- * rather than by anything visible in the value. Nothing is spent when that
- * happens — the host is pinned, so a live credential can only fail here — but
- * the reader deserves to be told which of the two problems they have.
+ * See `credentialAcceptance`: the sandbox rejects a freshly rotated secret on
+ * a majority of calls for some minutes. Retrying is right here and would be
+ * wrong in a unit test — there is nothing deterministic to be had from
+ * somebody else's eventually-consistent auth tier.
  */
-function assertCredentialAccepted(error: TrueLayerError): void {
-  if (error.code === "invalid_client") {
-    throw new Error(
-      "The sandbox does not recognise this client id (invalid_client). This is a " +
-        "credential problem, not a consent one — check TL_SANDBOX_CLIENT_ID is the " +
-        "sandbox application's, not the live one.",
-    );
+const RETRY = { retry: 3 } as const;
+
+/**
+ * Does the application credential itself work?
+ *
+ * Asked with `client_credentials`, which involves no consent and no refresh
+ * token — so a failure can only be the credential. That separation is the
+ * whole point, and it was learned the hard way: the sandbox answers
+ * `invalid_client` for a *rejected refresh token* as well as for a bad client
+ * id, so that code alone cannot tell you which of the two you have.
+ *
+ * A helper that read the code and blamed the credential sent somebody to
+ * re-check a client id that was provably fine.
+ */
+async function credentialTokenOnce(): Promise<boolean> {
+  const t = target();
+  const res = await fetch(`${t.environment.auth}/connect/token`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      scope: "info",
+      client_id: t.credentials.clientId,
+      client_secret: t.credentials.clientSecret,
+    }),
+  });
+  return res.ok;
+}
+
+/**
+ * How many of N identical attempts the sandbox accepts.
+ *
+ * Sampled rather than asked once, because the answer is not stable. Measured
+ * on 30 September 2026, minutes after a client secret was rotated: ten
+ * byte-identical `client_credentials` requests returned four 200s and six
+ * `invalid_client`, in no pattern. The sandbox's auth tier appears to
+ * propagate a new secret across nodes lazily, so a single call samples a coin
+ * flip.
+ *
+ * This is the shape of the thing, not a bug to route around: a suite asking
+ * once would fail the majority of the time with `invalid_client`, which reads
+ * exactly like a wrong credential and sent somebody to check a client id that
+ * was correct.
+ */
+async function credentialAcceptance(attempts = 6): Promise<number> {
+  let accepted = 0;
+  for (let i = 0; i < attempts; i++) {
+    if (await credentialTokenOnce()) accepted += 1;
   }
+  return accepted;
 }
 
 suite("the provider's token endpoint", () => {
-  it("reports a dead consent as one a human must fix, not as a failure to retry", async () => {
-    // The single most important error shape in the integration, and testable
-    // with no consent at all — a token that was never valid is refused exactly
-    // as an expired one is.
+  it("accepts the application credential, which is the first thing to know", async () => {
+    // Run this before reading any other failure in this file. `client_credentials`
+    // needs no consent, so it answers "is the credential good" on its own.
     //
-    // `isConsentExpired` is what stops a sync retrying: the remedy is the
-    // household re-authorising at the bank, and a retry loop against a lapsed
-    // consent spends the call allowance achieving nothing. It is classified
-    // from `invalid_grant`, which is a string in somebody else's response body
-    // — the kind of thing a fixture asserts about itself.
+    // Asserted as "at least one of six", not "all six". A credential the
+    // sandbox never accepts is wrong; one it accepts sometimes is right and
+    // still propagating, and failing the second as though it were the first is
+    // how an hour goes into re-checking a correct client id.
+    const accepted = await credentialAcceptance();
+
+    expect(
+      accepted,
+      "The sandbox rejected this credential on every attempt. That is a credential " +
+        "problem: check TL_SANDBOX_CLIENT_ID and TL_SANDBOX_CLIENT_SECRET are the " +
+        "sandbox application's, and are from the same app.",
+    ).toBeGreaterThan(0);
+
+    // Not an assertion. A partial acceptance is worth seeing in the output,
+    // because it explains any flakiness in the tests below rather than leaving
+    // it to be rediscovered.
+    if (accepted < 6) {
+      console.warn(
+        `TrueLayer sandbox accepted this credential ${accepted}/6 times — ` +
+          `still propagating. Tests below may fail intermittently; retry shortly.`,
+      );
+    }
+  }, { timeout: NETWORK, ...RETRY });
+
+  it("refuses a refresh token that was never valid, and says so as an error", async () => {
+    // What the provider actually does, measured rather than assumed: the
+    // sandbox answers `invalid_client` here, with a credential that
+    // `client_credentials` accepts in the test above. So the code does NOT
+    // identify a bad credential, and `isConsentExpired` — which looks for
+    // `invalid_grant` — does not fire for it.
+    //
+    // Deliberately not asserted as consent expiry. A string that was never a
+    // token is not a lapsed consent, and whether a genuinely expired one is
+    // refused the same way is the open question: if it is, `isConsentExpired`
+    // misses it and a sync retries instead of asking the household to
+    // re-authorise. That needs a real consent to answer, and is why the tier
+    // below exists.
     const error = await client()
       .refresh("not-a-refresh-token")
       .then(() => null)
       .catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(TrueLayerError);
-    assertCredentialAccepted(error as TrueLayerError);
-    expect((error as TrueLayerError).isConsentExpired).toBe(true);
-    expect((error as TrueLayerError).isNotApplicable).toBe(false);
-  }, NETWORK);
+    expect((error as TrueLayerError).status).toBeGreaterThanOrEqual(400);
+    expect((error as TrueLayerError).status).toBeLessThan(500);
+  }, { timeout: NETWORK, ...RETRY });
 
   it("does not mistake a rejected credential for a lapsed consent", async () => {
     // The two are both "the token call failed" and mean opposite things: one is
@@ -110,7 +175,7 @@ suite("the provider's token endpoint", () => {
 
     expect(error).toBeInstanceOf(TrueLayerError);
     expect((error as TrueLayerError).status).toBeGreaterThanOrEqual(400);
-  }, NETWORK);
+  }, { timeout: NETWORK, ...RETRY });
 });
 
 /**
@@ -141,7 +206,7 @@ withConsent("refreshing a sandbox consent", () => {
     expect(tokens.accessToken).toBeTruthy();
     expect(tokens.refreshToken).toBeTruthy();
     expect(Date.parse(tokens.expiresAt)).toBeGreaterThan(Date.now());
-  }, NETWORK);
+  }, { timeout: NETWORK, ...RETRY });
 
   it("mints an access token the data API actually accepts", async () => {
     // The seam between the two halves of the client. `refresh` and `get` are
@@ -168,7 +233,7 @@ withConsent("refreshing a sandbox consent", () => {
     const present = found.filter((f) => f !== null);
     expect(present.length).toBeGreaterThan(0);
     for (const { body } of present) expect(Array.isArray(body.results)).toBe(true);
-  }, NETWORK);
+  }, { timeout: NETWORK, ...RETRY });
 
   it("sends accounts this adapter can still map", async () => {
     // What a fixture cannot answer: whether the shape we parse is the shape
@@ -186,7 +251,7 @@ withConsent("refreshing a sandbox consent", () => {
     const account = mapAccount(raw!, { tenantId: "sandbox" });
     expect(account.accountId).toBeTruthy();
     expect(account.currency).toMatch(/^[A-Z]{3}$/);
-  }, NETWORK);
+  }, { timeout: NETWORK, ...RETRY });
 
   it("sends transactions that carry the type the sign is taken from", async () => {
     // `transaction_type` is the field the whole sign convention rests on: the
@@ -222,7 +287,7 @@ withConsent("refreshing a sandbox consent", () => {
     // The convention, end to end against a real payload: a DEBIT left the
     // household and is negative, whichever way the provider signed the amount.
     expect(Math.sign(mapped.amount)).toBe(results[0]!.transaction_type === "CREDIT" ? 1 : -1);
-  }, NETWORK);
+  }, { timeout: NETWORK, ...RETRY });
 
   it("classifies an endpoint the provider does not offer as not applicable", async () => {
     // 404, 403 and 501 all mean "not here" and none is worth retrying.
@@ -239,5 +304,5 @@ withConsent("refreshing a sandbox consent", () => {
 
     expect(error).toBeInstanceOf(TrueLayerError);
     expect((error as TrueLayerError).isNotApplicable).toBe(true);
-  }, NETWORK);
+  }, { timeout: NETWORK, ...RETRY });
 });
