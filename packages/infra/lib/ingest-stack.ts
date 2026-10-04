@@ -718,6 +718,17 @@ export class IngestStack extends cdk.Stack {
     clientSecret.grantRead(connect);
     connect.addToRolePolicy(createConnectionSecret);
     connect.addToRolePolicy(useConnectionSecret);
+    // Listing too, which renewal needs and connecting did not. The dashboard
+    // knows a consent by the provider's id and the secrets are keyed by ours,
+    // so finding the connection behind a consent means listing them. Without
+    // this, renewal failed on its first call with an AccessDeniedException
+    // the household saw as "could not renew".
+    //
+    // Same statement the sync uses, and the same reasoning: names across the
+    // account, never values. The two statements above keep value access to the
+    // connection prefix, so the TrueLayer client secret and the Google
+    // credentials stay unreadable from here.
+    connect.addToRolePolicy(listSecrets);
     // Started, not awaited. The deep-history window is open at this moment and
     // shuts within the hour, so waiting for the daily schedule would silently
     // reduce a new connection to 90 days of history. Starting the machine
@@ -728,6 +739,11 @@ export class IngestStack extends cdk.Stack {
     // reading five years of a household's raw bank responses, and the transform
     // that consumes what it writes is a different function with its own grant.
     rawBucket.grantPut(connect);
+    // Write only, and only so a renewal can land the `/me` that rewrites the
+    // consent row. Deliberately not read: the connect function has no business
+    // reading five years of a household's raw bank responses, and the transform
+    // that consumes what it writes is a different function with its own grant.
+
 
     new cdk.CfnOutput(this, "AlertTopicArn", { value: alerts.topicArn });
     new cdk.CfnOutput(this, "SyncMachineArn", { value: syncMachine.stateMachineArn });

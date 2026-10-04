@@ -587,3 +587,34 @@ describe("which household a deployment syncs", () => {
     expect(tenantOf(ingest)).not.toBe(tenantOf(prod.ingest));
   });
 });
+
+describe("what the connect function may reach", () => {
+  // Renewal failed in dev on 4 October 2026 with an AccessDeniedException for
+  // ListSecrets: finding the connection behind a consent means listing them,
+  // and connecting never needed that. Asserted here because the symptom was a
+  // runtime denial that no test and no synth could see.
+  /**
+   * Only the statements attached to the connect function's role.
+   *
+   * `policyStatements` returns every statement in the template, which would
+   * pass on the sync function's grants and prove nothing about this one —
+   * and the sync has both of these already.
+   */
+  const connectPolicy = () => {
+    const policies = Object.values(ingest.findResources("AWS::IAM::Policy")).filter((r) =>
+      JSON.stringify(
+        (r as { Properties?: { Roles?: unknown } }).Properties?.Roles ?? [],
+      ).includes("ConnectServiceRole"),
+    );
+    expect(policies.length).toBeGreaterThan(0);
+    return JSON.stringify(policies);
+  };
+
+  it("may list secrets, which finding a connection requires", () => {
+    expect(connectPolicy()).toContain("secretsmanager:ListSecrets");
+  });
+
+  it("may write a raw object, so a renewal can tell the ledger", () => {
+    expect(connectPolicy()).toMatch(/s3:PutObject/);
+  });
+});
