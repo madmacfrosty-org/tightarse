@@ -139,6 +139,7 @@ describe("api", () => {
       "GET /v1/transactions",
       "POST /v1/categories",
       "POST /v1/categorisation/proposals",
+      "POST /v1/connections/reconfirm",
       "POST /v1/connections/remove",
     ]);
   });

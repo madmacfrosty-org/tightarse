@@ -5,6 +5,7 @@ import {
 } from "@tightarse/api-contract";
 import { useEffect, useState } from "react";
 import type { Api } from "./ports";
+import { loadConfig } from "./config";
 
 /**
  * Connecting a bank.
@@ -17,15 +18,53 @@ import type { Api } from "./ports";
  * without the client secret, which never leaves AWS.
  */
 
-const PROVIDERS = [
+const LIVE_PROVIDERS = [
   { id: "ob-first-direct", label: "First Direct" },
   { id: "ob-amex", label: "American Express" },
   { id: "uk-ob-all uk-oauth-all", label: "Another bank…" },
 ] as const;
 
+/**
+ * TrueLayer's mock bank, which exists in the sandbox and nowhere else.
+ *
+ * Offering the real list in the sandbox is worse than it sounds: the backend
+ * honours a provider it recognises, so the button works, the browser leaves
+ * for TrueLayer, and the failure happens at the provider with nothing on the
+ * way out to explain it.
+ */
+const SANDBOX_PROVIDERS = [{ id: "uk-cs-mock", label: "Mock Bank (sandbox)" }] as const;
+
+/**
+ * Which banks this deployment can honestly offer.
+ *
+ * Pure, and defaulting to the live list: a deployment that says nothing is a
+ * live one. The other default would put a mock bank on a household's
+ * dashboard, where this one only ever shows a provider that is not there.
+ */
+export function providersFor(
+  environment: "sandbox" | "live" | undefined,
+): readonly { id: string; label: string }[] {
+  return environment === "sandbox" ? SANDBOX_PROVIDERS : LIVE_PROVIDERS;
+}
+
 export function ConnectBank({ api }: { api: Api }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Live until the deployment says otherwise, so a slow config read shows the
+  // real banks rather than flashing a mock one at a household.
+  const [environment, setEnvironment] = useState<"sandbox" | "live">("live");
+
+  useEffect(() => {
+    let current = true;
+    loadConfig()
+      .then((cfg) => {
+        if (current) setEnvironment(cfg.providerEnvironment ?? "live");
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, []);
 
   const start = (provider: string) => {
     setBusy(provider);
@@ -50,7 +89,7 @@ export function ConnectBank({ api }: { api: Api }) {
         banking credentials. Access lasts 90 days, after which you reconfirm.
       </p>
       <div className="provider-row">
-        {PROVIDERS.map((p) => (
+        {providersFor(environment).map((p) => (
           <button key={p.id} className="provider" disabled={busy !== null} onClick={() => start(p.id)}>
             {busy === p.id ? "Redirecting…" : p.label}
           </button>

@@ -71,6 +71,24 @@ export const UNATTENDED_HISTORY_DAYS = 88;
  */
 export const DEEP_HISTORY_WINDOW_MINUTES = 45;
 
+/** Who the provider is told is renewing. Required by the extend endpoint. */
+export interface ExtendUser {
+  readonly id: string;
+  readonly name?: string;
+  readonly email?: string;
+}
+
+/**
+ * What came back from an extend request.
+ *
+ * `renewed` carries tokens that MUST be stored — the refresh token is new and
+ * the old one stops working, which is the documented way a connection dies
+ * days later. The other two carry somewhere to send a person.
+ */
+export type ExtendOutcome =
+  | { action: "renewed"; tokens: TokenSet }
+  | { action: "consent" | "authentication"; continueAt: string };
+
 export class TrueLayerError extends Error {
   constructor(
     message: string,
@@ -184,6 +202,90 @@ export class TrueLayerClient {
       accessToken: body.access_token,
       refreshToken: body.refresh_token,
       expiresAt: new Date(Date.now() + (body.expires_in ?? 3600) * 1000).toISOString(),
+    };
+  }
+
+  /**
+   * Ask the provider to extend a consent.
+   *
+   * Three outcomes, and which one applies is the provider's decision returned
+   * at the moment of asking rather than anything derivable here. UK rules
+   * permit a reconfirmation given to the AISP, which is lighter than a fresh
+   * bank authorisation — but a connection does not always qualify, so a caller
+   * that assumed the light path would do nothing visible on the day it matters.
+   *
+   * `client_secret` goes in the body, alongside the bearer token. That is
+   * unusual and not a mistake: the endpoint wants both.
+   *
+   * Not counted against `calls`. This is consent administration rather than a
+   * data call, and the unattended allowance is per account and endpoint.
+   */
+  async extendConnection(
+    accessToken: string,
+    args: { refreshToken: string; redirectUri: string; user: ExtendUser },
+  ): Promise<ExtendOutcome> {
+    const res = await fetch(`${this.env.api}/connections/extend`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({
+        // The household confirmed by pressing the button. The provider takes
+        // our word for it, which is what makes us the AISP in this exchange.
+        user_has_reconfirmed_consent: true,
+        client_id: this.credentials.clientId,
+        client_secret: this.credentials.clientSecret,
+        user: args.user,
+        refresh_token: args.refreshToken,
+        redirect_uri: args.redirectUri,
+      }),
+    });
+
+    const body = (await res.json().catch(() => ({}))) as {
+      action_needed?: string;
+      user_input_link?: string;
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+      error?: string;
+    };
+
+    if (!res.ok) {
+      throw new TrueLayerError(
+        `Extend failed: ${res.status}`,
+        res.status,
+        body.error ?? null,
+      );
+    }
+
+    if (body.action_needed === "no_action_needed") {
+      if (!body.refresh_token || !body.access_token) {
+        throw new TrueLayerError(
+          "Extended with no tokens returned — nothing to store",
+          res.status,
+          null,
+        );
+      }
+      return {
+        action: "renewed",
+        tokens: {
+          accessToken: body.access_token,
+          refreshToken: body.refresh_token,
+          expiresAt: new Date(Date.now() + (body.expires_in ?? 3600) * 1000).toISOString(),
+        },
+      };
+    }
+
+    if (!body.user_input_link) {
+      throw new TrueLayerError(
+        `Extend needs ${body.action_needed ?? "something"} but gave nowhere to send anyone`,
+        res.status,
+        null,
+      );
+    }
+    return {
+      // Anything that is not "done" needs a person. The two differ in how long
+      // they take, not in what this has to do with them.
+      action: body.action_needed === "reconfirmation_of_consent_needed" ? "consent" : "authentication",
+      continueAt: body.user_input_link,
     };
   }
 

@@ -28,6 +28,29 @@ export interface AppConfig {
   /** Cognito hosted-UI domain, without scheme. */
   hostedUiDomain: string;
   apiUrl: string;
+  /**
+   * Whether this deployment may renew a consent.
+   *
+   * A permission rather than an environment name, so the page is not deriving
+   * policy from which provider is behind it — that is how a dashboard ends up
+   * encoding a rule the API owns, and the two drift the first time one moves.
+   *
+   * Optional, and absent means no. A page served by a deployment that predates
+   * this field cannot know, and offering an action that then fails is worse
+   * than not offering it.
+   */
+  canRenewConnections?: boolean;
+  /**
+   * Which TrueLayer is behind this deployment.
+   *
+   * Separate from `canRenewConnections`, and a different kind of fact. That
+   * one is a permission the API owns and the page must not second-guess; this
+   * is which catalogue of banks exists, which the page legitimately knows —
+   * sandbox holds a mock and none of the real ones.
+   *
+   * Absent means live, because a deployment predating this field is one.
+   */
+  providerEnvironment?: "sandbox" | "live";
 }
 
 let cached: AppConfig | null = null;
@@ -51,6 +74,12 @@ export async function loadConfig(): Promise<AppConfig> {
     userPoolClientId: import.meta.env.VITE_USER_POOL_CLIENT_ID,
     hostedUiDomain: import.meta.env.VITE_HOSTED_UI_DOMAIN,
     apiUrl: import.meta.env.VITE_API_URL,
+    ...(import.meta.env.VITE_CAN_RENEW_CONNECTIONS === "true"
+      ? { canRenewConnections: true }
+      : {}),
+    ...(import.meta.env.VITE_PROVIDER_ENVIRONMENT === "sandbox"
+      ? { providerEnvironment: "sandbox" as const }
+      : {}),
   };
   if (fromEnv.userPoolId && fromEnv.userPoolClientId && fromEnv.hostedUiDomain && fromEnv.apiUrl) {
     cached = fromEnv as AppConfig;

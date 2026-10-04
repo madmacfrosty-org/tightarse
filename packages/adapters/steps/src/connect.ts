@@ -1,7 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { gzipSync } from "node:zlib";
 import { TrueLayerClient, LIVE, SANDBOX, TrueLayerError } from "@tightarse/truelayer";
 import { Connections, consentExpiry, type Connection } from "./connections.js";
-import { AwsSecrets, startExecution } from "@tightarse/aws";
+import { AwsSecrets, S3RawObjects, startExecution } from "@tightarse/aws";
+import { rawObjectKey, type RawObjects } from "@tightarse/domain";
+import { ReconfirmConnectionRequest } from "@tightarse/api-contract";
 
 /**
  * The connect flow: turn a bank authorisation into a stored connection.
@@ -34,6 +37,35 @@ export interface ConnectDeps {
    * Undefined where no state machine is configured.
    */
   readonly startSync?: ((connectionId: string) => Promise<void>) | undefined;
+  /**
+   * Whether this deployment owns the household's connections.
+   *
+   * Renewal spends and replaces a refresh token, so only the deployment
+   * holding them may do it — the same ownership `syncEnabled` states for the
+   * daily refresh, and the same failure if two deployments both act: the
+   * loser writes back a token the winner has already spent and the connection
+   * dies days later.
+   *
+   * Gated here rather than only in the dashboard. A control that is not
+   * rendered is not a control that cannot be called.
+   */
+  readonly ownsConnections: boolean;
+  /** Whether this deployment talks to the sandbox. Decides which banks exist. */
+  readonly sandbox: boolean;
+  /**
+   * Where a raw provider response lands.
+   *
+   * Renewal writes the `/me` it fetches here rather than writing the consent
+   * row directly. The transform already fires on any object under `tenant=`
+   * and already knows how to turn `/me` into a consent, so this reuses that
+   * path instead of adding a second one — and keeps the property CLAUDE.md
+   * asks for: every row in the ledger has a raw object behind it, so the
+   * ledger can always be rebuilt.
+   *
+   * Undefined where no bucket is configured, in which case renewal still
+   * renews and the consent row catches up on the next scheduled sync.
+   */
+  readonly raw?: RawObjects | undefined;
 }
 
 /**
@@ -77,16 +109,30 @@ export function authorisationUrl(
  * where someone is sent to enter bank credentials, and that is not a value to
  * accept unchecked from a query string.
  */
-export const ALLOWED_PROVIDERS = [
-  "ob-first-direct",
-  "ob-amex",
-  "uk-ob-all uk-oauth-all",
-  // TrueLayer's mock bank, which exists only in sandbox. Allowed here rather
-  // than gated on the environment: a live deployment asked for it would send
-  // somebody to a provider that is not there, which fails visibly at the
-  // provider rather than silently here.
-  "uk-cs-mock",
-];
+export const LIVE_PROVIDERS = ["ob-first-direct", "ob-amex", "uk-ob-all uk-oauth-all"];
+
+/** TrueLayer's mock bank. It exists in the sandbox and nowhere else. */
+export const SANDBOX_PROVIDERS = ["uk-cs-mock"];
+
+export const ALLOWED_PROVIDERS = [...LIVE_PROVIDERS, ...SANDBOX_PROVIDERS];
+
+/**
+ * The providers that exist in a given environment.
+ *
+ * Gated on the environment, which an earlier version of this deliberately did
+ * not do — on the reasoning that asking for a provider that is not there
+ * "fails visibly at the provider rather than silently here". It does not fail
+ * visibly. Measured on 4 October 2026: dev offered First Direct against the
+ * sandbox, this function's predecessor accepted it, the Lambda logged a clean
+ * success, and TrueLayer answered the redirect with a bare bad request. The
+ * household is then on somebody else's error page with nothing connecting it
+ * to what they clicked.
+ *
+ * Refusing here costs one check and produces a message naming the problem.
+ */
+export function providersForEnvironment(sandbox: boolean): readonly string[] {
+  return sandbox ? SANDBOX_PROVIDERS : LIVE_PROVIDERS;
+}
 
 export interface ConnectResult {
   connectionId: string;
@@ -127,6 +173,8 @@ export async function completeConnect(
 
 export interface ConnectEvent {
   rawPath?: string;
+  body?: string;
+  isBase64Encoded?: boolean;
   queryStringParameters?: Record<string, string | undefined> | null;
   requestContext?: { authorizer?: { jwt?: { claims?: Record<string, unknown> } } };
 }
@@ -149,6 +197,13 @@ export async function realConnectDeps(): Promise<ConnectDeps> {
     connections: new Connections(required("CONNECTION_SECRET_PREFIX"), secrets),
     redirectUri: required("CONNECT_REDIRECT_URI"),
     providers: process.env["TL_PROVIDERS"] ?? "uk-ob-all uk-oauth-all",
+    // Default false. A deployment that has not said it owns the connections
+    // does not, and the safe answer is the one you get by omission.
+    ownsConnections: process.env["CONNECTIONS_OWNED"] === "true",
+    sandbox,
+    ...(process.env["RAW_BUCKET"]
+      ? { raw: new S3RawObjects({ bucket: process.env["RAW_BUCKET"] }) }
+      : {}),
     clientId: creds.clientId,
     authBase: sandbox ? SANDBOX.auth : LIVE.auth,
     ...(machine
@@ -161,6 +216,173 @@ export async function realConnectDeps(): Promise<ConnectDeps> {
         }
       : {}),
   };
+}
+
+export class ConsentNotRenewable extends Error {
+  readonly statusCode = 409;
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+export class ConsentUnknown extends Error {
+  readonly statusCode = 404;
+  constructor(consentId: string) {
+    super(`No connection matches consent ${consentId}`);
+  }
+}
+
+/**
+ * Find the connection behind a consent id, filling in the link if absent.
+ *
+ * The dashboard knows a consent by the provider's `credentials_id`; the stored
+ * secrets are keyed by our own connection id, and until renewal needed it
+ * nothing recorded which was which. Resolving costs one `/me` call per
+ * connection lacking the link, and the answer is stored, so it is paid once
+ * per connection rather than once per renewal.
+ *
+ * Connections that already carry the link are matched without any call at all,
+ * which is what keeps this off the unattended allowance in the normal case.
+ */
+export async function connectionForConsent(
+  deps: Pick<ConnectDeps, "truelayer" | "connections">,
+  tenantId: string,
+  consentId: string,
+): Promise<Connection> {
+  const all = await deps.connections.list(tenantId);
+
+  const known = all.find((c) => c.credentialsId === consentId);
+  if (known) return known;
+
+  for (const connection of all.filter((c) => c.credentialsId === undefined)) {
+    const { accessToken } = await deps.truelayer.refresh(connection.refreshToken);
+    const { body } = await deps.truelayer.get(accessToken, "/data/v1/me");
+    const credentialsId = (
+      (body as { results?: { credentials_id?: string }[] }).results ?? []
+    )[0]?.credentials_id;
+    if (credentialsId === undefined) continue;
+
+    // Stored whatever the outcome, so a connection is probed once ever rather
+    // than once per attempt at renewing a different one.
+    await deps.connections.update({ ...connection, credentialsId });
+    if (credentialsId === consentId) return { ...connection, credentialsId };
+  }
+
+  throw new ConsentUnknown(consentId);
+}
+
+/**
+ * Renew a consent before it lapses.
+ *
+ * Refuses one that has already gone: there is nothing left to extend and the
+ * remedy is connecting again, which is a different act with a different cost.
+ *
+ * When the provider renews without asking anything, the new refresh token is
+ * stored BEFORE the answer is returned. That ordering is the whole risk in
+ * this function — the old token stops working at the moment the new one is
+ * issued, so a failure between the two loses the connection, and the only way
+ * back is a consent that buys ninety days and no history.
+ */
+export async function reconfirmConnection(
+  deps: ConnectDeps,
+  tenantId: string,
+  consentId: string,
+  now: Date = new Date(),
+): Promise<{ consentId: string; action: "renewed" | "consent" | "authentication"; continueAt?: string; expiresAt?: string }> {
+  const connection = await connectionForConsent(deps, tenantId, consentId);
+
+  if (Date.parse(connection.consentExpiresAt) <= now.getTime()) {
+    throw new ConsentNotRenewable(
+      "This consent has already lapsed; connect the bank again rather than renewing",
+    );
+  }
+
+  const { accessToken } = await deps.truelayer.refresh(connection.refreshToken);
+  const outcome = await deps.truelayer.extendConnection(accessToken, {
+    refreshToken: connection.refreshToken,
+    redirectUri: deps.redirectUri,
+    user: { id: tenantId },
+  });
+
+  if (outcome.action !== "renewed") {
+    return { consentId, action: outcome.action, continueAt: outcome.continueAt };
+  }
+
+  // Stored first. See the note above: between issuing and storing there is a
+  // window in which the connection is lost, and it is made as small as the
+  // code can make it.
+  await deps.connections.update({
+    ...connection,
+    refreshToken: outcome.tokens.refreshToken,
+    consentExpiresAt: outcome.tokens.expiresAt,
+  });
+
+  // Then tell the ledger, by landing a fresh `/me` for the transform to pick
+  // up. Without this the renewal is invisible: the dashboard reads consent
+  // rows from DynamoDB, those are written by the sync, and the sync next runs
+  // tomorrow — so a successful renewal would show yesterday's expiry and look
+  // like nothing happened.
+  //
+  // After the token is stored, and deliberately not instead of it. This is the
+  // reporting catching up; losing it costs a stale figure until the next sync,
+  // where losing the token costs the connection.
+  await refreshConsentRow(deps, tenantId, outcome.tokens.accessToken);
+
+  return { consentId, action: "renewed", expiresAt: outcome.tokens.expiresAt };
+}
+
+/**
+ * Land a fresh `/me` so the consent row is rewritten.
+ *
+ * One data call, against an allowance of four per endpoint per day — much
+ * cheaper than starting a sync, which would refetch every account, card,
+ * balance and transaction to update one date.
+ *
+ * Failures are swallowed. The renewal has already happened and the token is
+ * already stored; reporting a failure here would tell the household their
+ * renewal did not work when it did. The row then catches up on the next
+ * scheduled sync, which is the same place it would have come from anyway.
+ */
+async function refreshConsentRow(
+  deps: ConnectDeps,
+  tenantId: string,
+  accessToken: string,
+): Promise<void> {
+  if (deps.raw === undefined) return;
+  try {
+    const { body } = await deps.truelayer.get(accessToken, "/data/v1/me");
+    const fetchedAt = new Date().toISOString();
+    const dataset = "truelayer.me";
+    // The same envelope the sync writes. The transform reads these fields by
+    // name, so a shape of its own here would be a second format to keep in
+    // step with a reader that does not know it exists.
+    const payload = JSON.stringify({
+      captureVersion: 1,
+      environment: deps.sandbox ? "sandbox" : "live",
+      endpoint: dataset,
+      params: {},
+      accountId: null,
+      fetchedAt,
+      httpStatus: 200,
+      body,
+    });
+    await deps.raw.put(
+      rawObjectKey({
+        tenantId,
+        dataset,
+        fetchedAt,
+        contentHash: createHash("sha256").update(payload).digest("hex"),
+      }),
+      gzipSync(Buffer.from(payload), { level: 9 }),
+      {
+        contentType: "application/json",
+        contentEncoding: "gzip",
+        tags: { tenant: tenantId, layer: "raw", dataset },
+      },
+    );
+  } catch {
+    // Deliberately silent. See above.
+  }
 }
 
 /** Both routes, against dependencies the caller supplies. */
@@ -184,8 +406,28 @@ export async function connectRoutes(deps: ConnectDeps, event: ConnectEvent) {
     // to an allow-list so the parameter cannot be used to steer someone at an
     // arbitrary provider.
     const requested = params["provider"];
-    const providers =
-      requested && ALLOWED_PROVIDERS.includes(requested) ? requested : deps.providers;
+
+    // A value that is not a provider at all is ignored, not reported. This
+    // parameter steers where somebody types their bank credentials, and the
+    // safe response to a hostile one is the default picker rather than an
+    // error page that confirms what was tried.
+    const known = requested !== undefined && ALLOWED_PROVIDERS.includes(requested);
+
+    // A *known* provider that cannot exist here is different, and is refused
+    // with the reason. Measured on 4 October 2026: dev offered First Direct
+    // against the sandbox, this accepted it because it is a real provider
+    // somewhere, the Lambda logged a clean success, and TrueLayer answered
+    // the redirect with a bare bad request — leaving the household on
+    // somebody else's error page with nothing tying it to what they clicked.
+    if (known && !providersForEnvironment(deps.sandbox).includes(requested)) {
+      return json(400, {
+        error:
+          `${requested} does not exist in the ${deps.sandbox ? "sandbox" : "live"} environment. ` +
+          `This deployment can offer: ${providersForEnvironment(deps.sandbox).join(", ")}`,
+      });
+    }
+
+    const providers = known ? requested : deps.providers;
     return json(200, {
       url: authorisationUrl(deps.clientId, { ...deps, providers }, state, deps.authBase),
       state,
@@ -220,6 +462,31 @@ export async function connectRoutes(deps: ConnectDeps, event: ConnectEvent) {
     }
   }
 
+  if (path.endsWith("/connections/reconfirm")) {
+    if (!deps.ownsConnections) {
+      // 403 rather than 404: the route exists and the request was well formed.
+      // Saying "not here" would send somebody looking for a deployment bug.
+      return json(403, {
+        error: "This deployment does not own the household's connections and may not renew them",
+      });
+    }
+
+    const body = parseBody(event);
+    const parsed = ReconfirmConnectionRequest.safeParse(body);
+    if (!parsed.success) return json(400, { error: "A consentId is required" });
+
+    try {
+      return json(200, await reconfirmConnection(deps, tenantId, parsed.data.consentId));
+    } catch (err) {
+      if (err instanceof ConsentNotRenewable) return json(409, { error: err.message });
+      if (err instanceof ConsentUnknown) return json(404, { error: err.message });
+      if (err instanceof TrueLayerError) {
+        return json(502, { error: `Provider refused the renewal (${err.status} ${err.code ?? ""})` });
+      }
+      throw err;
+    }
+  }
+
   return json(404, { error: `No route for ${path}` });
 }
 
@@ -234,6 +501,23 @@ export async function connectRoutes(deps: ConnectDeps, event: ConnectEvent) {
  */
 export async function handler(event: ConnectEvent) {
   return connectRoutes(await realConnectDeps(), event);
+}
+
+/**
+ * The request body, or undefined.
+ *
+ * API Gateway hands a string, base64-encoded when it decides to. Parsing
+ * failures are undefined rather than thrown: the caller validates the shape
+ * anyway and a malformed body is a 400 either way.
+ */
+function parseBody(event: ConnectEvent): unknown {
+  const raw = event.body;
+  if (typeof raw !== "string") return undefined;
+  try {
+    return JSON.parse(event.isBase64Encoded === true ? Buffer.from(raw, "base64").toString("utf8") : raw);
+  } catch {
+    return undefined;
+  }
 }
 
 function json(statusCode: number, body: unknown) {

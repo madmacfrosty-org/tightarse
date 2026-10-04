@@ -196,3 +196,46 @@ describe("routing", () => {
     expect(res.statusCode).toBe(404);
   });
 });
+
+describe("which banks exist where", () => {
+  // Written after dev sent somebody to First Direct against the sandbox. The
+  // provider is real, so the allow-list accepted it; it does not exist in the
+  // sandbox, so TrueLayer answered with a bare bad request after the redirect.
+  const start = (sandbox: boolean, provider: string) => {
+    // `sandbox` through the override rather than spread onto the result: the
+    // helper's `deps` is a typed object literal, and spreading it loosens the
+    // type enough that a missing field would go unnoticed.
+    const { deps: d } = deps({ sandbox });
+    return connectRoutes(d, event({ queryStringParameters: { provider } }));
+  };
+
+  it("refuses a real bank in the sandbox, naming what it can offer", async () => {
+    const res = await start(true, "ob-first-direct");
+
+    expect(res.statusCode).toBe(400);
+    expect(body(res)["error"]).toContain("uk-cs-mock");
+  });
+
+  it("refuses the mock bank in live, which has never heard of it", async () => {
+    const res = await start(false, "uk-cs-mock");
+
+    expect(res.statusCode).toBe(400);
+    expect(body(res)["error"]).toContain("ob-first-direct");
+  });
+
+  it("sends the mock bank through in the sandbox", async () => {
+    const res = await start(true, "uk-cs-mock");
+
+    expect(res.statusCode).toBe(200);
+    expect(new URL(body(res)["url"]!).searchParams.get("providers")).toBe("uk-cs-mock");
+  });
+
+  it("still ignores a value that is not a provider, rather than reporting it", async () => {
+    // Unchanged, and deliberately different from the two above: a hostile
+    // value gets the default picker, not an error page confirming the attempt.
+    const res = await start(true, "evil-phishing-site");
+
+    expect(res.statusCode).toBe(200);
+    expect(new URL(body(res)["url"]!).searchParams.get("providers")).toBe("uk-ob-all");
+  });
+});

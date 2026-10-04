@@ -8,6 +8,7 @@ import {
   API_VERSION,
   CATEGORISATION_ROUTES,
   CONNECTION_ROUTES,
+  CONNECT_WRITE_ROUTES,
   CONNECT_PATHS,
   ROUTES,
   pathFor,
@@ -98,7 +99,19 @@ describe("what must survive generation", () => {
     // functions, so the two lists overlap on the path and the document holds
     // one entry with two operations.
     expect(new Set(Object.keys(doc.paths))).toEqual(
-      new Set([...ROUTES, ...CATEGORISATION_ROUTES, ...CONNECTION_ROUTES].map(pathFor)),
+      new Set(
+        [
+          ...ROUTES,
+          ...CATEGORISATION_ROUTES,
+          ...CONNECTION_ROUTES,
+          // Served by the connect function rather than the read API, because
+          // renewal needs the provider client and the connection secrets. The
+          // document does not care which function answers, and must describe
+          // every route the gateway registers or the published contract is a
+          // partial one.
+          ...CONNECT_WRITE_ROUTES,
+        ].map(pathFor),
+      ),
     );
     for (const path of Object.keys(doc.paths)) {
       expect(path.startsWith(`/${API_VERSION}/`), `${path} is not versioned`).toBe(true);

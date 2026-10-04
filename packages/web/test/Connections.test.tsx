@@ -181,3 +181,102 @@ describe("the connections list", () => {
     expect(document.body.textContent).toContain("Example Bank");
   });
 });
+
+/**
+ * Renewing a connection.
+ *
+ * `loadConfig` is mocked because the control's visibility is a fact about the
+ * deployment, and the component asks for it. Without the mock every test here
+ * runs against a failed config read — which hides the button and would let all
+ * of this pass while testing nothing.
+ */
+vi.mock("../src/config", () => ({
+  loadConfig: vi.fn(async () => ({
+    userPoolId: "p",
+    userPoolClientId: "c",
+    hostedUiDomain: "d",
+    apiUrl: "https://api.example.invalid",
+    canRenewConnections: canRenew,
+  })),
+}));
+
+let canRenew = true;
+
+describe("renewing a connection", () => {
+  it("is not offered where the deployment does not own the connections", async () => {
+    // The API refuses there. Offering a control that always fails is worse
+    // than not offering one.
+    canRenew = false;
+    withConsents([consent({ health: "ok" })]);
+    render(<Connections api={api} />);
+    await screen.findByText("Example Bank");
+
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /reconfirm/i })).toBeNull(),
+    );
+  });
+
+  it("is offered on a live connection and refused on a lapsed one", async () => {
+    // The exact complement of Remove: every connection gets one action,
+    // decided by its state. A lapsed consent has nothing left to extend.
+    canRenew = true;
+    withConsents([
+      consent({ consentId: "live", institutionName: "Live Bank", health: "ok" }),
+      consent({ consentId: "gone", institutionName: "Lapsed Bank", health: "expired" }),
+    ]);
+    render(<Connections api={api} />);
+    await screen.findByText("Live Bank");
+
+    const buttons = await screen.findAllByRole("button", { name: /reconfirm/i });
+    const [lapsed, live] = [buttons[0]!, buttons[1]!]; // expired sorts first
+    expect(lapsed.hasAttribute("disabled")).toBe(true);
+    expect(live.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("re-reads the page when the provider renews, rather than guessing the date", async () => {
+    // The new expiry is the provider's answer and the server has it. Computing
+    // one here would put a date on screen that nothing else agrees with.
+    canRenew = true;
+    let remaining = 12;
+    apiGet.mockImplementation(async (p: string) => {
+      if (p.startsWith(pathFor("/accounts"))) {
+        return { accounts: [], consents: [consent({ health: "ok", daysRemaining: remaining })] };
+      }
+      throw new Error(`unexpected path ${p}`);
+    });
+    apiPost.mockImplementation(async () => {
+      remaining = 89;
+      return { consentId: "c-1", action: "renewed", expiresAt: "2026-12-29T00:00:00.000Z" };
+    });
+    render(<Connections api={api} />);
+    await screen.findByText(/12 days left/);
+
+    await userEvent.click(await screen.findByRole("button", { name: /reconfirm/i }));
+
+    await waitFor(() => expect(screen.getByText(/89 days left/)).toBeDefined());
+  });
+
+  it("sends the household onward when the provider wants a person", async () => {
+    // Not reported as renewed: it is not renewed until they finish, and the
+    // page could not take that back.
+    canRenew = true;
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: { assign, href: "http://localhost/" },
+      writable: true,
+    });
+    withConsents([consent({ health: "warn" })]);
+    apiPost.mockImplementation(async () => ({
+      consentId: "c-1",
+      action: "authentication",
+      continueAt: "https://login.example.invalid/?session=1",
+    }));
+    render(<Connections api={api} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /reconfirm/i }));
+
+    await waitFor(() =>
+      expect(assign).toHaveBeenCalledWith("https://login.example.invalid/?session=1"),
+    );
+  });
+});
