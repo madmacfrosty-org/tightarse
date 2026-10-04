@@ -207,6 +207,20 @@ export interface EnvSettings {
    * credential reaching a real bank does not belong in it. See ADR-0003.
    */
   readonly providerEnvironment: "sandbox" | "live";
+  /**
+   * The household this deployment syncs.
+   *
+   * Was the literal "frost" in both, which is prod's household and is empty in
+   * dev — 0 rows against 315 for `demo-one`, the household every dev member
+   * actually belongs to. So dev's sync was aimed at a household nobody could
+   * see, and would have fetched nothing for anybody.
+   *
+   * Dormant until 4 October 2026 because dev's sync had been disabled since
+   * the August cutover. Turning it back on surfaced it immediately: a
+   * connection made through dev's own dashboard was stored under `demo-one`
+   * and the sync failed with "No connection … for this household".
+   */
+  readonly tenantId: string;
   /** How long raw landing-zone objects are kept. See the retention notes on #15. */
   readonly rawRetentionDays: number;
   /**
@@ -249,6 +263,8 @@ export const SETTINGS: Record<EnvName, EnvSettings> = {
     // Sandbox, so the connect flow and the reconsent that follows it can be
     // exercised without spending anything a household would miss.
     providerEnvironment: "sandbox",
+    // The demo household, which is the one dev's members belong to.
+    tenantId: "demo-one",
     rawRetentionDays: 30,
     // No IA transition: 30 days is inside IA's minimum billing duration.
   },
@@ -277,6 +293,7 @@ export const SETTINGS: Record<EnvName, EnvSettings> = {
     siteUrl: "https://tightarse.madmacfrosty.co.uk",
     syncEnabled: true,
     providerEnvironment: "live",
+    tenantId: "frost",
     // Long enough to survive a transform rewrite, not indefinite.
     rawRetentionDays: 365,
     rawTransitionToIaDays: 30,

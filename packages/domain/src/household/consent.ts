@@ -25,7 +25,22 @@ export const Consent = z.object({
   /** The bank, for a screen that would otherwise show a UUID. */
   institutionName: z.string().optional(),
   /** The provider's `consent_created_at`, as it sent it. */
-  grantedAt: z.string(),
+  /**
+   * When the consent was granted, if the provider says.
+   *
+   * Optional, which it was not until 4 October 2026. Nothing reads it — not
+   * `consentHealth`, not the dashboard, not removal — and requiring it threw
+   * away rows that carried the one field that matters. TrueLayer's sandbox
+   * returns `consent_expires_at` and `credentials_id` with no
+   * `consent_created_at`, so every consent it reported was silently dropped
+   * and the Connections page stayed empty with nothing to explain it.
+   *
+   * The original rule was "a row we cannot date is not worth writing: the
+   * whole point is a deadline". That still holds. The deadline is `expiresAt`,
+   * which is required below; this is provenance, and provenance is worth
+   * having rather than worth insisting on.
+   */
+  grantedAt: z.string().optional(),
   /** The provider's `consent_expires_at`. The only thing anything judges on. */
   expiresAt: z.string(),
   /**

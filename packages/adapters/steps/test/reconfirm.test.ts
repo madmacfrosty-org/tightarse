@@ -382,3 +382,111 @@ describe("the shapes the provider can actually return", () => {
     expect(res.statusCode).toBe(400);
   });
 });
+
+describe("telling the ledger a renewal happened", () => {
+  const landing = (over: Partial<ConnectDeps> = {}) => {
+    // Typed, so `put.mock.calls` carries the arguments rather than an empty
+    // tuple — otherwise the assertions below index into nothing.
+    const put = vi.fn(
+      async (_key: string, _body: Buffer, _opts: Record<string, unknown>) => {},
+    );
+    const get = vi.fn(async () => ({
+      status: 200,
+      body: { results: [{ credentials_id: "cred-1", consent_expires_at: "2027-01-02T00:00:00Z" }] },
+    }));
+    const { deps: d, update } = deps({
+      raw: { put } as unknown as ConnectDeps["raw"],
+      truelayer: {
+        refresh: vi.fn(async () => ({ accessToken: "at", refreshToken: "rt", expiresAt: "x" })),
+        get,
+        extendConnection: vi.fn(async () => ({
+          action: "renewed" as const,
+          tokens: { accessToken: "at-new", refreshToken: "rt-new", expiresAt: "2026-12-29T00:00:00.000Z" },
+        })),
+      },
+      ...over,
+    } as unknown as Partial<ConnectDeps>);
+    return { deps: d, put, get, update };
+  };
+
+  it("lands a fresh /me so the transform rewrites the consent row", async () => {
+    // The dashboard reads consent rows from DynamoDB and the sync writes them,
+    // so without this a renewal shows yesterday's expiry until tomorrow and
+    // looks like it did nothing.
+    const { deps: d, put, get } = landing();
+
+    await reconfirmConnection(d, "t1", "cred-1", NOW);
+
+    expect(get).toHaveBeenCalledWith("at-new", "/data/v1/me");
+    expect(put).toHaveBeenCalledTimes(1);
+    const [key] = put.mock.calls[0]!;
+    // Under `tenant=`, which is what the transform's event rule matches, and
+    // in the dataset mapConsent is registered for. A key the rule does not
+    // match lands an object nothing reads.
+    expect(key).toMatch(/^tenant=t1\/dataset=truelayer\.me\//);
+  });
+
+  it("writes the envelope the transform expects, not a shape of its own", async () => {
+    // The transform reads these fields by name. A second format here is one
+    // the reader does not know about and nothing would catch.
+    const { deps: d, put } = landing();
+
+    await reconfirmConnection(d, "t1", "cred-1", NOW);
+
+    const body = JSON.parse(
+      (await import("node:zlib")).gunzipSync(put.mock.calls[0]![1]).toString(),
+    ) as Record<string, unknown>;
+    expect(body["captureVersion"]).toBe(1);
+    expect(body["endpoint"]).toBe("truelayer.me");
+    expect(body["httpStatus"]).toBe(200);
+    expect(body["accountId"]).toBeNull();
+    expect(body["body"]).toMatchObject({ results: [{ credentials_id: "cred-1" }] });
+  });
+
+  it("still reports the renewal when landing fails", async () => {
+    // The token is stored and the consent IS renewed. Reporting a failure here
+    // would tell the household their renewal did not work when it did, and
+    // the row catches up on the next sync regardless.
+    const { deps: d, update } = landing({
+      raw: {
+        put: vi.fn(async (_k: string, _b: Buffer, _o: Record<string, unknown>) => {
+          throw new Error("s3 is having a day");
+        }),
+      } as unknown as ConnectDeps["raw"],
+    });
+
+    await expect(reconfirmConnection(d, "t1", "cred-1", NOW)).resolves.toMatchObject({
+      action: "renewed",
+    });
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  it("renews without a bucket configured, and lands nothing", async () => {
+    // A deployment with no raw bucket still renews; the row waits for the sync.
+    const { deps: d, put } = landing({ raw: undefined });
+
+    await expect(reconfirmConnection(d, "t1", "cred-1", NOW)).resolves.toMatchObject({
+      action: "renewed",
+    });
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it("lands nothing when the provider sent somebody to a journey", async () => {
+    // Nothing has been renewed yet, so writing a consent row would record a
+    // renewal that has not happened.
+    const { deps: d, put } = landing({
+      truelayer: {
+        refresh: vi.fn(async () => ({ accessToken: "at", refreshToken: "rt", expiresAt: "x" })),
+        get: vi.fn(),
+        extendConnection: vi.fn(async () => ({
+          action: "authentication" as const,
+          continueAt: "https://go.invalid/x",
+        })),
+      },
+    } as unknown as Partial<ConnectDeps>);
+
+    await reconfirmConnection(d, "t1", "cred-1", NOW);
+
+    expect(put).not.toHaveBeenCalled();
+  });
+});

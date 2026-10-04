@@ -411,8 +411,29 @@ describe("what the provider says about consent", () => {
   });
 
   it("keeps the connections it can read when one of them is unreadable", async () => {
-    const { putConsent } = await run([me({ consent_created_at: undefined }), me({ credentials_id: "cred-2" })]);
+    // Unreadable means no expiry. That is the deadline the row exists to
+    // carry, and inventing one from the clock is the guess this avoids.
+    const { putConsent } = await run([
+      me({ consent_expires_at: undefined }),
+      me({ credentials_id: "cred-2" }),
+    ]);
     expect(putConsent).toHaveBeenCalledTimes(1);
     expect(putConsent.mock.calls[0]![0]).toMatchObject({ consentId: "cred-2" });
+  });
+
+  it("writes a consent the provider cannot date the grant of", async () => {
+    // Measured against the sandbox on 4 October 2026: its `/me` returns
+    // `consent_expires_at` and `credentials_id` and no `consent_created_at`.
+    // Requiring both dropped every consent it reported — no row, no error,
+    // and an empty Connections page as the only symptom.
+    //
+    // Nothing reads `grantedAt`. It is provenance, and provenance is worth
+    // having rather than worth insisting on.
+    const { putConsent } = await run([me({ consent_created_at: undefined })]);
+
+    expect(putConsent).toHaveBeenCalledTimes(1);
+    const written = putConsent.mock.calls[0]![0] as Record<string, unknown>;
+    expect(written["expiresAt"]).toBeDefined();
+    expect(written["grantedAt"]).toBeUndefined();
   });
 });

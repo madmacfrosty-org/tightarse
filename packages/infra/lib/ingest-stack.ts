@@ -164,7 +164,7 @@ export class IngestStack extends cdk.Stack {
       // account or card, not a whole connection.
       timeout: cdk.Duration.minutes(2),
       environment: {
-        TENANT_ID: "frost",
+        TENANT_ID: settings.tenantId,
         RAW_BUCKET: rawBucket.bucketName,
         CONNECTION_SECRET_PREFIX: connectionPrefix,
         CLIENT_SECRET_ID: clientSecret.secretName,
@@ -407,7 +407,7 @@ export class IngestStack extends cdk.Stack {
       timeout: cdk.Duration.minutes(5),
       environment: {
         TABLE_NAME: table.tableName,
-        TENANT_ID: "frost",
+        TENANT_ID: settings.tenantId,
         BACKFILL_DAYS: "45",
         ENVIRONMENT: settings.name,
       },
@@ -444,7 +444,7 @@ export class IngestStack extends cdk.Stack {
       timeout: cdk.Duration.minutes(5),
       environment: {
         TABLE_NAME: table.tableName,
-        TENANT_ID: "frost",
+        TENANT_ID: settings.tenantId,
         ENVIRONMENT: settings.name,
       },
       logGroup: new logs.LogGroup(this, "ReconcileLogs", {
@@ -695,6 +695,9 @@ export class IngestStack extends cdk.Stack {
         CONNECT_REDIRECT_URI: connectRedirectUri(settings),
         SYNC_STATE_MACHINE_ARN: syncMachine.stateMachineArn,
         TL_ENV: settings.providerEnvironment,
+        // Where a renewal lands its fresh `/me`, so the transform rewrites the
+        // consent row. Without it a renewal is invisible until the next sync.
+        RAW_BUCKET: rawBucket.bucketName,
         // Who may renew a consent: whoever owns the connections. Not read off
         // `syncEnabled`, which answers a different question — whether this
         // deployment refreshes on a schedule. A sandbox deployment owns its own
@@ -720,6 +723,11 @@ export class IngestStack extends cdk.Stack {
     // reduce a new connection to 90 days of history. Starting the machine
     // returns to the browser immediately while the fetch runs with retries.
     syncMachine.grantStartExecution(connect);
+    // Write only, and only so a renewal can land the `/me` that rewrites the
+    // consent row. Deliberately not read: the connect function has no business
+    // reading five years of a household's raw bank responses, and the transform
+    // that consumes what it writes is a different function with its own grant.
+    rawBucket.grantPut(connect);
 
     new cdk.CfnOutput(this, "AlertTopicArn", { value: alerts.topicArn });
     new cdk.CfnOutput(this, "SyncMachineArn", { value: syncMachine.stateMachineArn });

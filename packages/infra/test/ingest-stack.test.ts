@@ -564,3 +564,26 @@ describe("who may renew a consent", () => {
     expect(ownsConnections({ name: "dev", providerEnvironment: "sandbox" } as EnvSettings)).toBe(true);
   });
 });
+
+describe("which household a deployment syncs", () => {
+  // Was the literal "frost" in both. Dev holds 0 rows for that household and
+  // 315 for `demo-one`, which is the one its members belong to — so dev's
+  // sync was aimed at a household nobody could see. Dormant while dev's sync
+  // was off, and the first thing to fail when it came back on.
+  const tenantOf = (t: ReturnType<typeof templates>["ingest"]) =>
+    envOf(t, "RAW_BUCKET")["TENANT_ID"];
+
+  it("syncs the household dev's members actually belong to", () => {
+    expect(tenantOf(ingest)).toBe("demo-one");
+  });
+
+  it("syncs the real household in prod", () => {
+    expect(tenantOf(prod.ingest)).toBe("frost");
+  });
+
+  it("never syncs the real household from dev", () => {
+    // The pairing that matters: dev reaching prod's household would put real
+    // transactions in the account built to be thrown away.
+    expect(tenantOf(ingest)).not.toBe(tenantOf(prod.ingest));
+  });
+});

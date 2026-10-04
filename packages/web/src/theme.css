@@ -178,7 +178,12 @@ button.ghost {
   border-radius: 6px;
   cursor: pointer;
 }
-button.ghost:hover { color: var(--text-primary); border-color: var(--text-muted); }
+button.ghost:hover:not(:disabled) { color: var(--text-primary); border-color: var(--text-muted); }
+/* A disabled ghost button had no disabled styling at all, so Remove looked
+   live, lit up on hover, and did nothing when pressed — the exact "dead
+   control" its own title attribute was written to avoid. The submit and
+   provider buttons had this; this one was missed. */
+button.ghost:disabled { opacity: 0.5; cursor: default; }
 
 /* Navigation.
    The three pages a household uses weekly, as tabs. The current one is marked

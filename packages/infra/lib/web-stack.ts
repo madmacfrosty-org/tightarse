@@ -133,6 +133,11 @@ export class WebStack extends cdk.Stack {
         // that is how the dashboard ends up encoding a rule the API owns, and
         // the two drift the first time one changes.
         canRenewConnections: ownsConnections(settings),
+        // Which banks exist to be offered. Sandbox holds a mock and none of
+        // the real ones, so a page that offered the real list there would send
+        // somebody to a provider that is not there — which fails at the
+        // provider, after they have left the site, with nothing explaining it.
+        providerEnvironment: settings.providerEnvironment,
       }),
     ];
 

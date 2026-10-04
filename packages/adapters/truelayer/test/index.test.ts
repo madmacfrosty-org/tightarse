@@ -220,3 +220,110 @@ describe("exchanging an authorisation code", () => {
     expect(Date.parse(t.expiresAt)).toBeGreaterThan(Date.now() + 3_000_000);
   });
 });
+
+describe("extending a connection", () => {
+  const args = {
+    refreshToken: "rt",
+    redirectUri: "https://example.invalid/connected",
+    user: { id: "t1" },
+  };
+
+  it("returns the new token set when the provider renews outright", async () => {
+    // The refresh token in this response replaces the stored one, and the old
+    // one stops working. A caller that treats this as "nothing to do" has
+    // killed the connection, and finds out days later.
+    mockFetch(200, {
+      action_needed: "no_action_needed",
+      access_token: "at-new",
+      refresh_token: "rt-new",
+      expires_in: 3600,
+    });
+
+    const out = await new TrueLayerClient(creds, SANDBOX).extendConnection("at", args);
+
+    expect(out).toMatchObject({ action: "renewed" });
+    if (out.action !== "renewed") throw new Error("unreachable");
+    expect(out.tokens.refreshToken).toBe("rt-new");
+    expect(Date.parse(out.tokens.expiresAt)).toBeGreaterThan(Date.now());
+  });
+
+  it("distinguishes the light journey from the trip back to the bank", async () => {
+    // Both need a person and both carry a link; they differ in how long they
+    // take, and the regulation permits the first where the provider allows it.
+    for (const [needed, action] of [
+      ["reconfirmation_of_consent_needed", "consent"],
+      ["authentication_needed", "authentication"],
+    ] as const) {
+      mockFetch(200, { action_needed: needed, user_input_link: "https://go.invalid/x" });
+      const out = await new TrueLayerClient(creds, SANDBOX).extendConnection("at", args);
+      expect(out).toEqual({ action, continueAt: "https://go.invalid/x" });
+    }
+  });
+
+  it("refuses a renewal that reports success with no tokens", async () => {
+    // There is nothing to store, so treating it as renewed would leave the
+    // old token in place while the provider believes it has issued a new one.
+    mockFetch(200, { action_needed: "no_action_needed" });
+
+    await expect(
+      new TrueLayerClient(creds, SANDBOX).extendConnection("at", args),
+    ).rejects.toBeInstanceOf(TrueLayerError);
+  });
+
+  it("refuses a journey with nowhere to send anyone", async () => {
+    mockFetch(200, { action_needed: "authentication_needed" });
+
+    await expect(
+      new TrueLayerClient(creds, SANDBOX).extendConnection("at", args),
+    ).rejects.toThrow(/nowhere to send/);
+  });
+
+  it("surfaces a provider refusal as a TrueLayerError carrying the status", async () => {
+    mockFetch(422, { error: "cannot_extend" });
+
+    const err = await new TrueLayerClient(creds, SANDBOX)
+      .extendConnection("at", args)
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(TrueLayerError);
+    expect((err as TrueLayerError).status).toBe(422);
+    expect((err as TrueLayerError).code).toBe("cannot_extend");
+  });
+
+  it("sends the client secret in the body as well as the bearer token", async () => {
+    // Unusual, and not a mistake: the endpoint wants both. Asserted because a
+    // tidy-up that removed the body credentials would fail only against the
+    // real provider.
+    const calls = recordingFetch(200, {
+      action_needed: "no_action_needed",
+      access_token: "a",
+      refresh_token: "r",
+      expires_in: 60,
+    });
+
+    await new TrueLayerClient(creds, SANDBOX).extendConnection("at", args);
+
+    expect(calls[0]!.url).toBe(`${SANDBOX.api}/connections/extend`);
+    expect(calls[0]!.init?.headers?.["authorization"]).toBe("Bearer at");
+    const sent = JSON.parse(String(calls[0]!.init?.body)) as Record<string, unknown>;
+    expect(sent["client_secret"]).toBe("secret");
+    expect(sent["user_has_reconfirmed_consent"]).toBe(true);
+    expect(sent["refresh_token"]).toBe("rt");
+  });
+
+  it("does not count against the unattended data allowance", async () => {
+    // Consent administration rather than a data call. Counting it would eat
+    // one of the four per endpoint per day that the sync needs.
+    mockFetch(200, {
+      action_needed: "no_action_needed",
+      access_token: "a",
+      refresh_token: "r",
+      expires_in: 60,
+    });
+    const client = new TrueLayerClient(creds, SANDBOX);
+
+    await client.extendConnection("at", args);
+
+    expect(client.calls).toBe(0);
+  });
+});

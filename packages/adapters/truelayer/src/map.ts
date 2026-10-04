@@ -297,12 +297,15 @@ export function mapConsent(
   raw: RawMe,
   ctx: { tenantId: string; fetchedAt: string },
 ): Consent | undefined {
-  if (!raw.consent_expires_at || !raw.consent_created_at) return undefined;
+  // Only the expiry is required. `consent_created_at` is provenance and the
+  // sandbox does not send it at all — demanding both dropped every consent it
+  // reported, with no row, no error and an empty page as the only symptom.
+  if (!raw.consent_expires_at) return undefined;
   return {
     tenantId: ctx.tenantId,
     consentId: raw.credentials_id,
     provider: "truelayer",
-    grantedAt: raw.consent_created_at,
+    ...(raw.consent_created_at === undefined ? {} : { grantedAt: raw.consent_created_at }),
     expiresAt: raw.consent_expires_at,
     // Carried verbatim and shown. Nothing branches on it — see `Consent`.
     providerStatus: raw.consent_status ?? "unknown",

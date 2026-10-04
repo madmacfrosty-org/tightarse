@@ -130,3 +130,29 @@ describe("Connected", () => {
     expect(onFinished).toHaveBeenCalled();
   });
 });
+
+describe("which banks the page offers", () => {
+  // Imported dynamically like the component above it: this file mocks modules
+  // per test, and a static import would bind before those are in place.
+  const providersFor = async () => (await import("../src/Connect")).providersFor;
+
+  it("offers the mock bank, and only it, in the sandbox", async () => {
+    // The sandbox holds none of the real banks. Offering them there is not a
+    // dead end on the page — the button works, the browser leaves, and the
+    // failure happens at TrueLayer with nothing explaining it.
+    expect((await providersFor())("sandbox").map((p) => p.id)).toEqual(["uk-cs-mock"]);
+  });
+
+  it("offers the real banks in live, and never the mock", async () => {
+    const ids = (await providersFor())("live").map((p) => p.id);
+    expect(ids).toContain("ob-first-direct");
+    expect(ids).not.toContain("uk-cs-mock");
+  });
+
+  it("treats an unknown deployment as live", async () => {
+    // A deployment that says nothing predates the field and is a live one.
+    // The other default puts a mock bank on a household's dashboard.
+    const fn = await providersFor();
+    expect(fn(undefined)).toEqual(fn("live"));
+  });
+});

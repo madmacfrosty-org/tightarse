@@ -40,6 +40,17 @@ export interface AppConfig {
    * than not offering it.
    */
   canRenewConnections?: boolean;
+  /**
+   * Which TrueLayer is behind this deployment.
+   *
+   * Separate from `canRenewConnections`, and a different kind of fact. That
+   * one is a permission the API owns and the page must not second-guess; this
+   * is which catalogue of banks exists, which the page legitimately knows —
+   * sandbox holds a mock and none of the real ones.
+   *
+   * Absent means live, because a deployment predating this field is one.
+   */
+  providerEnvironment?: "sandbox" | "live";
 }
 
 let cached: AppConfig | null = null;
@@ -65,6 +76,9 @@ export async function loadConfig(): Promise<AppConfig> {
     apiUrl: import.meta.env.VITE_API_URL,
     ...(import.meta.env.VITE_CAN_RENEW_CONNECTIONS === "true"
       ? { canRenewConnections: true }
+      : {}),
+    ...(import.meta.env.VITE_PROVIDER_ENVIRONMENT === "sandbox"
+      ? { providerEnvironment: "sandbox" as const }
       : {}),
   };
   if (fromEnv.userPoolId && fromEnv.userPoolClientId && fromEnv.hostedUiDomain && fromEnv.apiUrl) {
