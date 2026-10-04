@@ -287,15 +287,20 @@ export async function reconfirmConnection(
   deps: ConnectDeps,
   tenantId: string,
   consentId: string,
-  now: Date = new Date(),
 ): Promise<{ consentId: string; action: "renewed" | "consent" | "authentication"; continueAt?: string; expiresAt?: string }> {
   const connection = await connectionForConsent(deps, tenantId, consentId);
 
-  if (Date.parse(connection.consentExpiresAt) <= now.getTime()) {
-    throw new ConsentNotRenewable(
-      "This consent has already lapsed; connect the bank again rather than renewing",
-    );
-  }
+  // Deliberately no check against `connection.consentExpiresAt`.
+  //
+  // It was one, and it was wrong twice over. The stored date is our record of
+  // what the provider said at connect time, and the provider is the authority
+  // on whether a consent can still be extended — it answers that in the call
+  // below, with a reason. Guarding on a local copy refuses renewals the
+  // provider would have allowed, and on 4 October 2026 it refused all three
+  // of prod's after a bug overwrote that field with an access-token lifetime.
+  //
+  // A genuinely lapsed consent comes back as a TrueLayerError, which the route
+  // turns into a 502 carrying the provider's own words.
 
   const { accessToken } = await deps.truelayer.refresh(connection.refreshToken);
   const outcome = await deps.truelayer.extendConnection(accessToken, {
@@ -308,14 +313,18 @@ export async function reconfirmConnection(
     return { consentId, action: outcome.action, continueAt: outcome.continueAt };
   }
 
-  // Stored first. See the note above: between issuing and storing there is a
-  // window in which the connection is lost, and it is made as small as the
-  // code can make it.
-  await deps.connections.update({
-    ...connection,
-    refreshToken: outcome.tokens.refreshToken,
-    consentExpiresAt: outcome.tokens.expiresAt,
-  });
+  // The token first and on its own. Between the provider issuing a new refresh
+  // token and this storing it, the connection is lost if anything fails — so
+  // nothing else goes in front of it, and the consent date is a second write
+  // rather than a reason to delay this one.
+  //
+  // `consentExpiresAt` is deliberately NOT taken from the token response. That
+  // response carries `expires_in`, which is the ACCESS token's lifetime —
+  // about an hour. Writing it here set three prod connections to "lapsed an
+  // hour ago", which then made them unrenewable by the guard above. The
+  // consent's own expiry is only known to `/me`, so it is read from there.
+  const renewed = { ...connection, refreshToken: outcome.tokens.refreshToken };
+  await deps.connections.update(renewed);
 
   // Then tell the ledger, by landing a fresh `/me` for the transform to pick
   // up. Without this the renewal is invisible: the dashboard reads consent
@@ -326,9 +335,17 @@ export async function reconfirmConnection(
   // After the token is stored, and deliberately not instead of it. This is the
   // reporting catching up; losing it costs a stale figure until the next sync,
   // where losing the token costs the connection.
-  await refreshConsentRow(deps, tenantId, outcome.tokens.accessToken);
+  const expiresAt = await refreshConsentRow(
+    deps,
+    tenantId,
+    outcome.tokens.accessToken,
+    renewed,
+  );
 
-  return { consentId, action: "renewed", expiresAt: outcome.tokens.expiresAt };
+  // Reported only when `/me` actually said so. Returning the token's own
+  // expiry would be an hour from now dressed up as a consent deadline, which
+  // is worse than saying nothing.
+  return { consentId, action: "renewed", ...(expiresAt === undefined ? {} : { expiresAt }) };
 }
 
 /**
@@ -347,10 +364,21 @@ async function refreshConsentRow(
   deps: ConnectDeps,
   tenantId: string,
   accessToken: string,
-): Promise<void> {
-  if (deps.raw === undefined) return;
+  connection: Connection,
+): Promise<string | undefined> {
+  if (deps.raw === undefined) return undefined;
   try {
     const { body } = await deps.truelayer.get(accessToken, "/data/v1/me");
+
+    // The consent's real expiry, which only `/me` knows. The token response
+    // carries `expires_in` for the ACCESS token and nothing about the consent,
+    // so this is the one place the connection record can learn the new date.
+    const expiresAt = (
+      (body as { results?: { consent_expires_at?: string }[] }).results ?? []
+    )[0]?.consent_expires_at;
+    if (expiresAt !== undefined && expiresAt !== connection.consentExpiresAt) {
+      await deps.connections.update({ ...connection, consentExpiresAt: expiresAt });
+    }
     const fetchedAt = new Date().toISOString();
     const dataset = "truelayer.me";
     // The same envelope the sync writes. The transform reads these fields by
@@ -380,8 +408,10 @@ async function refreshConsentRow(
         tags: { tenant: tenantId, layer: "raw", dataset },
       },
     );
+    return expiresAt;
   } catch {
     // Deliberately silent. See above.
+    return undefined;
   }
 }
 

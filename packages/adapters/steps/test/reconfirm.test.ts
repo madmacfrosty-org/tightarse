@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from "vitest";
 import {
   reconfirmConnection,
   connectionForConsent,
-  ConsentNotRenewable,
   ConsentUnknown,
   connectRoutes,
   type ConnectDeps,
@@ -14,7 +13,6 @@ import type { Connection } from "../src/connections.js";
  *
  * Every id, institution and date invented. This repository is public.
  */
-const NOW = new Date("2026-09-30T12:00:00.000Z");
 
 /** `unlinked` rather than `credentialsId: undefined`, which exactOptionalPropertyTypes forbids. */
 const unlinked = (c: Connection): Connection => {
@@ -72,14 +70,23 @@ describe("renewing a consent", () => {
     // arrives days later, when the next sync fails.
     const { deps: d, update } = deps();
 
-    const out = await reconfirmConnection(d, "t1", "cred-1", NOW);
+    const out = await reconfirmConnection(d, "t1", "cred-1");
 
-    expect(out).toMatchObject({ action: "renewed", expiresAt: "2026-12-29T00:00:00.000Z" });
+    // No `expiresAt`: this `/me` stub does not report one, and the token
+    // response's own expiry is an access-token lifetime. Saying nothing beats
+    // dressing an hour up as a consent deadline.
+    expect(out).toMatchObject({ action: "renewed" });
+    expect(out.expiresAt).toBeUndefined();
     expect(update).toHaveBeenCalledTimes(1);
     expect(update.mock.calls[0]![0]).toMatchObject({
       connectionId: "conn-1",
       refreshToken: "rt-new",
-      consentExpiresAt: "2026-12-29T00:00:00.000Z",
+    });
+    // NOT from the token response. `expires_in` there is the ACCESS token's
+    // lifetime — about an hour — and writing it as the consent's expiry set
+    // three prod connections to "lapsed an hour ago".
+    expect(update.mock.calls[0]![0]).toMatchObject({
+      consentExpiresAt: "2026-11-11T00:00:00.000Z",
     });
   });
 
@@ -97,7 +104,7 @@ describe("renewing a consent", () => {
       },
     } as unknown as Partial<ConnectDeps>);
 
-    const out = await reconfirmConnection(d, "t1", "cred-1", NOW);
+    const out = await reconfirmConnection(d, "t1", "cred-1");
 
     expect(out).toMatchObject({
       action: "authentication",
@@ -106,22 +113,25 @@ describe("renewing a consent", () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  it("refuses one that has already lapsed, rather than asking the provider", async () => {
-    // There is nothing left to extend, and the remedy is a fresh connection —
-    // a different act, with a different cost, that the household must choose.
+  it("asks the provider even about a consent our record calls lapsed", async () => {
+    // There was a guard here that refused on the stored date. It was wrong
+    // twice: the provider is the authority on whether a consent can still be
+    // extended, and it says so in the call with a reason — and a local copy
+    // that drifts refuses renewals that would have worked. On 4 October 2026
+    // it refused all three of prod's after a bug overwrote that field.
     const { deps: d, extendConnection } = deps({}, [
       connection({ consentExpiresAt: "2026-09-01T00:00:00.000Z" }),
     ]);
 
-    await expect(reconfirmConnection(d, "t1", "cred-1", NOW)).rejects.toBeInstanceOf(
-      ConsentNotRenewable,
-    );
-    expect(extendConnection).not.toHaveBeenCalled();
+    await expect(reconfirmConnection(d, "t1", "cred-1")).resolves.toMatchObject({
+      action: "renewed",
+    });
+    expect(extendConnection).toHaveBeenCalledTimes(1);
   });
 
   it("says so when no connection matches the consent", async () => {
     const { deps: d } = deps({}, [connection({ credentialsId: "other" })]);
-    await expect(reconfirmConnection(d, "t1", "cred-1", NOW)).rejects.toBeInstanceOf(ConsentUnknown);
+    await expect(reconfirmConnection(d, "t1", "cred-1")).rejects.toBeInstanceOf(ConsentUnknown);
   });
 });
 
@@ -210,11 +220,22 @@ describe("what the renewal route says when it cannot act", () => {
     expect((await call(d, { consentId: "cred-1" }, true)).statusCode).toBe(200);
   });
 
-  it("says 409 for a consent that has already lapsed", async () => {
-    // Distinguishable from a failure: nothing broke, and the answer is that
-    // this needs connecting again rather than renewing.
-    const { deps: d } = deps({}, [connection({ consentExpiresAt: "2026-01-01T00:00:00.000Z" })]);
-    expect((await call(d, { consentId: "cred-1" })).statusCode).toBe(409);
+  it("passes a provider refusal through as 502 rather than guessing 409", async () => {
+    // A consent the provider will not extend is the provider's answer, and
+    // comes back with its status. Deciding that here from a stored date was
+    // the bug that bricked renewal in prod.
+    const { TrueLayerError } = await import("@tightarse/truelayer");
+    const { deps: d } = deps({
+      truelayer: {
+        refresh: vi.fn(async () => ({ accessToken: "at", refreshToken: "rt", expiresAt: "x" })),
+        get: vi.fn(),
+        extendConnection: vi.fn(async () => {
+          throw new TrueLayerError("consent is gone", 422, "invalid_consent");
+        }),
+      },
+    } as unknown as Partial<ConnectDeps>);
+
+    expect((await call(d, { consentId: "cred-1" })).statusCode).toBe(502);
   });
 
   it("says 404 when nothing matches the consent", async () => {
@@ -415,7 +436,7 @@ describe("telling the ledger a renewal happened", () => {
     // looks like it did nothing.
     const { deps: d, put, get } = landing();
 
-    await reconfirmConnection(d, "t1", "cred-1", NOW);
+    await reconfirmConnection(d, "t1", "cred-1");
 
     expect(get).toHaveBeenCalledWith("at-new", "/data/v1/me");
     expect(put).toHaveBeenCalledTimes(1);
@@ -431,7 +452,7 @@ describe("telling the ledger a renewal happened", () => {
     // the reader does not know about and nothing would catch.
     const { deps: d, put } = landing();
 
-    await reconfirmConnection(d, "t1", "cred-1", NOW);
+    await reconfirmConnection(d, "t1", "cred-1");
 
     const body = JSON.parse(
       (await import("node:zlib")).gunzipSync(put.mock.calls[0]![1]).toString(),
@@ -455,17 +476,40 @@ describe("telling the ledger a renewal happened", () => {
       } as unknown as ConnectDeps["raw"],
     });
 
-    await expect(reconfirmConnection(d, "t1", "cred-1", NOW)).resolves.toMatchObject({
+    await expect(reconfirmConnection(d, "t1", "cred-1")).resolves.toMatchObject({
       action: "renewed",
     });
-    expect(update).toHaveBeenCalledTimes(1);
+    // Twice: the token, then the consent date `/me` reported. Both happen
+    // before the landing is attempted, so a failed landing costs the ledger
+    // row and nothing on the connection itself.
+    expect(update).toHaveBeenCalledTimes(2);
+    expect(update.mock.calls[0]![0]).toMatchObject({ refreshToken: "rt-new" });
+    expect(update.mock.calls[1]![0]).toMatchObject({
+      consentExpiresAt: "2027-01-02T00:00:00Z",
+    });
+  });
+
+  it("takes the new consent expiry from /me, never from the token", async () => {
+    // The bug that bricked renewal in prod: `expires_in` on a token response
+    // is the ACCESS token's lifetime, about an hour. Written as the consent's
+    // expiry it made three live connections look lapsed an hour later, and
+    // the guard that then refused them was the second half of the failure.
+    const { deps: d, update } = landing();
+
+    const out = await reconfirmConnection(d, "t1", "cred-1");
+
+    expect(out.expiresAt).toBe("2027-01-02T00:00:00Z");
+    const dates = update.mock.calls.map((c) => (c[0] as { consentExpiresAt: string }).consentExpiresAt);
+    // Never an hour from now, which is what the token response would give.
+    expect(dates).not.toContain("2026-12-29T00:00:00.000Z");
+    expect(dates).toContain("2027-01-02T00:00:00Z");
   });
 
   it("renews without a bucket configured, and lands nothing", async () => {
     // A deployment with no raw bucket still renews; the row waits for the sync.
     const { deps: d, put } = landing({ raw: undefined });
 
-    await expect(reconfirmConnection(d, "t1", "cred-1", NOW)).resolves.toMatchObject({
+    await expect(reconfirmConnection(d, "t1", "cred-1")).resolves.toMatchObject({
       action: "renewed",
     });
     expect(put).not.toHaveBeenCalled();
@@ -485,7 +529,7 @@ describe("telling the ledger a renewal happened", () => {
       },
     } as unknown as Partial<ConnectDeps>);
 
-    await reconfirmConnection(d, "t1", "cred-1", NOW);
+    await reconfirmConnection(d, "t1", "cred-1");
 
     expect(put).not.toHaveBeenCalled();
   });
