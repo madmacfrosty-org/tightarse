@@ -1,9 +1,7 @@
-import { createHash, randomUUID } from "node:crypto";
-import { gzipSync } from "node:zlib";
+import { randomUUID } from "node:crypto";
 import { TrueLayerClient, LIVE, SANDBOX, TrueLayerError } from "@tightarse/truelayer";
 import { Connections, consentExpiry, type Connection } from "./connections.js";
-import { AwsSecrets, S3RawObjects, startExecution } from "@tightarse/aws";
-import { rawObjectKey, type RawObjects } from "@tightarse/domain";
+import { AwsSecrets, startExecution } from "@tightarse/aws";
 import { ReconfirmConnectionRequest } from "@tightarse/api-contract";
 
 /**
@@ -52,20 +50,6 @@ export interface ConnectDeps {
   readonly ownsConnections: boolean;
   /** Whether this deployment talks to the sandbox. Decides which banks exist. */
   readonly sandbox: boolean;
-  /**
-   * Where a raw provider response lands.
-   *
-   * Renewal writes the `/me` it fetches here rather than writing the consent
-   * row directly. The transform already fires on any object under `tenant=`
-   * and already knows how to turn `/me` into a consent, so this reuses that
-   * path instead of adding a second one — and keeps the property CLAUDE.md
-   * asks for: every row in the ledger has a raw object behind it, so the
-   * ledger can always be rebuilt.
-   *
-   * Undefined where no bucket is configured, in which case renewal still
-   * renews and the consent row catches up on the next scheduled sync.
-   */
-  readonly raw?: RawObjects | undefined;
 }
 
 /**
@@ -201,9 +185,6 @@ export async function realConnectDeps(): Promise<ConnectDeps> {
     // does not, and the safe answer is the one you get by omission.
     ownsConnections: process.env["CONNECTIONS_OWNED"] === "true",
     sandbox,
-    ...(process.env["RAW_BUCKET"]
-      ? { raw: new S3RawObjects({ bucket: process.env["RAW_BUCKET"] }) }
-      : {}),
     clientId: creds.clientId,
     authBase: sandbox ? SANDBOX.auth : LIVE.auth,
     ...(machine
@@ -323,96 +304,23 @@ export async function reconfirmConnection(
   // about an hour. Writing it here set three prod connections to "lapsed an
   // hour ago", which then made them unrenewable by the guard above. The
   // consent's own expiry is only known to `/me`, so it is read from there.
-  const renewed = { ...connection, refreshToken: outcome.tokens.refreshToken };
-  await deps.connections.update(renewed);
-
-  // Then tell the ledger, by landing a fresh `/me` for the transform to pick
-  // up. Without this the renewal is invisible: the dashboard reads consent
-  // rows from DynamoDB, those are written by the sync, and the sync next runs
-  // tomorrow — so a successful renewal would show yesterday's expiry and look
-  // like nothing happened.
+  // The token, and nothing else.
   //
-  // After the token is stored, and deliberately not instead of it. This is the
-  // reporting catching up; losing it costs a stale figure until the next sync,
-  // where losing the token costs the connection.
-  const expiresAt = await refreshConsentRow(
-    deps,
-    tenantId,
-    outcome.tokens.accessToken,
-    renewed,
-  );
+  // `consentExpiresAt` is deliberately not written here. The token response
+  // carries `expires_in`, which is the ACCESS token's lifetime — about an hour
+  // — and writing that as the consent's expiry set three prod connections to
+  // "lapsed an hour ago". The consent's real expiry is known only to `/me`,
+  // and only some time later: TrueLayer applies the extension asynchronously,
+  // so a `/me` fetched seconds after renewing still reports the old date.
+  //
+  // Measured on 4 October 2026: a consent renewed at 18:34:49Z still read
+  // 14:06:34Z immediately afterwards, and read 18:34:49Z + 90 days on the next
+  // sync. So there is no reading this renewal can take that is worth taking —
+  // the daily sync owns this field, and the dashboard says so rather than
+  // showing a figure that has not caught up.
+  await deps.connections.update({ ...connection, refreshToken: outcome.tokens.refreshToken });
 
-  // Reported only when `/me` actually said so. Returning the token's own
-  // expiry would be an hour from now dressed up as a consent deadline, which
-  // is worse than saying nothing.
-  return { consentId, action: "renewed", ...(expiresAt === undefined ? {} : { expiresAt }) };
-}
-
-/**
- * Land a fresh `/me` so the consent row is rewritten.
- *
- * One data call, against an allowance of four per endpoint per day — much
- * cheaper than starting a sync, which would refetch every account, card,
- * balance and transaction to update one date.
- *
- * Failures are swallowed. The renewal has already happened and the token is
- * already stored; reporting a failure here would tell the household their
- * renewal did not work when it did. The row then catches up on the next
- * scheduled sync, which is the same place it would have come from anyway.
- */
-async function refreshConsentRow(
-  deps: ConnectDeps,
-  tenantId: string,
-  accessToken: string,
-  connection: Connection,
-): Promise<string | undefined> {
-  if (deps.raw === undefined) return undefined;
-  try {
-    const { body } = await deps.truelayer.get(accessToken, "/data/v1/me");
-
-    // The consent's real expiry, which only `/me` knows. The token response
-    // carries `expires_in` for the ACCESS token and nothing about the consent,
-    // so this is the one place the connection record can learn the new date.
-    const expiresAt = (
-      (body as { results?: { consent_expires_at?: string }[] }).results ?? []
-    )[0]?.consent_expires_at;
-    if (expiresAt !== undefined && expiresAt !== connection.consentExpiresAt) {
-      await deps.connections.update({ ...connection, consentExpiresAt: expiresAt });
-    }
-    const fetchedAt = new Date().toISOString();
-    const dataset = "truelayer.me";
-    // The same envelope the sync writes. The transform reads these fields by
-    // name, so a shape of its own here would be a second format to keep in
-    // step with a reader that does not know it exists.
-    const payload = JSON.stringify({
-      captureVersion: 1,
-      environment: deps.sandbox ? "sandbox" : "live",
-      endpoint: dataset,
-      params: {},
-      accountId: null,
-      fetchedAt,
-      httpStatus: 200,
-      body,
-    });
-    await deps.raw.put(
-      rawObjectKey({
-        tenantId,
-        dataset,
-        fetchedAt,
-        contentHash: createHash("sha256").update(payload).digest("hex"),
-      }),
-      gzipSync(Buffer.from(payload), { level: 9 }),
-      {
-        contentType: "application/json",
-        contentEncoding: "gzip",
-        tags: { tenant: tenantId, layer: "raw", dataset },
-      },
-    );
-    return expiresAt;
-  } catch {
-    // Deliberately silent. See above.
-    return undefined;
-  }
+  return { consentId, action: "renewed" };
 }
 
 /** Both routes, against dependencies the caller supplies. */

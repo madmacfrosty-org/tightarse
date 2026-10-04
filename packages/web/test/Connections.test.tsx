@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { pathFor } from "@tightarse/api-contract";
 import type { Parses } from "../src/ports";
-import { Connections } from "../src/Connections";
+import { Connections, renewedNote } from "../src/Connections";
 
 /**
  * Every institution, id and date below is invented. This repository is public.
@@ -278,5 +278,49 @@ describe("renewing a connection", () => {
     await waitFor(() =>
       expect(assign).toHaveBeenCalledWith("https://login.example.invalid/?session=1"),
     );
+  });
+});
+
+describe("saying that a renewal happened", () => {
+  // The question a renewal immediately raises: "did that work? the date has
+  // not moved." It has not, because TrueLayer applies the extension
+  // asynchronously and this page reads a row the daily sync writes. Without a
+  // word on screen the honest answer looks identical to a broken one.
+  it("says the date waits for the sync, once a renewal has happened", async () => {
+    canRenew = true;
+    withConsents([consent({ health: "warn", daysRemaining: 12 })]);
+    apiPost.mockImplementation(async () => ({ consentId: "c-1", action: "renewed" }));
+    render(<Connections api={api} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /reconfirm/i }));
+
+    expect(await screen.findByText(/after the next daily sync/i)).toBeDefined();
+  });
+
+  it("says nothing before anybody renews", async () => {
+    canRenew = true;
+    withConsents([consent({ health: "warn" })]);
+    render(<Connections api={api} />);
+    await screen.findByText("Example Bank");
+
+    expect(screen.queryByText(/after the next daily sync/i)).toBeNull();
+  });
+
+  it("stops saying it once a sync has run since", async () => {
+    // Tested on the rule rather than the component, because getting there
+    // through the UI needs a second sync to happen mid-test. The row is
+    // telling the truth by then and the explanation would be noise.
+    const renewedAt = "2026-10-04T18:00:00.000Z";
+    expect(
+      renewedNote({ fetchedAt: "2026-10-04T17:00:00.000Z" }, renewedAt),
+    ).toMatch(/daily sync/);
+    expect(
+      renewedNote({ fetchedAt: "2026-10-05T05:00:00.000Z" }, renewedAt),
+    ).toBeUndefined();
+  });
+
+  it("says nothing about a connection nobody renewed", async () => {
+    // Per connection, not per page: renewing one must not annotate the others.
+    expect(renewedNote({ fetchedAt: "2026-10-04T17:00:00.000Z" }, undefined)).toBeUndefined();
   });
 });

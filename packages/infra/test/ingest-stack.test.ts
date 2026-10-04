@@ -613,8 +613,4 @@ describe("what the connect function may reach", () => {
   it("may list secrets, which finding a connection requires", () => {
     expect(connectPolicy()).toContain("secretsmanager:ListSecrets");
   });
-
-  it("may write a raw object, so a renewal can tell the ledger", () => {
-    expect(connectPolicy()).toMatch(/s3:PutObject/);
-  });
 });

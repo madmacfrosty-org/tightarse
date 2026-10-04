@@ -81,6 +81,24 @@ const REMOVABLE: ConsentView["health"][] = ["stale", "expired"];
  */
 const RENEWABLE: ConsentView["health"][] = ["ok", "warn", "escalate"];
 
+/**
+ * What to say about a connection renewed a moment ago.
+ *
+ * Shown until a sync has run since the renewal, and then it stops — the row
+ * is telling the truth by then, so the explanation would be noise.
+ *
+ * `fetchedAt` is when the sync last asked the provider. While that is older
+ * than the renewal, the expiry on screen predates it and has not caught up.
+ */
+export function renewedNote(
+  consent: Pick<ConsentView, "fetchedAt">,
+  renewedAt: string | undefined,
+): string | undefined {
+  if (renewedAt === undefined) return undefined;
+  if (Date.parse(consent.fetchedAt) > Date.parse(renewedAt)) return undefined;
+  return "Renewed — the new date appears after the next daily sync";
+}
+
 /** Ordered by urgency rather than by name: the one that needs attention first. */
 const ORDER: ConsentView["health"][] = ["expired", "stale", "escalate", "warn", "ok"];
 
@@ -104,6 +122,21 @@ export function Connections({ api }: { api: Api }) {
    * cannot work.
    */
   const [mayRenew, setMayRenew] = useState(false);
+
+  /**
+   * Connections renewed in this browser, and when.
+   *
+   * Kept here rather than fetched, because nothing server-side records it:
+   * the consent row is written from `/me` by the sync, and `/me` reports the
+   * expiry rather than when anybody pressed a button.
+   *
+   * It exists to answer the question a renewal immediately raises — "did that
+   * work? the date has not moved" — which it has not, because TrueLayer
+   * applies the extension asynchronously and the dashboard reads a row the
+   * daily sync writes. Without a word on screen the honest answer looks
+   * identical to a broken one.
+   */
+  const [renewed, setRenewed] = useState<Record<string, string>>({});
 
   useEffect(() => {
     loadConfig()
@@ -156,6 +189,9 @@ export function Connections({ api }: { api: Api }) {
         pathFor("/connections/reconfirm"),
         { consentId },
       );
+      if (out.action === "renewed") {
+        setRenewed((r) => ({ ...r, [consentId]: new Date().toISOString() }));
+      }
       if (out.action !== "renewed" && out.continueAt !== undefined) {
         // The provider wants a person. Leave rather than report success: the
         // consent is not renewed until they finish, and saying otherwise here
@@ -222,7 +258,9 @@ export function Connections({ api }: { api: Api }) {
                     {" · "}
                     <span className="subtle">{WORDS[c.health]}</span>
                   </td>
-                  <td className="subtle">{c.providerStatus ?? "—"}</td>
+                  <td className="subtle">
+                    {renewedNote(c, renewed[c.consentId]) ?? c.providerStatus ?? "—"}
+                  </td>
                   <td>
                     {mayRenew && (
                       <button
