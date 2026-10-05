@@ -89,6 +89,25 @@ export type ExtendOutcome =
   | { action: "renewed"; tokens: TokenSet }
   | { action: "consent" | "authentication"; continueAt: string };
 
+/**
+ * Strip anything token-shaped from a value about to be logged.
+ *
+ * A failure body should carry no credentials, but "should" is not a control
+ * and a log group is permanent. Keys are matched rather than values, so a
+ * shape we have not seen before still loses its secrets.
+ */
+function redactTokens(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactTokens);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([k, v]) =>
+      /token|secret|password|authorization/i.test(k)
+        ? [k, "<redacted>"]
+        : [k, redactTokens(v)],
+    ),
+  );
+}
+
 export class TrueLayerError extends Error {
   constructor(
     message: string,
@@ -269,6 +288,17 @@ export class TrueLayerClient {
         consentExpiresAt: body.consent_expires_at ?? null,
         error: body.error ?? null,
         errorDescription: body.error_description ?? null,
+        // The whole body when it failed, minus anything token-shaped.
+        //
+        // `error` and `error_description` are the OAuth shape and a 400 from
+        // this endpoint does not use it — prod returned 400 with both null,
+        // which told us the request was rejected and nothing about which part
+        // of it. A validation error names a field, and the field is the
+        // answer.
+        //
+        // Only on failure: a success carries two tokens and nothing worth
+        // reading. The redaction below is belt and braces for the same reason.
+        ...(res.ok ? {} : { body: redactTokens(body) }),
       }),
     );
 

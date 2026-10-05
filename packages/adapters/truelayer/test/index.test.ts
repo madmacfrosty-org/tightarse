@@ -395,3 +395,57 @@ describe("what an extend attempt leaves behind", () => {
     expect(all).not.toContain("SECRET-REFRESH");
   });
 });
+
+describe("what a rejected extend puts on the record", () => {
+  const args = { refreshToken: "rt", redirectUri: "https://x.invalid/c", user: { id: "t" } };
+  const capture = async (status: number, body: unknown) => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((l: string) => void lines.push(l));
+    mockFetch(status, body);
+    await new TrueLayerClient(creds, SANDBOX).extendConnection("at", args).catch(() => null);
+    spy.mockRestore();
+    return JSON.parse(lines.find((l) => l.includes("truelayer.extend"))!) as Record<string, unknown>;
+  };
+
+  it("carries the whole failure body, because the field is the answer", async () => {
+    // Prod returned 400 with `error` and `error_description` both null: the
+    // OAuth shape, which this endpoint does not use for validation. That told
+    // us the request was rejected and nothing about which part of it.
+    const logged = await capture(400, {
+      title: "Validation failed",
+      errors: { "user.email": ["is not a valid address"] },
+    });
+
+    expect(logged["body"]).toMatchObject({
+      title: "Validation failed",
+      errors: { "user.email": ["is not a valid address"] },
+    });
+  });
+
+  it("strips anything token-shaped out of it", async () => {
+    // A failure body should carry no credentials, but "should" is not a
+    // control and a log group is permanent.
+    const logged = await capture(400, {
+      detail: "nope",
+      refresh_token: "SECRET",
+      nested: { access_token: "ALSO-SECRET", clientSecret: "AND-THIS" },
+    });
+
+    const text = JSON.stringify(logged);
+    expect(text).not.toContain("SECRET");
+    expect(text).not.toContain("AND-THIS");
+    expect(logged["body"]).toMatchObject({ detail: "nope" });
+  });
+
+  it("logs no body at all on success", async () => {
+    // A success carries two tokens and nothing worth reading.
+    const logged = await capture(200, {
+      action_needed: "no_action_needed",
+      access_token: "a",
+      refresh_token: "r",
+      expires_in: 60,
+    });
+
+    expect(logged["body"]).toBeUndefined();
+  });
+});
