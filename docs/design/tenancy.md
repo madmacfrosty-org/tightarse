@@ -51,7 +51,7 @@ is nothing for it to read.
 
 ## The model
 
-Three entities. Two exist and need no change; one is new.
+Four things. Two exist unchanged, one existing row gains a field, one is new.
 
 ### Tenant — new
 
@@ -91,6 +91,69 @@ None of that buys a household application anything. Writing it down here is
 the point: the next person to wonder should find the decision rather than the
 absence of one.
 
+### Role — new, on the member row
+
+```
+MEMBER#<email> → { email, tenantId, role, addedAt }
+```
+
+`admin` or `member`. One household per person, so a role needs no scoping
+beyond the row it sits on.
+
+**What an admin may do that a member may not.** Only worth naming if something
+enforces it, so the list is the design:
+
+| Capability | admin | member |
+|---|---|---|
+| Read the ledger, any page | yes | yes |
+| Connect a bank | yes | no |
+| Remove or renew a connection | yes | no |
+| Add or remove a member | yes | no |
+| Change household settings | yes | no |
+| Categorise, adopt rules | yes | yes |
+
+The line is roughly: anything that spends a consent, ends one, or changes who
+can see the household. Those are the acts with consequences outside the
+screen — a connection removed stops a feed, a renewal spends a token, a member
+added gives somebody a household's finances.
+
+Categorisation stays open to everyone deliberately. It is corrigible: a wrong
+rule is re-adopted, and a household where only one person may tidy the books
+is a household where the books do not get tidied.
+
+**Enforced in the API, not in the dashboard.** A hidden tab is a courtesy; the
+route is still there and still reachable with a token. Each capability checks
+the role the way it already checks the tenant — from the verified claim, never
+from the request.
+
+**The claim carries it.** The pre-token trigger already turns a member row into
+`custom:tenant`; it adds `custom:role` from the same row and the same read.
+
+The cost is staleness: a demotion does not take effect until the token is next
+minted. That is the same property `custom:tenant` already has and the same one
+that makes both cheap — no lookup per request. For a household it is the right
+trade, and the note belongs here so that the day it is not, the reason to
+change is on the record. A capability that must revoke instantly reads the
+member row directly instead.
+
+### Which tabs a person sees — settings, not a role
+
+"Not everybody is interested in the operations tab" is a preference, and
+modelling it as a permission is the mistake that makes permission systems
+decorative. A member who finds Operations irrelevant and a member who must not
+reach it are different people with different needs, and one mechanism serving
+both serves neither: the preference gets enforced where it should not be, or
+the permission gets hidden where hiding is not enough.
+
+So: person-level settings decide which pages are shown, for anybody, at their
+own choice and reversible by them. The role decides which capabilities answer.
+A member can hide Operations because it is noise; a member cannot reach the
+renewal capability because the API refuses.
+
+They do overlap in one place, and sensibly: a page whose every action the role
+forbids is not worth offering, so the default view for a member can omit it.
+That is a default, not a lock.
+
 ### TenantSettings — exists, unreachable
 
 Already at `T#<tenantId>/SETTINGS`, already read with fallbacks by the consent
@@ -98,7 +161,7 @@ health calculation. `putSettings` has no caller outside tests, which is #151.
 
 Person-level settings are the other half of #151 and belong at
 `MEMBER#<email>/SETTINGS` — keyed to the person, because they follow the person
-rather than the household.
+rather than the household. Which pages somebody wants to see lives here.
 
 ## How background work finds its tenants
 
@@ -154,6 +217,19 @@ The order matters, because prod syncs a real household daily and must not stop.
 4. Remove `TENANT_ID`, the `EnvSettings.tenantId` field and the literal
    fallbacks, once nothing reads them.
 
+Roles are a separate sequence and can run independently:
+
+1. Add `role` to the member row, defaulted to `admin` for everyone who exists
+   — the household today has no members who should lose anything, and a
+   migration that silently demotes people is a support call.
+2. Mint `custom:role` in the pre-token trigger.
+3. Enforce it, capability by capability, starting with the ones that spend or
+   end a consent.
+4. Offer `member` when adding somebody, once there is something to protect.
+
+Step 3 before step 4 on purpose: a role nothing enforces is worse than no role,
+because it reads like a guarantee.
+
 Steps 2 and 3 are separable on purpose: the dispatcher can be exercised against
 dev's household before anything in prod is repointed.
 
@@ -161,9 +237,10 @@ dev's household before anything in prod is repointed.
 
 These change the shape of the work and are not mine to assume.
 
-**Does a household need an owner or roles?** Membership is currently flat:
-anyone in the household sees everything and an administrator adds members out of
-band. Roles are only worth modelling if something will enforce them.
+**Is the capability split above right?** The table is a proposal, not a
+settled thing. The question for each row is whether a household would ever
+want a member who cannot do it — and if the answer is no for a row, that row
+should not be in the table at all.
 
 **Should onboarding be a capability?** #94 makes the point that `seed.ts` exists
 only to bring up a new household. A `Tenant` row is the thing it would create
