@@ -247,7 +247,30 @@ export class TrueLayerClient {
       expires_in?: number;
       consent_expires_at?: string;
       error?: string;
+      error_description?: string;
     };
+
+    // Logged BEFORE the status is judged, which is the whole point and was
+    // got wrong once: the first version sat after the `!res.ok` throw, so the
+    // one case where a log matters most — the provider refusing — produced
+    // nothing. The route turns that throw into a 502 rather than letting it
+    // escape, so there was no Lambda error line either. A renewal failed in
+    // prod and left no trace at all.
+    //
+    // No tokens: the status, the action and the consent dates are what a
+    // diagnosis needs, and credential material has no business in a log group.
+    console.log(
+      JSON.stringify({
+        event: "truelayer.extend",
+        status: res.status,
+        ok: res.ok,
+        actionNeeded: body.action_needed ?? null,
+        hasUserInputLink: body.user_input_link !== undefined,
+        consentExpiresAt: body.consent_expires_at ?? null,
+        error: body.error ?? null,
+        errorDescription: body.error_description ?? null,
+      }),
+    );
 
     if (!res.ok) {
       throw new TrueLayerError(
@@ -256,25 +279,6 @@ export class TrueLayerClient {
         body.error ?? null,
       );
     }
-
-    // Logged, because twice now the only evidence of what the provider
-    // decided has been whether the browser moved. Prod renewed three consents
-    // and extended none of them, and nothing anywhere recorded why — the
-    // response was read for one field and discarded.
-    //
-    // No tokens: `action_needed` and the consent dates are what a diagnosis
-    // needs, and the rest is credential material that has no business in a
-    // log group.
-    console.log(
-      JSON.stringify({
-        event: "truelayer.extend",
-        status: res.status,
-        actionNeeded: body.action_needed ?? null,
-        hasUserInputLink: body.user_input_link !== undefined,
-        consentExpiresAt: body.consent_expires_at ?? null,
-        error: body.error ?? null,
-      }),
-    );
 
     if (body.action_needed === "no_action_needed") {
       if (!body.refresh_token || !body.access_token) {
