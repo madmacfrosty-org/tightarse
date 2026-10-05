@@ -100,8 +100,9 @@ MEMBER#<email> → { email, tenantId, role, addedAt }
 `admin` or `member`. One household per person, so a role needs no scoping
 beyond the row it sits on.
 
-**What an admin may do that a member may not.** Only worth naming if something
-enforces it, so the list is the design:
+**What an admin may do that a member may not.** Settled, not a sketch — each
+row was checked against "would a household ever want a member who cannot do
+this?", and the ones where the answer was no are absent rather than ticked:
 
 | Capability | admin | member |
 |---|---|---|
@@ -236,11 +237,6 @@ dev's household before anything in prod is repointed.
 ## Decisions needed
 
 These change the shape of the work and are not mine to assume.
-
-**Is the capability split above right?** The table is a proposal, not a
-settled thing. The question for each row is whether a household would ever
-want a member who cannot do it — and if the answer is no for a row, that row
-should not be in the table at all.
 
 **Should onboarding be a capability?** #94 makes the point that `seed.ts` exists
 only to bring up a new household. A `Tenant` row is the thing it would create
