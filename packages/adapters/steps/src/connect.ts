@@ -50,6 +50,13 @@ export interface ConnectDeps {
   readonly ownsConnections: boolean;
   /** Whether this deployment talks to the sandbox. Decides which banks exist. */
   readonly sandbox: boolean;
+  /**
+   * An address for the household, as the extend endpoint asks for.
+   *
+   * Not used to reach anybody — nothing here sends mail. It is part of the
+   * `user` object TrueLayer's reference requires, and we were omitting it.
+   */
+  readonly contactEmail: string;
 }
 
 /**
@@ -185,6 +192,7 @@ export async function realConnectDeps(): Promise<ConnectDeps> {
     // does not, and the safe answer is the one you get by omission.
     ownsConnections: process.env["CONNECTIONS_OWNED"] === "true",
     sandbox,
+    contactEmail: process.env["CONTACT_EMAIL"] ?? "household@example.invalid",
     clientId: creds.clientId,
     authBase: sandbox ? SANDBOX.auth : LIVE.auth,
     ...(machine
@@ -214,6 +222,33 @@ export class ConsentUnknown extends Error {
 }
 
 /**
+ * Refresh a connection's access token, persisting whatever comes back.
+ *
+ * The one rule that governs every use of `refresh` in this codebase, stated
+ * once so it cannot be forgotten in a third place: TrueLayer may return a NEW
+ * refresh token and the old one stops working, so the caller must store what
+ * it is given BEFORE doing anything that could fail.
+ *
+ * `steps.ts` has always done this on the sync path. The renewal path did not,
+ * in two places, and the sandbox hid it by never rotating.
+ *
+ * Returns the connection as it now is, so callers use the live token rather
+ * than the one they were holding.
+ */
+async function refreshAndStore(
+  deps: Pick<ConnectDeps, "truelayer" | "connections">,
+  connection: Connection,
+): Promise<{ connection: Connection; accessToken: string }> {
+  const tokens = await deps.truelayer.refresh(connection.refreshToken);
+  if (tokens.refreshToken !== connection.refreshToken) {
+    const rotated = { ...connection, refreshToken: tokens.refreshToken };
+    await deps.connections.update(rotated);
+    return { connection: rotated, accessToken: tokens.accessToken };
+  }
+  return { connection, accessToken: tokens.accessToken };
+}
+
+/**
  * Find the connection behind a consent id, filling in the link if absent.
  *
  * The dashboard knows a consent by the provider's `credentials_id`; the stored
@@ -236,8 +271,17 @@ export async function connectionForConsent(
   if (known) return known;
 
   for (const connection of all.filter((c) => c.credentialsId === undefined)) {
-    const { accessToken } = await deps.truelayer.refresh(connection.refreshToken);
-    const { body } = await deps.truelayer.get(accessToken, "/data/v1/me");
+    // Refreshing may rotate. Whatever comes back is stored before anything
+    // else happens, because the old token stops working the moment the new
+    // one is issued — the hazard `TrueLayerClient.refresh` documents, and the
+    // discipline `steps.ts` already follows on the sync path.
+    //
+    // This probe did not, and discarded the new token while writing the old
+    // one back. Invisible in the sandbox, which does not rotate; potentially
+    // fatal against a bank that does.
+    const current = await refreshAndStore(deps, connection);
+
+    const { body } = await deps.truelayer.get(current.accessToken, "/data/v1/me");
     const credentialsId = (
       (body as { results?: { credentials_id?: string }[] }).results ?? []
     )[0]?.credentials_id;
@@ -245,8 +289,9 @@ export async function connectionForConsent(
 
     // Stored whatever the outcome, so a connection is probed once ever rather
     // than once per attempt at renewing a different one.
-    await deps.connections.update({ ...connection, credentialsId });
-    if (credentialsId === consentId) return { ...connection, credentialsId };
+    const linked = { ...current.connection, credentialsId };
+    await deps.connections.update(linked);
+    if (credentialsId === consentId) return linked;
   }
 
   throw new ConsentUnknown(consentId);
@@ -283,11 +328,24 @@ export async function reconfirmConnection(
   // A genuinely lapsed consent comes back as a TrueLayerError, which the route
   // turns into a 502 carrying the provider's own words.
 
-  const { accessToken } = await deps.truelayer.refresh(connection.refreshToken);
-  const outcome = await deps.truelayer.extendConnection(accessToken, {
-    refreshToken: connection.refreshToken,
+  // Same rule, and the reason renewal failed against prod's banks while
+  // working against the sandbox. This refreshed, kept only the access token,
+  // and then handed `extendConnection` the ORIGINAL refresh token — which the
+  // refresh had just replaced. The provider cannot extend a connection
+  // identified by a token it has already retired.
+  //
+  // The sandbox does not rotate (measured, `cec9a89`), so the original stayed
+  // valid there and the whole thing appeared to work.
+  const current = await refreshAndStore(deps, connection);
+
+  const outcome = await deps.truelayer.extendConnection(current.accessToken, {
+    refreshToken: current.connection.refreshToken,
     redirectUri: deps.redirectUri,
-    user: { id: tenantId },
+    // id, name and an email: TrueLayer's reference lists all three, and we
+    // were sending only the id. Whether an incomplete user is why prod
+    // extended nothing is unproven — but it is the difference between what
+    // the reference asks for and what we send, and it costs nothing to close.
+    user: { id: tenantId, name: tenantId, email: deps.contactEmail },
   });
 
   if (outcome.action !== "renewed") {
@@ -318,7 +376,10 @@ export async function reconfirmConnection(
   // sync. So there is no reading this renewal can take that is worth taking —
   // the daily sync owns this field, and the dashboard says so rather than
   // showing a figure that has not caught up.
-  await deps.connections.update({ ...connection, refreshToken: outcome.tokens.refreshToken });
+  await deps.connections.update({
+    ...current.connection,
+    refreshToken: outcome.tokens.refreshToken,
+  });
 
   return { consentId, action: "renewed" };
 }
