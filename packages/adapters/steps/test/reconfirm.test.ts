@@ -47,7 +47,10 @@ function deps(over: Partial<ConnectDeps> = {}, stored: Connection[] = [connectio
   }));
   const d = {
     truelayer: {
-      refresh: vi.fn(async () => ({ accessToken: "at", refreshToken: "rt", expiresAt: "x" })),
+      // Returns the token it was given: no rotation, which is what the
+      // sandbox does and what prod's banks were measured doing. Rotation is
+      // the exception and is set up explicitly by the tests that are about it.
+      refresh: vi.fn(async (rt: string) => ({ accessToken: "at", refreshToken: rt, expiresAt: "x" })),
       get: vi.fn(async () => ({ status: 200, body: { results: [{ credentials_id: "cred-1" }] } })),
       extendConnection,
     },
@@ -95,7 +98,7 @@ describe("renewing a consent", () => {
     // record a renewal that has not happened.
     const { deps: d, update } = deps({
       truelayer: {
-        refresh: vi.fn(async () => ({ accessToken: "at", refreshToken: "rt", expiresAt: "x" })),
+        refresh: vi.fn(async (rt: string) => ({ accessToken: "at", refreshToken: rt, expiresAt: "x" })),
         get: vi.fn(),
         extendConnection: vi.fn(async () => ({
           action: "authentication" as const,
@@ -227,7 +230,7 @@ describe("what the renewal route says when it cannot act", () => {
     const { TrueLayerError } = await import("@tightarse/truelayer");
     const { deps: d } = deps({
       truelayer: {
-        refresh: vi.fn(async () => ({ accessToken: "at", refreshToken: "rt", expiresAt: "x" })),
+        refresh: vi.fn(async (rt: string) => ({ accessToken: "at", refreshToken: rt, expiresAt: "x" })),
         get: vi.fn(),
         extendConnection: vi.fn(async () => {
           throw new TrueLayerError("consent is gone", 422, "invalid_consent");
@@ -249,7 +252,7 @@ describe("what the renewal route says when it cannot act", () => {
     const { TrueLayerError } = await import("@tightarse/truelayer");
     const { deps: d } = deps({
       truelayer: {
-        refresh: vi.fn(async () => ({ accessToken: "at", refreshToken: "rt", expiresAt: "x" })),
+        refresh: vi.fn(async (rt: string) => ({ accessToken: "at", refreshToken: rt, expiresAt: "x" })),
         get: vi.fn(),
         extendConnection: vi.fn(async () => {
           throw new TrueLayerError("nope", 503, "unavailable");
@@ -272,7 +275,7 @@ describe("resolving the link when the provider is unhelpful", () => {
       .mockResolvedValue({ status: 200, body: { results: [{ credentials_id: "cred-1" }] } });
     const { deps: d } = deps({
       truelayer: {
-        refresh: vi.fn(async () => ({ accessToken: "at", refreshToken: "rt", expiresAt: "x" })),
+        refresh: vi.fn(async (rt: string) => ({ accessToken: "at", refreshToken: rt, expiresAt: "x" })),
         get,
         extendConnection: vi.fn(),
       },
@@ -289,7 +292,7 @@ describe("resolving the link when the provider is unhelpful", () => {
     const { deps: d, update } = deps(
       {
         truelayer: {
-          refresh: vi.fn(async () => ({ accessToken: "at", refreshToken: "rt", expiresAt: "x" })),
+          refresh: vi.fn(async (rt: string) => ({ accessToken: "at", refreshToken: rt, expiresAt: "x" })),
           get: vi.fn(async () => ({ status: 200, body: { results: [{ credentials_id: "other" }] } })),
           extendConnection: vi.fn(),
         },
@@ -319,7 +322,7 @@ describe("the shapes the provider can actually return", () => {
     deps(
       {
         truelayer: {
-          refresh: vi.fn(async () => ({ accessToken: "at", refreshToken: "rt", expiresAt: "x" })),
+          refresh: vi.fn(async (rt: string) => ({ accessToken: "at", refreshToken: rt, expiresAt: "x" })),
           get,
           extendConnection: vi.fn(async () => ({
             action: "renewed" as const,
@@ -375,7 +378,7 @@ describe("the shapes the provider can actually return", () => {
     const { TrueLayerError } = await import("@tightarse/truelayer");
     const { deps: d } = deps({
       truelayer: {
-        refresh: vi.fn(async () => ({ accessToken: "at", refreshToken: "rt", expiresAt: "x" })),
+        refresh: vi.fn(async (rt: string) => ({ accessToken: "at", refreshToken: rt, expiresAt: "x" })),
         get: vi.fn(),
         extendConnection: vi.fn(async () => {
           throw new TrueLayerError("nope", 500, null);
@@ -401,5 +404,112 @@ describe("the shapes the provider can actually return", () => {
       requestContext: { authorizer: { jwt: { claims: { "custom:tenant": "t1" } } } },
     });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("a provider that rotates the refresh token", () => {
+  /**
+   * Neither the sandbox nor prod's banks were measured rotating, so none of
+   * this has ever fired in anger. It is still the documented contract —
+   * "TrueLayer may return a NEW refresh token, and the old one stops working"
+   * — and the renewal path discarded it in two places. Against a provider
+   * that does rotate, that loses the connection, and the symptom arrives days
+   * later when the next sync fails.
+   */
+  const rotating = (stored: Connection[]) => {
+    const rotate = vi.fn(async (rt: string) => ({
+      accessToken: "at",
+      refreshToken: `${rt}-rotated`,
+      expiresAt: "x",
+    }));
+    const { deps: d, update } = deps(
+      {
+        truelayer: {
+          refresh: rotate,
+          get: vi.fn(async () => ({
+            status: 200,
+            body: { results: [{ credentials_id: "cred-1" }] },
+          })),
+          // Typed, so `mock.calls` carries the arguments the assertions read.
+          extendConnection: vi.fn(
+            async (_at: string, _args: { refreshToken: string }) => ({
+              action: "renewed" as const,
+              tokens: { accessToken: "a", refreshToken: "rt-final", expiresAt: "z" },
+            }),
+          ),
+        },
+      } as unknown as Partial<ConnectDeps>,
+      stored,
+    );
+    return { deps: d, update, extend: (d.truelayer as unknown as {
+      extendConnection: { mock: { calls: [string, { refreshToken: string }][] } };
+    }).extendConnection };
+  };
+
+  it("stores a rotated token before doing anything that can fail", async () => {
+    // The ordering is the whole point. Between the provider issuing a new
+    // token and this storing it, a failure loses the connection.
+    const { deps: d, update } = rotating([connection()]);
+
+    await reconfirmConnection(d, "t1", "cred-1");
+
+    expect(update.mock.calls[0]![0]).toMatchObject({
+      refreshToken: "rt-original-rotated",
+    });
+  });
+
+  it("hands the extend call the token that is now live, not the spent one", async () => {
+    // The bug that would break renewal against a rotating provider: refresh
+    // replaces the token, and passing the original asks the provider to
+    // extend a connection identified by something it has just retired.
+    const { deps: d, extend } = rotating([connection()]);
+
+    await reconfirmConnection(d, "t1", "cred-1");
+
+    expect(extend.mock.calls[0]![1]).toMatchObject({
+      refreshToken: "rt-original-rotated",
+    });
+  });
+
+  it("keeps a token rotated while probing for the connection", async () => {
+    // `connectionForConsent` refreshes each unlinked connection to ask /me
+    // who it is. That refresh rotates too, and the answer has to be kept or
+    // the probe kills the connection it was only trying to identify.
+    const { deps: d, update } = rotating([unlinked(connection())]);
+
+    await connectionForConsent(d, "t1", "cred-1");
+
+    const tokens = update.mock.calls.map((c) => (c[0] as Connection).refreshToken);
+    expect(tokens).toContain("rt-original-rotated");
+    expect(tokens).not.toContain("rt-original");
+  });
+});
+
+describe("what the provider is told about the household", () => {
+  it("sends the user object the reference asks for, not just an id", async () => {
+    // We were sending `{ id }` alone where TrueLayer's reference lists id,
+    // name and an email or phone. Unproven as the reason prod extended
+    // nothing, but it is a real difference between what is asked for and what
+    // was sent, and the mock bank may simply not care.
+    const extend = vi.fn(async (_at: string, _args: { user: Record<string, unknown> }) => ({
+      action: "renewed" as const,
+      tokens: { accessToken: "a", refreshToken: "r", expiresAt: "z" },
+    }));
+    const { deps: d } = deps({
+      contactEmail: "someone@example.invalid",
+      truelayer: {
+        refresh: vi.fn(async (rt: string) => ({ accessToken: "at", refreshToken: rt, expiresAt: "x" })),
+        get: vi.fn(),
+        extendConnection: extend,
+      },
+    } as unknown as Partial<ConnectDeps>);
+
+    await reconfirmConnection(d, "t1", "cred-1");
+
+    expect(extend.mock.calls[0]![1].user).toEqual({
+      id: "t1",
+      name: "t1",
+      email: "someone@example.invalid",
+    });
   });
 });

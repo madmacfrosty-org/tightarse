@@ -245,6 +245,7 @@ export class TrueLayerClient {
       access_token?: string;
       refresh_token?: string;
       expires_in?: number;
+      consent_expires_at?: string;
       error?: string;
     };
 
@@ -255,6 +256,25 @@ export class TrueLayerClient {
         body.error ?? null,
       );
     }
+
+    // Logged, because twice now the only evidence of what the provider
+    // decided has been whether the browser moved. Prod renewed three consents
+    // and extended none of them, and nothing anywhere recorded why — the
+    // response was read for one field and discarded.
+    //
+    // No tokens: `action_needed` and the consent dates are what a diagnosis
+    // needs, and the rest is credential material that has no business in a
+    // log group.
+    console.log(
+      JSON.stringify({
+        event: "truelayer.extend",
+        status: res.status,
+        actionNeeded: body.action_needed ?? null,
+        hasUserInputLink: body.user_input_link !== undefined,
+        consentExpiresAt: body.consent_expires_at ?? null,
+        error: body.error ?? null,
+      }),
+    );
 
     if (body.action_needed === "no_action_needed") {
       if (!body.refresh_token || !body.access_token) {
