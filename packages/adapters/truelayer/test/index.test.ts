@@ -327,3 +327,71 @@ describe("extending a connection", () => {
     expect(client.calls).toBe(0);
   });
 });
+
+describe("what an extend attempt leaves behind", () => {
+  const args = { refreshToken: "rt", redirectUri: "https://x.invalid/c", user: { id: "t" } };
+
+  it("records the provider's refusal, which is when a log matters most", async () => {
+    // The first version of this logged after the `!res.ok` throw, so a refusal
+    // produced nothing — and because the route turns that throw into a 502
+    // rather than letting it escape, there was no error line either. A real
+    // renewal failed in prod and left no trace at all.
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((l: string) => void lines.push(l));
+    mockFetch(422, { error: "cannot_extend", error_description: "consent too young" });
+
+    await new TrueLayerClient(creds, SANDBOX).extendConnection("at", args).catch(() => null);
+    spy.mockRestore();
+
+    const logged = JSON.parse(lines.find((l) => l.includes("truelayer.extend"))!) as Record<
+      string,
+      unknown
+    >;
+    expect(logged).toMatchObject({ status: 422, ok: false, error: "cannot_extend" });
+    expect(logged["errorDescription"]).toBe("consent too young");
+  });
+
+  it("records a success too, so a no-op is distinguishable from a failure", async () => {
+    // Three prod renewals returned success and changed nothing. Without the
+    // action on the record, that is indistinguishable from them not running.
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((l: string) => void lines.push(l));
+    mockFetch(200, {
+      action_needed: "no_action_needed",
+      access_token: "a",
+      refresh_token: "r",
+      expires_in: 60,
+      consent_expires_at: "2027-01-02T00:00:00Z",
+    });
+
+    await new TrueLayerClient(creds, SANDBOX).extendConnection("at", args);
+    spy.mockRestore();
+
+    expect(JSON.parse(lines.find((l) => l.includes("truelayer.extend"))!)).toMatchObject({
+      status: 200,
+      ok: true,
+      actionNeeded: "no_action_needed",
+      consentExpiresAt: "2027-01-02T00:00:00Z",
+    });
+  });
+
+  it("never logs a token", async () => {
+    // The response carries access and refresh tokens. A log group is not where
+    // they belong, and a diagnosis has never needed them.
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((l: string) => void lines.push(l));
+    mockFetch(200, {
+      action_needed: "no_action_needed",
+      access_token: "SECRET-ACCESS",
+      refresh_token: "SECRET-REFRESH",
+      expires_in: 60,
+    });
+
+    await new TrueLayerClient(creds, SANDBOX).extendConnection("at", args);
+    spy.mockRestore();
+
+    const all = lines.join("\n");
+    expect(all).not.toContain("SECRET-ACCESS");
+    expect(all).not.toContain("SECRET-REFRESH");
+  });
+});
