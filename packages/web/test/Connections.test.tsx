@@ -38,6 +38,20 @@ const withConsents = (consents: unknown[]) => {
   });
 };
 
+
+/**
+ * Press Reconfirm and agree to the consent screen.
+ *
+ * Two steps on purpose: the renewal asserts to the provider that the household
+ * reconfirmed, and until this screen existed nothing had asked them. A test
+ * that could reach the API in one click would stop noticing if the screen were
+ * removed.
+ */
+const reconfirmThroughConsent = async () => {
+  await userEvent.click(await screen.findByRole("button", { name: /^reconfirm$/i }));
+  await userEvent.click(await screen.findByRole("button", { name: /keep sharing/i }));
+};
+
 describe("the connections list", () => {
   it("names every bank and how long its consent has left", async () => {
     withConsents([consent()]);
@@ -251,7 +265,7 @@ describe("renewing a connection", () => {
     render(<Connections api={api} />);
     await screen.findByText(/12 days left/);
 
-    await userEvent.click(await screen.findByRole("button", { name: /reconfirm/i }));
+    await reconfirmThroughConsent();
 
     await waitFor(() => expect(screen.getByText(/89 days left/)).toBeDefined());
   });
@@ -273,7 +287,7 @@ describe("renewing a connection", () => {
     }));
     render(<Connections api={api} />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /reconfirm/i }));
+    await reconfirmThroughConsent();
 
     await waitFor(() =>
       expect(assign).toHaveBeenCalledWith("https://login.example.invalid/?session=1"),
@@ -292,7 +306,7 @@ describe("saying that a renewal happened", () => {
     apiPost.mockImplementation(async () => ({ consentId: "c-1", action: "renewed" }));
     render(<Connections api={api} />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /reconfirm/i }));
+    await reconfirmThroughConsent();
 
     expect(await screen.findByText(/after the next daily sync/i)).toBeDefined();
   });

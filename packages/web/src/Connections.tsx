@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { loadConfig } from "./config";
+import { ReconfirmConsent } from "./ReconfirmConsent";
 import {
   AccountsResponse,
   pathFor,
@@ -138,6 +139,17 @@ export function Connections({ api }: { api: Api }) {
    */
   const [renewed, setRenewed] = useState<Record<string, string>>({});
 
+  /**
+   * The connection awaiting a reconfirmation of consent, if any.
+   *
+   * Reconfirm no longer calls the API directly. UK rules require consent to be
+   * reconfirmed with the provider every 90 days, and nothing was asking — the
+   * renewal asserted `user_has_reconfirmed_consent` having shown nobody
+   * anything. TrueLayer refuses that until the screen has been reviewed, which
+   * is how it was found.
+   */
+  const [confirming, setConfirming] = useState<ConsentView | null>(null);
+
   useEffect(() => {
     loadConfig()
       .then((cfg) => setMayRenew(cfg.canRenewConnections === true))
@@ -181,6 +193,7 @@ export function Connections({ api }: { api: Api }) {
   }, [read]);
 
   const reconfirm = async (consentId: string) => {
+    setConfirming(null);
     setBusy(consentId);
     setActionError(null);
     try {
@@ -211,6 +224,20 @@ export function Connections({ api }: { api: Api }) {
       setBusy(null);
     }
   };
+
+  // Shown instead of the list, not over it. A consent screen competing with a
+  // table of other connections invites skimming, and what is being agreed to
+  // here is access to somebody's bank.
+  if (confirming !== null) {
+    return (
+      <ReconfirmConsent
+        consent={confirming}
+        busy={busy !== null}
+        onConfirm={() => void reconfirm(confirming.consentId)}
+        onCancel={() => setConfirming(null)}
+      />
+    );
+  }
 
   if (readError) {
     return (
@@ -267,7 +294,7 @@ export function Connections({ api }: { api: Api }) {
                         type="button"
                         className="ghost"
                         disabled={!RENEWABLE.includes(c.health) || busy !== null}
-                        onClick={() => void reconfirm(c.consentId)}
+                        onClick={() => setConfirming(c)}
                         title={
                           RENEWABLE.includes(c.health)
                             ? "Confirm with the provider that this connection may continue"
