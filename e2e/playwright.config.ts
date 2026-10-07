@@ -179,6 +179,34 @@ export default defineConfig({
   // else the account is doing.
   retries: 2,
   reporter: process.env["CI"] ? [["blob"], ["list"]] : [["html", { open: "never" }], ["list"]],
+  /**
+   * Longer than Playwright's five seconds, because this suite waits on a cold
+   * Lambda rather than on a local render.
+   *
+   * Measured on 7 October 2026: dev's read API returned in 7.1 to 7.8 seconds
+   * with no errors and no timeouts, and six of nineteen scenarios failed
+   * asserting against a page that was still loading. Thirteen passed and two
+   * passed on retry — the signature of a timeout, not of a broken deployment.
+   *
+   * Fifteen seconds matches the API Lambda's own timeout. Past that the
+   * function has given up, so a failure here is the deployment failing rather
+   * than this suite being impatient — which is the only thing a canary should
+   * ever report.
+   *
+   * It is not a licence for a slow dashboard. Seven seconds for a read is
+   * worth its own look; this stops the canary reporting it as a broken page.
+   */
+  expect: { timeout: 15_000 },
+  /**
+   * The whole scenario, not one assertion. Playwright's default is thirty
+   * seconds and a merchant search against dev exceeded it: the ledger there
+   * grew to sixteen thousand transactions when a mock bank was connected on
+   * 4 October, and the scenarios predate that.
+   *
+   * Sixty rather than higher. A canary that waits two minutes to report is one
+   * nobody waits for, and the point of the stage is to gate a deploy.
+   */
+  timeout: 60_000,
   use: {
     baseURL,
     // Kept only for a failure. A trace records what was on screen, and what is
