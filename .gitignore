@@ -74,5 +74,9 @@ reports/
 e2e/test-results/
 e2e/playwright-report/
 e2e/blob-report/
-e2e/.auth/
+# Anywhere, not just under e2e/. Running Playwright from the repo root with
+# `--config e2e/playwright.config.ts` resolves the relative state path against
+# the root, so a live signed-in session lands here instead — untracked, and in
+# a public repository.
+.auth/
 playwright/.cache/
