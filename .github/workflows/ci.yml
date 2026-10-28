@@ -368,8 +368,74 @@ jobs:
   # change that is harmless against dev now reaches prod unattended. If that ever
   # bites, the fix is a reviewer back on the prod environment — a settings
   # change, not a code change, and nothing here needs touching.
-  deploy-prod:
+  # The only job that tests the thing we actually run.
+  #
+  # Everything above it tests the code. Three changes in the first week of
+  # October synthesised cleanly, deployed cleanly, passed every test and were
+  # broken the moment something called them: TL_ENV read in three places and
+  # set by none, ListSecrets denied on the connect function, and a log line
+  # placed after the throw it needed to survive. None of them is visible to a
+  # suite that never leaves the repository.
+  #
+  # Between the two deploys on purpose. Dev is the account built to be thrown
+  # away; prod holds five years of a household's transactions. A check that
+  # runs after both have shipped is a report, not a gate.
+  canary:
     needs: [deploy]
+    runs-on: ubuntu-latest
+    environment: dev
+
+    # Shares dev's group so a canary cannot run against a deployment that is
+    # being replaced underneath it — which reads as a flaky suite rather than
+    # as the race it is.
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Install the browser
+        run: npm run e2e:install -w @tightarse/e2e
+
+      # The credential is a dev Cognito user and nothing else: dev holds no
+      # TrueLayer credential of consequence and its ledger is generated. It
+      # cannot reach prod — the suite refuses any base URL but dev's, in
+      # `playwright.config.ts`, which is checked before a browser is opened.
+      - name: Drive the dashboard
+        env:
+          E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
+          E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
+        run: npm run test:e2e -w @tightarse/e2e
+
+      # Kept only on failure, and only for a day. A trace records what was on
+      # screen, and what is on screen is a ledger — synthetic here, and the
+      # habit matters more than this one environment.
+      - name: Keep the evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: canary-trace
+          path: e2e/test-results/
+          retention-days: 1
+
+  deploy-prod:
+    # The canary, not the deploy. Prod ships only once something has driven a
+    # browser at the same code on dev and found it working — which is the gate
+    # this pipeline did not have when a renewal wrote an access token's
+    # one-hour lifetime into three live connections' consent expiry.
+    needs: [canary]
     runs-on: ubuntu-latest
     environment: prod
     # Its own group, not shared with dev: prod waits on prod. See `deploy`.

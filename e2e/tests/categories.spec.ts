@@ -39,7 +39,23 @@ test("creating a category asks what it does to the money", async ({ page }) => {
   // without saying whether money filed there has been spent, earned or merely
   // moved — a savings category counted as spending overstates outgoings by its
   // whole balance, which is what #109 was.
-  await page.getByRole("button", { name: /new category|add category/i }).first().click();
+  //
+  // Driven through the control that exists rather than the one this test used
+  // to imagine. It looked for a button called "new category"; creating one is
+  // an option on the "Categorise as" select, which appears only when there are
+  // uncategorised transactions to act on. The test had never matched the page,
+  // and nothing noticed because nothing ran it.
+  // Search first. The control only exists once there are transactions to act
+  // on — it is part of categorising something, not a page-level button — so a
+  // test that lands on an empty page finds nothing and says the feature is
+  // missing.
+  await page.getByLabel("Merchant").fill("a");
+  await page.getByRole("button", { name: /search|find/i }).first().click();
+
+  const categorise = page.getByLabel("Categorise as");
+  await expect(categorise).toBeVisible();
+  await categorise.selectOption({ label: "New category…" });
+
   await expect(page.getByLabel("What it does to the money")).toBeVisible();
 });
 
