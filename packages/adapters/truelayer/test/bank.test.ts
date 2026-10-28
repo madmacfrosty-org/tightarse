@@ -90,9 +90,56 @@ describe("listing what a connection holds", () => {
     expect(out.items).toEqual([{ resource: "cards", itemId: "c1" }]);
   });
 
-  it("lets a genuine failure through, so the state machine retries", async () => {
-    const { subject } = bank(() => refuse(500));
-    await expect(subject.listItems("token")).rejects.toThrow();
+  it("records a broken resource and carries on with the other one", async () => {
+    // This used to throw, on the stated grounds that "the state machine
+    // retries". It does not: the retry and the catch are on the per-item step
+    // inside the Map, and the per-connection step that calls this had
+    // neither. So a throw here failed the connection and, with no tolerated
+    // failure on the Map, the whole execution.
+    //
+    // Measured in prod. A card replaced after a lost wallet made `/cards`
+    // return 500 on 25, 26, 27 and 28 October 2026. Two healthy connections
+    // went dark for four days over a card that had been cancelled.
+    const { subject } = bank((p) =>
+      p.endsWith("/cards") ? refuse(500) : { results: [{ account_id: "a1" }] },
+    );
+
+    const out = await subject.listItems("token");
+
+    expect(out.items).toEqual([{ resource: "accounts", itemId: "a1" }]);
+    // The code is whatever the provider sent — `refuse` supplies the
+    // fixture's own. In prod this was `internal_server_error`.
+    expect(out.failed).toEqual([{ resource: "cards", status: 500, code: "refused" }]);
+    // Not in `skipped`: that list means the provider does not offer this, and
+    // a card whose transactions have stopped must not read like Amex having no
+    // current accounts.
+    expect(out.skipped).toEqual([]);
+  });
+
+  it("keeps the payloads it had already fetched when a later resource breaks", async () => {
+    // The sharpest edge of the old behaviour. `/me` is fetched before the
+    // resource loop, so a throw out of the loop discarded a call that had
+    // already been spent against an allowance of four a day — and with it the
+    // consent dates, which is why nothing could say how long was left.
+    const { subject } = bank((p) =>
+      p.endsWith("/me")
+        ? { results: [{ credentials_id: "cred-1", consent_expires_at: "2026-11-09T22:30:20Z" }] }
+        : refuse(500),
+    );
+
+    const out = await subject.listItems("token");
+
+    expect(out.payloads.map((p) => p.dataset)).toContain("truelayer.me");
+    expect(out.failed.map((f) => f.resource)).toEqual(["accounts", "cards"]);
+  });
+
+  it("still throws on something that is not the provider refusing", async () => {
+    // A network error or a bug is not a broken resource, and absorbing it
+    // would turn a run that fetched nothing into a run that reported nothing.
+    const { subject } = bank(() => {
+      throw new Error("socket hang up");
+    });
+    await expect(subject.listItems("token")).rejects.toThrow(/socket hang up/);
   });
 
   it("ignores an entry with no account id rather than inventing one", async () => {
