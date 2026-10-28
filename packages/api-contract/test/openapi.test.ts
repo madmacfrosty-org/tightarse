@@ -8,7 +8,6 @@ import {
   API_VERSION,
   CATEGORISATION_ROUTES,
   CONNECTION_ROUTES,
-  CONNECT_WRITE_ROUTES,
   CONNECT_PATHS,
   ROUTES,
   pathFor,
@@ -104,12 +103,6 @@ describe("what must survive generation", () => {
           ...ROUTES,
           ...CATEGORISATION_ROUTES,
           ...CONNECTION_ROUTES,
-          // Served by the connect function rather than the read API, because
-          // renewal needs the provider client and the connection secrets. The
-          // document does not care which function answers, and must describe
-          // every route the gateway registers or the published contract is a
-          // partial one.
-          ...CONNECT_WRITE_ROUTES,
         ].map(pathFor),
       ),
     );

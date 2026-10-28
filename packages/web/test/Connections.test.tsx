@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { pathFor } from "@tightarse/api-contract";
 import type { Parses } from "../src/ports";
-import { Connections, renewedNote } from "../src/Connections";
+import { Connections } from "../src/Connections";
 
 /**
  * Every institution, id and date below is invented. This repository is public.
@@ -39,18 +39,6 @@ const withConsents = (consents: unknown[]) => {
 };
 
 
-/**
- * Press Reconfirm and agree to the consent screen.
- *
- * Two steps on purpose: the renewal asserts to the provider that the household
- * reconfirmed, and until this screen existed nothing had asked them. A test
- * that could reach the API in one click would stop noticing if the screen were
- * removed.
- */
-const reconfirmThroughConsent = async () => {
-  await userEvent.click(await screen.findByRole("button", { name: /^reconfirm$/i }));
-  await userEvent.click(await screen.findByRole("button", { name: /keep sharing/i }));
-};
 
 describe("the connections list", () => {
   it("names every bank and how long its consent has left", async () => {
@@ -204,137 +192,5 @@ describe("the connections list", () => {
  * runs against a failed config read — which hides the button and would let all
  * of this pass while testing nothing.
  */
-vi.mock("../src/config", () => ({
-  loadConfig: vi.fn(async () => ({
-    userPoolId: "p",
-    userPoolClientId: "c",
-    hostedUiDomain: "d",
-    apiUrl: "https://api.example.invalid",
-    canRenewConnections: canRenew,
-  })),
-}));
 
-let canRenew = true;
 
-describe("renewing a connection", () => {
-  it("is not offered where the deployment does not own the connections", async () => {
-    // The API refuses there. Offering a control that always fails is worse
-    // than not offering one.
-    canRenew = false;
-    withConsents([consent({ health: "ok" })]);
-    render(<Connections api={api} />);
-    await screen.findByText("Example Bank");
-
-    await waitFor(() =>
-      expect(screen.queryByRole("button", { name: /reconfirm/i })).toBeNull(),
-    );
-  });
-
-  it("is offered on a live connection and refused on a lapsed one", async () => {
-    // The exact complement of Remove: every connection gets one action,
-    // decided by its state. A lapsed consent has nothing left to extend.
-    canRenew = true;
-    withConsents([
-      consent({ consentId: "live", institutionName: "Live Bank", health: "ok" }),
-      consent({ consentId: "gone", institutionName: "Lapsed Bank", health: "expired" }),
-    ]);
-    render(<Connections api={api} />);
-    await screen.findByText("Live Bank");
-
-    const buttons = await screen.findAllByRole("button", { name: /reconfirm/i });
-    const [lapsed, live] = [buttons[0]!, buttons[1]!]; // expired sorts first
-    expect(lapsed.hasAttribute("disabled")).toBe(true);
-    expect(live.hasAttribute("disabled")).toBe(false);
-  });
-
-  it("re-reads the page when the provider renews, rather than guessing the date", async () => {
-    // The new expiry is the provider's answer and the server has it. Computing
-    // one here would put a date on screen that nothing else agrees with.
-    canRenew = true;
-    let remaining = 12;
-    apiGet.mockImplementation(async (p: string) => {
-      if (p.startsWith(pathFor("/accounts"))) {
-        return { accounts: [], consents: [consent({ health: "ok", daysRemaining: remaining })] };
-      }
-      throw new Error(`unexpected path ${p}`);
-    });
-    apiPost.mockImplementation(async () => {
-      remaining = 89;
-      return { consentId: "c-1", action: "renewed", expiresAt: "2026-12-29T00:00:00.000Z" };
-    });
-    render(<Connections api={api} />);
-    await screen.findByText(/12 days left/);
-
-    await reconfirmThroughConsent();
-
-    await waitFor(() => expect(screen.getByText(/89 days left/)).toBeDefined());
-  });
-
-  it("sends the household onward when the provider wants a person", async () => {
-    // Not reported as renewed: it is not renewed until they finish, and the
-    // page could not take that back.
-    canRenew = true;
-    const assign = vi.fn();
-    Object.defineProperty(window, "location", {
-      value: { assign, href: "http://localhost/" },
-      writable: true,
-    });
-    withConsents([consent({ health: "warn" })]);
-    apiPost.mockImplementation(async () => ({
-      consentId: "c-1",
-      action: "authentication",
-      continueAt: "https://login.example.invalid/?session=1",
-    }));
-    render(<Connections api={api} />);
-
-    await reconfirmThroughConsent();
-
-    await waitFor(() =>
-      expect(assign).toHaveBeenCalledWith("https://login.example.invalid/?session=1"),
-    );
-  });
-});
-
-describe("saying that a renewal happened", () => {
-  // The question a renewal immediately raises: "did that work? the date has
-  // not moved." It has not, because TrueLayer applies the extension
-  // asynchronously and this page reads a row the daily sync writes. Without a
-  // word on screen the honest answer looks identical to a broken one.
-  it("says the date waits for the sync, once a renewal has happened", async () => {
-    canRenew = true;
-    withConsents([consent({ health: "warn", daysRemaining: 12 })]);
-    apiPost.mockImplementation(async () => ({ consentId: "c-1", action: "renewed" }));
-    render(<Connections api={api} />);
-
-    await reconfirmThroughConsent();
-
-    expect(await screen.findByText(/after the next daily sync/i)).toBeDefined();
-  });
-
-  it("says nothing before anybody renews", async () => {
-    canRenew = true;
-    withConsents([consent({ health: "warn" })]);
-    render(<Connections api={api} />);
-    await screen.findByText("Example Bank");
-
-    expect(screen.queryByText(/after the next daily sync/i)).toBeNull();
-  });
-
-  it("stops saying it once a sync has run since", async () => {
-    // Tested on the rule rather than the component, because getting there
-    // through the UI needs a second sync to happen mid-test. The row is
-    // telling the truth by then and the explanation would be noise.
-    const renewedAt = "2026-10-04T18:00:00.000Z";
-    expect(
-      renewedNote({ fetchedAt: "2026-10-04T17:00:00.000Z" }, renewedAt),
-    ).toMatch(/daily sync/);
-    expect(
-      renewedNote({ fetchedAt: "2026-10-05T05:00:00.000Z" }, renewedAt),
-    ).toBeUndefined();
-  });
-
-  it("says nothing about a connection nobody renewed", async () => {
-    // Per connection, not per page: renewing one must not annotate the others.
-    expect(renewedNote({ fetchedAt: "2026-10-04T17:00:00.000Z" }, undefined)).toBeUndefined();
-  });
-});

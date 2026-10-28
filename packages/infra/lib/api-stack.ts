@@ -10,7 +10,6 @@ import type { Identity } from "./data-stack.js";
 import {
   CATEGORISATION_ROUTES,
   CONNECT_PATHS,
-  CONNECT_WRITE_ROUTES,
   CONNECTION_ROUTES,
   ROUTES,
   pathFor,
@@ -151,23 +150,6 @@ export class ApiStack extends cdk.Stack {
         });
       }
 
-      // Renewal, on the same function and for a reason: it needs the TrueLayer
-      // client and the connection secrets, which this one already holds. The
-      // categorisation function serves the other connection route because that
-      // one only writes a DynamoDB row — giving it these secrets would widen
-      // the read API to every refresh token the household has.
-      for (const route of CONNECT_WRITE_ROUTES) {
-        const path = pathFor(route);
-        this.api.addRoutes({
-          path,
-          methods: [route.method === "post" ? apigw.HttpMethod.POST : apigw.HttpMethod.GET],
-          integration: new integrations.HttpLambdaIntegration(
-            `Int${path.replace(/[^a-zA-Z0-9]/g, "")}`,
-            connect,
-          ),
-          authorizer,
-        });
-      }
     }
 
     // Categorisation. Same authoriser as everything else, different function.

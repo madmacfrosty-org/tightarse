@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { TrueLayerClient, LIVE, SANDBOX, TrueLayerError } from "@tightarse/truelayer";
 import { Connections, consentExpiry, type Connection } from "./connections.js";
 import { AwsSecrets, startExecution } from "@tightarse/aws";
-import { ReconfirmConnectionRequest } from "@tightarse/api-contract";
 
 /**
  * The connect flow: turn a bank authorisation into a stored connection.
@@ -35,28 +34,8 @@ export interface ConnectDeps {
    * Undefined where no state machine is configured.
    */
   readonly startSync?: ((connectionId: string) => Promise<void>) | undefined;
-  /**
-   * Whether this deployment owns the household's connections.
-   *
-   * Renewal spends and replaces a refresh token, so only the deployment
-   * holding them may do it — the same ownership `syncEnabled` states for the
-   * daily refresh, and the same failure if two deployments both act: the
-   * loser writes back a token the winner has already spent and the connection
-   * dies days later.
-   *
-   * Gated here rather than only in the dashboard. A control that is not
-   * rendered is not a control that cannot be called.
-   */
-  readonly ownsConnections: boolean;
   /** Whether this deployment talks to the sandbox. Decides which banks exist. */
   readonly sandbox: boolean;
-  /**
-   * An address for the household, as the extend endpoint asks for.
-   *
-   * Not used to reach anybody — nothing here sends mail. It is part of the
-   * `user` object TrueLayer's reference requires, and we were omitting it.
-   */
-  readonly contactEmail: string;
 }
 
 /**
@@ -164,8 +143,6 @@ export async function completeConnect(
 
 export interface ConnectEvent {
   rawPath?: string;
-  body?: string;
-  isBase64Encoded?: boolean;
   queryStringParameters?: Record<string, string | undefined> | null;
   requestContext?: { authorizer?: { jwt?: { claims?: Record<string, unknown> } } };
 }
@@ -188,11 +165,7 @@ export async function realConnectDeps(): Promise<ConnectDeps> {
     connections: new Connections(required("CONNECTION_SECRET_PREFIX"), secrets),
     redirectUri: required("CONNECT_REDIRECT_URI"),
     providers: process.env["TL_PROVIDERS"] ?? "uk-ob-all uk-oauth-all",
-    // Default false. A deployment that has not said it owns the connections
-    // does not, and the safe answer is the one you get by omission.
-    ownsConnections: process.env["CONNECTIONS_OWNED"] === "true",
     sandbox,
-    contactEmail: process.env["CONTACT_EMAIL"] ?? "household@example.invalid",
     clientId: creds.clientId,
     authBase: sandbox ? SANDBOX.auth : LIVE.auth,
     ...(machine
@@ -205,183 +178,6 @@ export async function realConnectDeps(): Promise<ConnectDeps> {
         }
       : {}),
   };
-}
-
-export class ConsentNotRenewable extends Error {
-  readonly statusCode = 409;
-  constructor(message: string) {
-    super(message);
-  }
-}
-
-export class ConsentUnknown extends Error {
-  readonly statusCode = 404;
-  constructor(consentId: string) {
-    super(`No connection matches consent ${consentId}`);
-  }
-}
-
-/**
- * Refresh a connection's access token, persisting whatever comes back.
- *
- * The one rule that governs every use of `refresh` in this codebase, stated
- * once so it cannot be forgotten in a third place: TrueLayer may return a NEW
- * refresh token and the old one stops working, so the caller must store what
- * it is given BEFORE doing anything that could fail.
- *
- * `steps.ts` has always done this on the sync path. The renewal path did not,
- * in two places, and the sandbox hid it by never rotating.
- *
- * Returns the connection as it now is, so callers use the live token rather
- * than the one they were holding.
- */
-async function refreshAndStore(
-  deps: Pick<ConnectDeps, "truelayer" | "connections">,
-  connection: Connection,
-): Promise<{ connection: Connection; accessToken: string }> {
-  const tokens = await deps.truelayer.refresh(connection.refreshToken);
-  if (tokens.refreshToken !== connection.refreshToken) {
-    const rotated = { ...connection, refreshToken: tokens.refreshToken };
-    await deps.connections.update(rotated);
-    return { connection: rotated, accessToken: tokens.accessToken };
-  }
-  return { connection, accessToken: tokens.accessToken };
-}
-
-/**
- * Find the connection behind a consent id, filling in the link if absent.
- *
- * The dashboard knows a consent by the provider's `credentials_id`; the stored
- * secrets are keyed by our own connection id, and until renewal needed it
- * nothing recorded which was which. Resolving costs one `/me` call per
- * connection lacking the link, and the answer is stored, so it is paid once
- * per connection rather than once per renewal.
- *
- * Connections that already carry the link are matched without any call at all,
- * which is what keeps this off the unattended allowance in the normal case.
- */
-export async function connectionForConsent(
-  deps: Pick<ConnectDeps, "truelayer" | "connections">,
-  tenantId: string,
-  consentId: string,
-): Promise<Connection> {
-  const all = await deps.connections.list(tenantId);
-
-  const known = all.find((c) => c.credentialsId === consentId);
-  if (known) return known;
-
-  for (const connection of all.filter((c) => c.credentialsId === undefined)) {
-    // Refreshing may rotate. Whatever comes back is stored before anything
-    // else happens, because the old token stops working the moment the new
-    // one is issued — the hazard `TrueLayerClient.refresh` documents, and the
-    // discipline `steps.ts` already follows on the sync path.
-    //
-    // This probe did not, and discarded the new token while writing the old
-    // one back. Invisible in the sandbox, which does not rotate; potentially
-    // fatal against a bank that does.
-    const current = await refreshAndStore(deps, connection);
-
-    const { body } = await deps.truelayer.get(current.accessToken, "/data/v1/me");
-    const credentialsId = (
-      (body as { results?: { credentials_id?: string }[] }).results ?? []
-    )[0]?.credentials_id;
-    if (credentialsId === undefined) continue;
-
-    // Stored whatever the outcome, so a connection is probed once ever rather
-    // than once per attempt at renewing a different one.
-    const linked = { ...current.connection, credentialsId };
-    await deps.connections.update(linked);
-    if (credentialsId === consentId) return linked;
-  }
-
-  throw new ConsentUnknown(consentId);
-}
-
-/**
- * Renew a consent before it lapses.
- *
- * Refuses one that has already gone: there is nothing left to extend and the
- * remedy is connecting again, which is a different act with a different cost.
- *
- * When the provider renews without asking anything, the new refresh token is
- * stored BEFORE the answer is returned. That ordering is the whole risk in
- * this function — the old token stops working at the moment the new one is
- * issued, so a failure between the two loses the connection, and the only way
- * back is a consent that buys ninety days and no history.
- */
-export async function reconfirmConnection(
-  deps: ConnectDeps,
-  tenantId: string,
-  consentId: string,
-): Promise<{ consentId: string; action: "renewed" | "consent" | "authentication"; continueAt?: string; expiresAt?: string }> {
-  const connection = await connectionForConsent(deps, tenantId, consentId);
-
-  // Deliberately no check against `connection.consentExpiresAt`.
-  //
-  // It was one, and it was wrong twice over. The stored date is our record of
-  // what the provider said at connect time, and the provider is the authority
-  // on whether a consent can still be extended — it answers that in the call
-  // below, with a reason. Guarding on a local copy refuses renewals the
-  // provider would have allowed, and on 4 October 2026 it refused all three
-  // of prod's after a bug overwrote that field with an access-token lifetime.
-  //
-  // A genuinely lapsed consent comes back as a TrueLayerError, which the route
-  // turns into a 502 carrying the provider's own words.
-
-  // Same rule, and the reason renewal failed against prod's banks while
-  // working against the sandbox. This refreshed, kept only the access token,
-  // and then handed `extendConnection` the ORIGINAL refresh token — which the
-  // refresh had just replaced. The provider cannot extend a connection
-  // identified by a token it has already retired.
-  //
-  // The sandbox does not rotate (measured, `cec9a89`), so the original stayed
-  // valid there and the whole thing appeared to work.
-  const current = await refreshAndStore(deps, connection);
-
-  const outcome = await deps.truelayer.extendConnection(current.accessToken, {
-    refreshToken: current.connection.refreshToken,
-    redirectUri: deps.redirectUri,
-    // id, name and an email: TrueLayer's reference lists all three, and we
-    // were sending only the id. Whether an incomplete user is why prod
-    // extended nothing is unproven — but it is the difference between what
-    // the reference asks for and what we send, and it costs nothing to close.
-    user: { id: tenantId, name: tenantId, email: deps.contactEmail },
-  });
-
-  if (outcome.action !== "renewed") {
-    return { consentId, action: outcome.action, continueAt: outcome.continueAt };
-  }
-
-  // The token first and on its own. Between the provider issuing a new refresh
-  // token and this storing it, the connection is lost if anything fails — so
-  // nothing else goes in front of it, and the consent date is a second write
-  // rather than a reason to delay this one.
-  //
-  // `consentExpiresAt` is deliberately NOT taken from the token response. That
-  // response carries `expires_in`, which is the ACCESS token's lifetime —
-  // about an hour. Writing it here set three prod connections to "lapsed an
-  // hour ago", which then made them unrenewable by the guard above. The
-  // consent's own expiry is only known to `/me`, so it is read from there.
-  // The token, and nothing else.
-  //
-  // `consentExpiresAt` is deliberately not written here. The token response
-  // carries `expires_in`, which is the ACCESS token's lifetime — about an hour
-  // — and writing that as the consent's expiry set three prod connections to
-  // "lapsed an hour ago". The consent's real expiry is known only to `/me`,
-  // and only some time later: TrueLayer applies the extension asynchronously,
-  // so a `/me` fetched seconds after renewing still reports the old date.
-  //
-  // Measured on 4 October 2026: a consent renewed at 18:34:49Z still read
-  // 14:06:34Z immediately afterwards, and read 18:34:49Z + 90 days on the next
-  // sync. So there is no reading this renewal can take that is worth taking —
-  // the daily sync owns this field, and the dashboard says so rather than
-  // showing a figure that has not caught up.
-  await deps.connections.update({
-    ...current.connection,
-    refreshToken: outcome.tokens.refreshToken,
-  });
-
-  return { consentId, action: "renewed" };
 }
 
 /** Both routes, against dependencies the caller supplies. */
@@ -461,30 +257,6 @@ export async function connectRoutes(deps: ConnectDeps, event: ConnectEvent) {
     }
   }
 
-  if (path.endsWith("/connections/reconfirm")) {
-    if (!deps.ownsConnections) {
-      // 403 rather than 404: the route exists and the request was well formed.
-      // Saying "not here" would send somebody looking for a deployment bug.
-      return json(403, {
-        error: "This deployment does not own the household's connections and may not renew them",
-      });
-    }
-
-    const body = parseBody(event);
-    const parsed = ReconfirmConnectionRequest.safeParse(body);
-    if (!parsed.success) return json(400, { error: "A consentId is required" });
-
-    try {
-      return json(200, await reconfirmConnection(deps, tenantId, parsed.data.consentId));
-    } catch (err) {
-      if (err instanceof ConsentNotRenewable) return json(409, { error: err.message });
-      if (err instanceof ConsentUnknown) return json(404, { error: err.message });
-      if (err instanceof TrueLayerError) {
-        return json(502, { error: `Provider refused the renewal (${err.status} ${err.code ?? ""})` });
-      }
-      throw err;
-    }
-  }
 
   return json(404, { error: `No route for ${path}` });
 }
@@ -500,23 +272,6 @@ export async function connectRoutes(deps: ConnectDeps, event: ConnectEvent) {
  */
 export async function handler(event: ConnectEvent) {
   return connectRoutes(await realConnectDeps(), event);
-}
-
-/**
- * The request body, or undefined.
- *
- * API Gateway hands a string, base64-encoded when it decides to. Parsing
- * failures are undefined rather than thrown: the caller validates the shape
- * anyway and a malformed body is a 400 either way.
- */
-function parseBody(event: ConnectEvent): unknown {
-  const raw = event.body;
-  if (typeof raw !== "string") return undefined;
-  try {
-    return JSON.parse(event.isBase64Encoded === true ? Buffer.from(raw, "base64").toString("utf8") : raw);
-  } catch {
-    return undefined;
-  }
 }
 
 function json(statusCode: number, body: unknown) {

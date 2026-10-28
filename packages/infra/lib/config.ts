@@ -325,24 +325,6 @@ export function liveSyncIsProdAlone(settings: Record<string, EnvSettings>): void
   }
 }
 
-/**
- * Whether a deployment may act on the connections it holds.
- *
- * Distinct from `syncEnabled`, which says whether it refreshes them on a
- * schedule. This says whether it owns them at all — and the answer is the same
- * rule `liveSyncIsProdAlone` enforces: the live connections belong to prod, and
- * a sandbox deployment owns its own, which are a mock bank's and cost nothing
- * to spend.
- *
- * Named rather than folded into `syncEnabled` because reading renewal
- * permission off a flag called "sync" is how the two get conflated. They were,
- * briefly: dev was refused renewal because it does not run a daily sync, which
- * is not the question.
- */
-export function ownsConnections(settings: EnvSettings): boolean {
-  return settings.providerEnvironment === "sandbox" || settings.name === "prod";
-}
-
 liveSyncIsProdAlone(SETTINGS);
 
 /**

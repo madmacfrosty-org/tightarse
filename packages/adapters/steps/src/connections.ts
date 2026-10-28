@@ -104,6 +104,17 @@ export class Connections {
  * UK rules require consent to be reconfirmed with the AISP every 90 days, or
  * data access stops. Recorded as an absolute date at connect time so nothing
  * has to recompute it from an issue date it may not have.
+ *
+ * Reconfirming is not available to us, and this is where to find that out
+ * before going looking. TrueLayer exposes it on `/connections/extend`, which
+ * refuses our client id with 400: "not permitted to set
+ * user_has_reconfirmed_consent to true in this environment. To enable this
+ * client_id you must submit your consent screen for review." The review is
+ * gated behind a paid plan. Setting the flag false is documented as "currently
+ * not supported", so their hosted dialog is not a way round it either.
+ *
+ * So the only renewal is reconnecting at the bank — a fresh authorisation,
+ * a fresh 90 days, and the deep-history window spent. See #69.
  */
 export const CONSENT_DAYS = 90;
 

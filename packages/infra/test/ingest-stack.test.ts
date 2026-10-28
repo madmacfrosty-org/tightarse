@@ -5,7 +5,6 @@ import {
   connectRedirectUri,
   envSettings,
   liveSyncIsProdAlone,
-  ownsConnections,
   SETTINGS,
   type EnvSettings,
 } from "../lib/config.js";
@@ -543,27 +542,6 @@ describe("only one deployment may refresh a live consent", () => {
   });
 });
 
-describe("who may renew a consent", () => {
-  // Distinct from who may sync. The two were briefly the same flag, and dev
-  // was refused renewal because it does not run a daily sync — which is not
-  // the question. What matters is whose connections they are.
-  it("lets a sandbox deployment renew its own mock connections", () => {
-    expect(envOf(ingest, "CONNECT_REDIRECT_URI")["CONNECTIONS_OWNED"]).toBe("true");
-  });
-
-  it("lets prod renew the household's", () => {
-    expect(envOf(prod.ingest, "CONNECT_REDIRECT_URI")["CONNECTIONS_OWNED"]).toBe("true");
-  });
-
-  it("refuses a non-prod deployment pointed at live", () => {
-    // The combination that must never renew: somebody else's live consent,
-    // from a deployment that does not own it. `ownsConnections` is the rule and
-    // it is checked here rather than trusted.
-    expect(ownsConnections({ name: "dev", providerEnvironment: "live" } as EnvSettings)).toBe(false);
-    expect(ownsConnections({ name: "prod", providerEnvironment: "live" } as EnvSettings)).toBe(true);
-    expect(ownsConnections({ name: "dev", providerEnvironment: "sandbox" } as EnvSettings)).toBe(true);
-  });
-});
 
 describe("which household a deployment syncs", () => {
   // Was the literal "frost" in both. Dev holds 0 rows for that household and

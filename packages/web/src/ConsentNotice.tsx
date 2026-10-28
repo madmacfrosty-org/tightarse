@@ -23,7 +23,12 @@ function describe(c: ConsentView): string {
     return `${who} has expired. The feed has stopped and reconnecting is the only way back.`;
   }
   const days = c.daysRemaining;
-  return `${who} expires in ${days} day${days === 1 ? "" : "s"}. Reconfirm before then or the feed stops.`;
+  // "Reconnect", not "reconfirm". Reconfirming is a thing TrueLayer offers
+  // only on a paid plan, so the household cannot do it — and advice naming an
+  // action nobody can take is worse than none, because it reads like there is
+  // time to spare. Reconnecting is the whole remedy and takes a trip through
+  // the bank, which is what the days are for.
+  return `${who} expires in ${days} day${days === 1 ? "" : "s"}. Reconnect it before then or the feed stops.`;
 }
 
 export function ConsentNotice({ consents }: { consents: readonly ConsentView[] }) {
