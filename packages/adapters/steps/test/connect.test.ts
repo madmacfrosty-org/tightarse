@@ -239,3 +239,47 @@ describe("which banks exist where", () => {
     expect(new URL(body(res)["url"]!).searchParams.get("providers")).toBe("uk-ob-all");
   });
 });
+
+describe("an event that is not shaped the way the gateway usually sends it", () => {
+  // These branches were covered incidentally by the renewal tests, and lost
+  // their cover when that capability was removed. They are worth their own
+  // tests rather than their old accident: a handler that throws on a missing
+  // field returns a 502 to somebody mid-authorisation, and the deep-history
+  // window is open while they read it.
+  it("answers a request with no path at all rather than throwing", async () => {
+    const { deps: d } = deps();
+    const res = await connectRoutes(d, event({ rawPath: undefined }));
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("treats absent query parameters as none given", async () => {
+    // API Gateway omits the key entirely when there is no query string, rather
+    // than sending an empty object.
+    const { deps: d } = deps();
+    const res = await connectRoutes(d, event({ queryStringParameters: undefined }));
+    // The default picker, because no provider was asked for.
+    expect(new URL(body(res)["url"]!).searchParams.get("providers")).toBe("uk-ob-all");
+  });
+
+  it("reports a provider refusing the code as a bad request, not a crash", async () => {
+    // The authorisation code is single-use and short-lived, so this is a real
+    // path: somebody who takes too long between the bank and the callback.
+    // It must say so rather than 500, because the remedy is to start again.
+    const { TrueLayerError } = await import("@tightarse/truelayer");
+    const { deps: d } = deps({
+      truelayer: {
+        exchangeCode: vi.fn(async () => {
+          throw new TrueLayerError("nope", 400, "invalid_grant");
+        }),
+      },
+    });
+
+    const res = await connectRoutes(
+      d,
+      event({ rawPath: "/connect/callback", queryStringParameters: { code: "spent" } }),
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(body(res)["error"]).toMatch(/Provider rejected the code/);
+  });
+});

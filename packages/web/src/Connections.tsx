@@ -1,11 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { loadConfig } from "./config";
-import { ReconfirmConsent } from "./ReconfirmConsent";
 import {
   AccountsResponse,
   pathFor,
   RemoveConnectionResponse,
-  ReconfirmConnectionResponse,
   type ConsentView,
 } from "@tightarse/api-contract";
 import type { Api } from "./ports";
@@ -71,35 +68,6 @@ function lastRefreshed(consents: ConsentView[]): string | null {
  */
 const REMOVABLE: ConsentView["health"][] = ["stale", "expired"];
 
-/**
- * Which connections can be renewed: the ones that have not gone yet.
- *
- * The exact complement of REMOVABLE, and deliberately so — every connection
- * gets one action, decided by its state rather than by what the household
- * feels like doing. A lapsed consent cannot be extended: there is nothing
- * left to extend, and the remedy is connecting again, which costs a trip
- * through the bank.
- */
-const RENEWABLE: ConsentView["health"][] = ["ok", "warn", "escalate"];
-
-/**
- * What to say about a connection renewed a moment ago.
- *
- * Shown until a sync has run since the renewal, and then it stops — the row
- * is telling the truth by then, so the explanation would be noise.
- *
- * `fetchedAt` is when the sync last asked the provider. While that is older
- * than the renewal, the expiry on screen predates it and has not caught up.
- */
-export function renewedNote(
-  consent: Pick<ConsentView, "fetchedAt">,
-  renewedAt: string | undefined,
-): string | undefined {
-  if (renewedAt === undefined) return undefined;
-  if (Date.parse(consent.fetchedAt) > Date.parse(renewedAt)) return undefined;
-  return "Renewed — the new date appears after the next daily sync";
-}
-
 /** Ordered by urgency rather than by name: the one that needs attention first. */
 const ORDER: ConsentView["health"][] = ["expired", "stale", "escalate", "warn", "ok"];
 
@@ -114,50 +82,9 @@ export function Connections({ api }: { api: Api }) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
-  /**
-   * Whether this deployment may renew at all.
-   *
-   * Asked of the deployment rather than worked out here. The API refuses
-   * regardless — a control that is not rendered is not a control that cannot
-   * be called — so this only keeps the page from offering something that
-   * cannot work.
-   */
-  const [mayRenew, setMayRenew] = useState(false);
 
-  /**
-   * Connections renewed in this browser, and when.
-   *
-   * Kept here rather than fetched, because nothing server-side records it:
-   * the consent row is written from `/me` by the sync, and `/me` reports the
-   * expiry rather than when anybody pressed a button.
-   *
-   * It exists to answer the question a renewal immediately raises — "did that
-   * work? the date has not moved" — which it has not, because TrueLayer
-   * applies the extension asynchronously and the dashboard reads a row the
-   * daily sync writes. Without a word on screen the honest answer looks
-   * identical to a broken one.
-   */
-  const [renewed, setRenewed] = useState<Record<string, string>>({});
 
-  /**
-   * The connection awaiting a reconfirmation of consent, if any.
-   *
-   * Reconfirm no longer calls the API directly. UK rules require consent to be
-   * reconfirmed with the provider every 90 days, and nothing was asking — the
-   * renewal asserted `user_has_reconfirmed_consent` having shown nobody
-   * anything. TrueLayer refuses that until the screen has been reviewed, which
-   * is how it was found.
-   */
-  const [confirming, setConfirming] = useState<ConsentView | null>(null);
 
-  useEffect(() => {
-    loadConfig()
-      .then((cfg) => setMayRenew(cfg.canRenewConnections === true))
-      // A failed read leaves the control hidden, which is the safe way round:
-      // the API would refuse anyway, and an offered action that cannot work is
-      // worse than one that is absent.
-      .catch(() => setMayRenew(false));
-  }, []);
 
   const remove = async (consentId: string) => {
     setBusy(consentId);
@@ -192,52 +119,7 @@ export function Connections({ api }: { api: Api }) {
     void read();
   }, [read]);
 
-  const reconfirm = async (consentId: string) => {
-    setConfirming(null);
-    setBusy(consentId);
-    setActionError(null);
-    try {
-      const out = await api.post(
-        ReconfirmConnectionResponse,
-        pathFor("/connections/reconfirm"),
-        { consentId },
-      );
-      if (out.action === "renewed") {
-        setRenewed((r) => ({ ...r, [consentId]: new Date().toISOString() }));
-      }
-      if (out.action !== "renewed" && out.continueAt !== undefined) {
-        // The provider wants a person. Leave rather than report success: the
-        // consent is not renewed until they finish, and saying otherwise here
-        // would be a lie the page could not take back.
-        window.location.assign(out.continueAt);
-        return;
-      }
-      // Re-read rather than patch the row. The new expiry is the provider's
-      // answer and the server has it; computing one here would show a date
-      // nothing agrees with.
-      await read();
-    } catch (e: unknown) {
-      setActionError(
-        e instanceof Error ? e.message : "Could not renew that connection",
-      );
-    } finally {
-      setBusy(null);
-    }
-  };
 
-  // Shown instead of the list, not over it. A consent screen competing with a
-  // table of other connections invites skimming, and what is being agreed to
-  // here is access to somebody's bank.
-  if (confirming !== null) {
-    return (
-      <ReconfirmConsent
-        consent={confirming}
-        busy={busy !== null}
-        onConfirm={() => void reconfirm(confirming.consentId)}
-        onCancel={() => setConfirming(null)}
-      />
-    );
-  }
 
   if (readError) {
     return (
@@ -285,25 +167,8 @@ export function Connections({ api }: { api: Api }) {
                     {" · "}
                     <span className="subtle">{WORDS[c.health]}</span>
                   </td>
-                  <td className="subtle">
-                    {renewedNote(c, renewed[c.consentId]) ?? c.providerStatus ?? "—"}
-                  </td>
+                  <td className="subtle">{c.providerStatus ?? "—"}</td>
                   <td>
-                    {mayRenew && (
-                      <button
-                        type="button"
-                        className="ghost"
-                        disabled={!RENEWABLE.includes(c.health) || busy !== null}
-                        onClick={() => setConfirming(c)}
-                        title={
-                          RENEWABLE.includes(c.health)
-                            ? "Confirm with the provider that this connection may continue"
-                            : "Already lapsed — connect the bank again rather than renewing"
-                        }
-                      >
-                        {busy === c.consentId ? "Renewing…" : "Reconfirm"}
-                      </button>
-                    )}
                     <button
                       type="button"
                       className="ghost"

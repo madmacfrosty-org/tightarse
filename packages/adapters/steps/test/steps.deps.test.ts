@@ -88,6 +88,7 @@ function fakes(
           items: results.flatMap((r) => (r.account_id ? [{ resource: "accounts", itemId: r.account_id }] : [])),
           payloads: [{ dataset: "truelayer.accounts", itemId: null, body }],
           skipped: [] as string[],
+          failed: [] as { resource: string; status: number; code: string | null }[],
         };
       }),
       fetchItem: vi.fn(
@@ -230,10 +231,38 @@ describe("refreshAndList", () => {
       items: [{ resource: "cards", itemId: "card-1" }],
       payloads: [{ dataset: "truelayer.cards", itemId: null, body: {} }],
       skipped: ["accounts"],
+      failed: [],
     });
     const out = await refreshAndList(deps, { connection: connection() });
     expect(out.skipped).toContain("accounts");
     expect(out.items).toEqual([{ resource: "cards", itemId: "card-1" }]);
+    // Not offered is not broken, and nothing should be reported for it.
+    expect(out.failedResources).toEqual([]);
+  });
+
+  it("carries a broken resource through instead of failing the connection", async () => {
+    // A card replaced after a lost wallet made `/cards` return 500 every day
+    // from 25 to 28 October 2026. The adapter used to throw, which discarded
+    // the `/me` already fetched, failed the connection, and failed every other
+    // connection with it — two healthy ones went dark for four days over a
+    // card that had been cancelled.
+    const { deps } = fakes();
+    (deps.bank.listItems as ReturnType<typeof vi.fn>).mockResolvedValue({
+      items: [{ resource: "accounts", itemId: "acc-1" }],
+      payloads: [{ dataset: "truelayer.me", itemId: null, body: {} }],
+      skipped: [],
+      failed: [{ resource: "cards", status: 500, code: "internal_server_error" }],
+    });
+
+    const out = await refreshAndList(deps, { connection: connection() });
+
+    // The run continues, with the accounts it could list.
+    expect(out.consentExpired).toBe(false);
+    expect(out.items).toEqual([{ resource: "accounts", itemId: "acc-1" }]);
+    // And the failure travels to the outcome rather than being swallowed.
+    expect(out.failedResources).toEqual([
+      { resource: "cards", status: 500, code: "internal_server_error" },
+    ]);
   });
 
   it("lands the account and card lists it fetched", async () => {

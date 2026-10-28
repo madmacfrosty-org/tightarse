@@ -21,7 +21,6 @@ import * as path from "node:path";
 import {
   config,
   connectRedirectUri,
-  ownsConnections,
   secretPrefix,
   type EnvSettings,
 } from "./config.js";
@@ -220,9 +219,55 @@ export class IngestStack extends cdk.Stack {
     // a result and reported by the outcome step.
     fetchOne.addCatch(new sfn.Pass(this, "ItemFailed"), { resultPath: "$" });
 
-    const perConnection = invoke("RefreshAndList", "refreshAndList", {
+    const refreshAndList = invoke("RefreshAndList", "refreshAndList", {
       "connection.$": "$",
-    })
+    });
+
+    // The same protection the per-item step has had, one level up, where it
+    // was missing. This step lists what a connection holds, and a failure in
+    // it took the connection with it — and then the whole execution, because
+    // the Map below tolerated none.
+    //
+    // Found the hard way. A bank card replaced after a lost wallet made
+    // `/cards` return 500 on 25, 26, 27 and 28 October 2026. Two healthy
+    // connections went dark for four days over a card that had been
+    // cancelled, and nothing said so: #67 is that both alert topics have no
+    // subscribers.
+    //
+    // The adapter now carries a broken resource through rather than throwing,
+    // so this retry is for what remains — a throttle, a timeout, a refresh
+    // that fails once.
+    refreshAndList.addRetry({
+      errors: ["States.TaskFailed", "States.Timeout"],
+      interval: cdk.Duration.seconds(5),
+      maxAttempts: 3,
+      backoffRate: 2,
+    });
+
+    // And once the retries are spent, the connection is reported rather than
+    // thrown. One connection must not sink the others: three banks, and the
+    // one that broke was the card, while the two whose transactions the
+    // household actually reads were fine.
+    //
+    // Routed to the outcome step rather than to a Pass, which is what the
+    // per-item catch does. A Pass would let the run continue and tell nobody,
+    // and silence is what made this cost four days. `recordOutcome` turns an
+    // `Error` in its results into a problem and publishes it, and it
+    // deliberately does not advance `lastSyncedAt` when something failed — so
+    // the next run's window still covers whatever this one missed.
+    //
+    // `resultPath` keeps the connection at `$` and puts the error beside it;
+    // without it the error replaces the input and the outcome step has no
+    // connection to report on.
+    refreshAndList.addCatch(
+      invoke("ConnectionFailed", "recordOutcome", {
+        "connection.$": "$",
+        "results.$": "States.Array($.error)",
+      }),
+      { resultPath: "$.error" },
+    );
+
+    const perConnection = refreshAndList
       .next(
         new sfn.Choice(this, "ConsentValid?")
           .when(
@@ -695,11 +740,6 @@ export class IngestStack extends cdk.Stack {
         CONNECT_REDIRECT_URI: connectRedirectUri(settings),
         SYNC_STATE_MACHINE_ARN: syncMachine.stateMachineArn,
         TL_ENV: settings.providerEnvironment,
-        // Who may renew a consent: whoever owns the connections. Not read off
-        // `syncEnabled`, which answers a different question — whether this
-        // deployment refreshes on a schedule. A sandbox deployment owns its own
-        // mock connections and may renew them without going near prod's.
-        CONNECTIONS_OWNED: String(ownsConnections(settings)),
         // Sandbox has none of the real banks in it. Offering the mock is what
         // makes the flow exercisable; offering `uk-ob-all` there would send
         // somebody to a picker with nothing in it they could sign in to.

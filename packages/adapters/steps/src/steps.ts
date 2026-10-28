@@ -200,6 +200,14 @@ export interface RefreshOutput {
   accessToken: string;
   items: BankItem[];
   skipped: string[];
+  /**
+   * Resources that should have worked and did not — a 500 on `/cards`, say.
+   *
+   * Carried through to the outcome rather than thrown, because throwing here
+   * costs the whole run: it discards the `/me` already fetched, fails the
+   * connection, and fails every other connection with it.
+   */
+  failedResources: Array<{ resource: string; status: number; code: string | null }>;
   consentExpired: boolean;
   daysUntilConsentExpiry: number;
   /**
@@ -253,6 +261,7 @@ export async function refreshAndList(
         accessToken: "",
         items: [],
         skipped: [],
+        failedResources: [],
         consentExpired: true,
         daysUntilConsentExpiry: daysUntilExpiry(connection),
         window: syncWindow(connection, deps.bank.limits),
@@ -277,12 +286,14 @@ export async function refreshAndList(
   }
   const items = [...listing.items];
   const skipped = [...listing.skipped];
+  const failedResources = listing.failed.map((f) => ({ ...f }));
 
   return {
     connection: updated,
     accessToken: tokens.accessToken,
     items,
     skipped,
+    failedResources,
     consentExpired: false,
     daysUntilConsentExpiry: daysUntilExpiry(connection),
     // Computed from the connection as it was BEFORE this run, so a failure
@@ -351,6 +362,14 @@ export interface OutcomeInput {
   refreshCalls?: number;
   /** From refreshAndList, so the run can be timed end to end. */
   startedAt?: string;
+  /**
+   * Resources the provider refused with something other than "not offered".
+   *
+   * Reported rather than counted, because the household cannot act on a
+   * number: a replaced card needs reconnecting, and a reader has to be told
+   * which resource and what the provider said.
+   */
+  failedResources?: Array<{ resource: string; status: number; code: string | null }>;
   results?: Array<{
     objects?: number;
     skipped?: string[];
@@ -397,6 +416,18 @@ export async function recordOutcome(
 
   for (const f of failed) problems.push(`${connection.connectionId}: ${f.Error} ${f.Cause ?? ""}`.trim());
 
+  // A resource that exists and is broken. Said in terms of what to do about
+  // it, because the only remedy for most of these is at the bank: a card
+  // reissued after a lost wallet made `/cards` return 500 every day for four
+  // days, and no figure anywhere said which card or why.
+  for (const r of input.failedResources ?? []) {
+    problems.push(
+      `${connection.connectionId}: the provider could not list ${r.resource} ` +
+        `(${r.status}${r.code ? ` ${r.code}` : ""}). Its transactions are missing ` +
+        `from this run. A card replaced or reissued has to be reconnected.`,
+    );
+  }
+
   const days = input.daysUntilConsentExpiry ?? daysUntilExpiry(connection);
   // Warn before it breaks. Reconfirmation needs a person at a browser, so a
   // day-of alert is already too late.
@@ -423,6 +454,9 @@ export async function recordOutcome(
       ItemsAttempted: results.length,
       ItemsFailed: failed.length,
       ItemsSkipped: results.reduce((n, r) => n + (r.skipped?.length ?? 0), 0),
+      // Counted apart from ItemsSkipped, which is a provider's shape rather
+      // than a fault. This one means a resource broke.
+      ResourcesFailed: (input.failedResources ?? []).length,
       ConsentDaysRemaining: days,
       SyncProblems: problems.length,
       // The limit is four per 24 hours for each account, endpoint and consent,

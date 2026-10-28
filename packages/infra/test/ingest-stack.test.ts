@@ -5,7 +5,6 @@ import {
   connectRedirectUri,
   envSettings,
   liveSyncIsProdAlone,
-  ownsConnections,
   SETTINGS,
   type EnvSettings,
 } from "../lib/config.js";
@@ -543,27 +542,6 @@ describe("only one deployment may refresh a live consent", () => {
   });
 });
 
-describe("who may renew a consent", () => {
-  // Distinct from who may sync. The two were briefly the same flag, and dev
-  // was refused renewal because it does not run a daily sync — which is not
-  // the question. What matters is whose connections they are.
-  it("lets a sandbox deployment renew its own mock connections", () => {
-    expect(envOf(ingest, "CONNECT_REDIRECT_URI")["CONNECTIONS_OWNED"]).toBe("true");
-  });
-
-  it("lets prod renew the household's", () => {
-    expect(envOf(prod.ingest, "CONNECT_REDIRECT_URI")["CONNECTIONS_OWNED"]).toBe("true");
-  });
-
-  it("refuses a non-prod deployment pointed at live", () => {
-    // The combination that must never renew: somebody else's live consent,
-    // from a deployment that does not own it. `ownsConnections` is the rule and
-    // it is checked here rather than trusted.
-    expect(ownsConnections({ name: "dev", providerEnvironment: "live" } as EnvSettings)).toBe(false);
-    expect(ownsConnections({ name: "prod", providerEnvironment: "live" } as EnvSettings)).toBe(true);
-    expect(ownsConnections({ name: "dev", providerEnvironment: "sandbox" } as EnvSettings)).toBe(true);
-  });
-});
 
 describe("which household a deployment syncs", () => {
   // Was the literal "frost" in both. Dev holds 0 rows for that household and
@@ -612,5 +590,80 @@ describe("what the connect function may reach", () => {
 
   it("may list secrets, which finding a connection requires", () => {
     expect(connectPolicy()).toContain("secretsmanager:ListSecrets");
+  });
+});
+
+describe("a broken connection must not sink the run", () => {
+  // From four days of prod silence: a card replaced after a lost wallet made
+  // `/cards` return 500, which failed the per-connection step, which failed
+  // the whole execution. The retry and catch existed one level too deep — on
+  // the per-item step inside the Map, not on the step that lists what a
+  // connection holds.
+  /**
+   * The state machine's states, parsed.
+   *
+   * The definition is a CDK token — an `Fn::Join` of literals and ARNs — so a
+   * substring search over it is worthless: the first version of this test
+   * looked for /Retry/ after the state's name and passed with the retry
+   * removed, matching a different state's. Joining the parts and parsing
+   * gives the states themselves.
+   */
+  const states = (): Record<string, Record<string, unknown>> => {
+    const fn = Object.values(ingest.findResources("AWS::StepFunctions::StateMachine"))[0] as {
+      Properties: { DefinitionString: { "Fn::Join": [string, unknown[]] } };
+    };
+    const joined = fn.Properties.DefinitionString["Fn::Join"][1]
+      .map((part) => (typeof part === "string" ? part : "TOKEN"))
+      .join("");
+    const walk = (o: unknown, out: Record<string, Record<string, unknown>>) => {
+      if (o === null || typeof o !== "object") return out;
+      const node = o as Record<string, unknown>;
+      if (node["States"] && typeof node["States"] === "object") {
+        for (const [k, v] of Object.entries(node["States"] as Record<string, unknown>)) {
+          out[k] = v as Record<string, unknown>;
+          walk(v, out);
+        }
+      }
+      for (const v of Object.values(node)) walk(v, out);
+      return out;
+    };
+    return walk(JSON.parse(joined) as unknown, {});
+  };
+
+  it("retries the per-connection listing, not only the per-item fetch", () => {
+    // Asserted on the TASK failure specifically. CDK gives every
+    // LambdaInvoke a default retry for Lambda service exceptions, so merely
+    // checking that `Retry` exists passes with no retry of ours at all —
+    // which the first version of this test did.
+    //
+    // A pair, because the bug was precisely that one step retried a task
+    // failure and the step above it did not.
+    const taskRetry = (state: Record<string, unknown> | undefined) =>
+      (state?.["Retry"] as { ErrorEquals: string[] }[] | undefined)?.some((r) =>
+        r.ErrorEquals.includes("States.TaskFailed"),
+      );
+    const all = states();
+
+    expect(taskRetry(all["RefreshAndList"])).toBe(true);
+    expect(taskRetry(all["FetchItem"])).toBe(true);
+  });
+
+  it("routes a failed connection to the outcome step rather than off a cliff", () => {
+    // A Pass would let the run continue and tell nobody, and silence is what
+    // made this cost four days. The outcome step publishes the problem and
+    // leaves `lastSyncedAt` where it was, so the next window still covers
+    // what this run missed.
+    const all = states();
+    const caught = all["RefreshAndList"]?.["Catch"] as { Next?: string }[] | undefined;
+    expect(caught?.[0]?.Next).toBe("ConnectionFailed");
+    expect(all["ConnectionFailed"]).toBeDefined();
+  });
+
+  it("keeps the connection in scope so the failure can name it", () => {
+    // Without `resultPath` the error replaces the input, and the outcome step
+    // has no connection to report on — a problem that says something broke
+    // and not which bank.
+    const caught = states()["RefreshAndList"]?.["Catch"] as { ResultPath?: string }[] | undefined;
+    expect(caught?.[0]?.ResultPath).toBe("$.error");
   });
 });

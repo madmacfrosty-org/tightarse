@@ -594,6 +594,13 @@ export interface BankPayload {
   readonly window?: DateRange | undefined;
 }
 
+/** A resource the provider should have served and did not. See `listItems`. */
+export interface ResourceFailure {
+  readonly resource: string;
+  readonly status: number;
+  readonly code: string | null;
+}
+
 /** An account or card the provider holds for a connection. */
 export interface BankItem {
   /** The provider's own grouping, e.g. accounts or cards. Recorded, not interpreted. */
@@ -665,6 +672,15 @@ export interface BankData {
     items: readonly BankItem[];
     payloads: readonly BankPayload[];
     skipped: readonly string[];
+    /**
+     * Resources that should have worked and did not.
+     *
+     * Separate from `skipped` on purpose. That one is a shape — the provider
+     * does not offer it. This one is broken, and the difference decides
+     * whether anybody is told: a card whose transactions have stopped must not
+     * read like Amex having no current accounts.
+     */
+    failed: readonly ResourceFailure[];
   }>;
 
   /**

@@ -33,6 +33,20 @@ import {
   type TrueLayerEnvironment,
 } from "./index.js";
 
+/**
+ * A resource the provider should have served and did not.
+ *
+ * Distinct from `skipped`, which means the provider does not offer it at all.
+ * This one is a thing that exists and is broken, so it has to be reported
+ * rather than absorbed — the household's card transactions stop either way,
+ * and only one of the two is worth telling somebody about.
+ */
+export interface ResourceFailure {
+  readonly resource: string;
+  readonly status: number;
+  readonly code: string | null;
+}
+
 export class TrueLayerBank implements BankData {
   private readonly client: TrueLayerClient;
 
@@ -66,10 +80,13 @@ export class TrueLayerBank implements BankData {
 
   async listItems(accessToken: string): Promise<{
     items: BankItem[];
+    failed: ResourceFailure[];
     payloads: BankPayload[];
     skipped: string[];
   }> {
     const items: BankItem[] = [];
+    /** Resources the provider should have served and did not. See the loop below. */
+    const failed: ResourceFailure[] = [];
     const payloads: BankPayload[] = [];
     const skipped: string[] = [];
 
@@ -112,11 +129,30 @@ export class TrueLayerBank implements BankData {
           skipped.push(resource);
           continue;
         }
+
+        // Anything else is a resource that should have worked and did not.
+        // Recorded and stepped over rather than thrown, because throwing here
+        // costs far more than the resource it is about.
+        //
+        // Measured in prod, 25 to 28 October 2026: a replaced bank card made
+        // `/cards` return 500 every day. That threw out of here, which
+        // discarded the `/me` already fetched in the call above, failed the
+        // connection, and — because the per-connection step has no catch —
+        // failed the whole execution. Two healthy connections went dark for
+        // four days over a card that had been cancelled.
+        //
+        // Deliberately NOT folded into `skipped`. That list means "this
+        // provider does not offer this", and a card whose transactions have
+        // silently stopped must not read like Amex having no current accounts.
+        if (err instanceof TrueLayerError) {
+          failed.push({ resource, status: err.status, code: err.code });
+          continue;
+        }
         throw err;
       }
     }
 
-    return { items, payloads, skipped };
+    return { items, payloads, skipped, failed };
   }
 
   async fetchItem(

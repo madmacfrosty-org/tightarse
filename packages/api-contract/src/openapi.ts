@@ -36,9 +36,6 @@ import {
   NewCategoryRequest,
   RemoveConnectionRequest,
   RemoveConnectionResponse,
-  ReconfirmConnectionRequest,
-  ReconfirmConnectionResponse,
-  ReconfirmAction,
   CategoryChoiceView,
   CategoryTallyView,
   CategoryTotal,
@@ -77,7 +74,6 @@ import {
   API_VERSION,
   CATEGORISATION_ROUTES,
   CONNECTION_ROUTES,
-  CONNECT_WRITE_ROUTES,
   COMPATIBILITY_PROMISE,
   ROUTES,
   pathFor,
@@ -130,9 +126,6 @@ const NAMED = {
   NewCategoryRequest,
   RemoveConnectionRequest,
   RemoveConnectionResponse,
-  ReconfirmConnectionRequest,
-  ReconfirmConnectionResponse,
-  ReconfirmAction,
   // Categorisation. Named for the same reason as the leaves above: unnamed,
   // a shape used by two responses is inlined into each, and a client generator
   // produces several structurally identical structs with different names.
@@ -293,7 +286,6 @@ export function buildOpenApiDocument(
     ...ROUTES,
     ...CATEGORISATION_ROUTES,
     ...CONNECTION_ROUTES,
-    ...CONNECT_WRITE_ROUTES,
   ],
 ): OpenApiDocument {
   const schemas = allSchemas();
