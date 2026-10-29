@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import { Match } from "aws-cdk-lib/assertions";
 import { templates, policyStatements } from "./harness.js";
 import {
@@ -665,5 +666,32 @@ describe("a broken connection must not sink the run", () => {
     // and not which bank.
     const caught = states()["RefreshAndList"]?.["Catch"] as { ResultPath?: string }[] | undefined;
     expect(caught?.[0]?.ResultPath).toBe("$.error");
+  });
+});
+
+describe("the canary must not be the thing that stops a deploy", () => {
+  // It was, three merges running — one of them the fix for a sync that had
+  // been dead a week — because the credentials it needs were never set and an
+  // unconfigured job failed rather than skipped. An unconfigured canary gives
+  // no signal, and withholding a deploy on no signal is not safety.
+  const workflow = () =>
+    readFileSync(new URL("../../../.github/workflows/ci.yml", import.meta.url), "utf8");
+
+  it("skips its browser steps when there is no test identity", () => {
+    const text = workflow();
+    expect(text).toContain("steps.identity.outputs.configured == 'true'");
+    // Both the install and the run, or the install fails on its own.
+    expect(text.match(/steps\.identity\.outputs\.configured == 'true'/g)?.length).toBeGreaterThan(1);
+  });
+
+  it("still says so, rather than passing quietly", () => {
+    // A canary nobody notices is back to where this started.
+    expect(workflow()).toContain("prod shipped unverified");
+  });
+
+  it("still gates prod on the canary when it does run", () => {
+    // Skipping on no credentials is not the same as removing the gate: a real
+    // failure must still stop the deploy.
+    expect(workflow()).toMatch(/deploy-prod:\n(.*\n)*?\s+needs: \[canary\]/);
   });
 });
