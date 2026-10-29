@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { apiGet, renderAt, reset, requested, session } from "./harness";
@@ -188,5 +188,75 @@ describe("chrome", () => {
     await screen.findByText("Net position");
     await userEvent.click(screen.getByRole("button", { name: "sign out" }));
     expect(session.signOut).toHaveBeenCalled();
+  });
+});
+
+describe("a bank authorisation that outlives the session", () => {
+  /*
+   * From prod, 29 October 2026. A First Direct authorisation completed and
+   * redirected back correctly, and our API was never called — no Lambda
+   * invocation and no 4xx, which is exactly what a sign-in screen looks like
+   * from the outside. The session had lapsed during the journey through
+   * TrueLayer and the bank, so `/connected` rendered sign-in instead of
+   * exchanging, and signing in went to Cognito and returned to the site's
+   * origin, taking the code with it.
+   *
+   * The whole journey — two other domains, the bank's own login, the
+   * approval — was thrown away silently, and a consent was spent at the bank
+   * for a connection that never existed.
+   */
+  const storage = () => {
+    const map = new Map<string, string>();
+    return {
+      getItem: (k: string) => map.get(k) ?? null,
+      setItem: (k: string, v: string) => void map.set(k, v),
+      removeItem: (k: string) => void map.delete(k),
+      clear: () => map.clear(),
+      key: () => null,
+      length: 0,
+    } as unknown as Storage;
+  };
+
+  it("keeps the code when it lands on a sign-in screen", async () => {
+    vi.stubGlobal("localStorage", storage());
+    session.current.mockResolvedValueOnce(null);
+
+    await renderAt("/connected?code=provider-code");
+    await waitFor(() => expect(screen.getByRole("button", { name: /sign in/i })).toBeDefined());
+
+    // Still not exchanged — that part is unchanged and deliberate.
+    expect(apiGet).not.toHaveBeenCalled();
+    // But no longer lost.
+    expect(localStorage.getItem("tightarse.pending_connection")).toContain("provider-code");
+  });
+
+  it("exchanges it once somebody signs in, even with a bare URL", async () => {
+    // Cognito returns to the site's origin, so by the time there is a session
+    // the code is no longer in the address bar. It comes from the store.
+    vi.stubGlobal("localStorage", storage());
+    localStorage.setItem(
+      "tightarse.pending_connection",
+      JSON.stringify({ code: "provider-code", at: Date.now() }),
+    );
+
+    await renderAt("/connected");
+
+    expect(await screen.findByText("Connected")).toBeDefined();
+    expect(requested()).toContain("/v1/connect/callback?code=provider-code");
+  });
+
+  it("does not resend a code it has already used", async () => {
+    // A reload must not resend a spent code and report a provider rejection
+    // that reads like a real failure.
+    vi.stubGlobal("localStorage", storage());
+    localStorage.setItem(
+      "tightarse.pending_connection",
+      JSON.stringify({ code: "provider-code", at: Date.now() }),
+    );
+
+    await renderAt("/connected");
+    await screen.findByText("Connected");
+
+    expect(localStorage.getItem("tightarse.pending_connection")).toBeNull();
   });
 });

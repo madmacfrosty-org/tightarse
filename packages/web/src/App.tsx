@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { BrowserRouter, Link, NavLink, Outlet, Route, Routes } from "react-router-dom";
 import type { Api, Identity, Session } from "./ports";
 import { Connected } from "./Connect";
+import { hasPendingConnection, rememberPendingConnection } from "./pending-connection";
 import { Home } from "./Home";
 import { Spending } from "./Spending";
 import { Categories } from "./Categories";
@@ -131,6 +132,13 @@ export function App({ session, api }: { session: Session; api: Api }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Before anything else, and before the session is known: a bank's redirect
+    // puts the authorisation code in the URL, and signing in is what destroys
+    // it. Cognito returns to the site's origin rather than to `/connected`, so
+    // without this the whole journey — TrueLayer, the bank's login, the
+    // approval — is thrown away silently. See `pending-connection.ts`.
+    rememberPendingConnection();
+
     // Safe on every load: returns null when this is not a redirect back.
     session.complete()
       .then((fromRedirect) => fromRedirect ?? session.current())
@@ -146,6 +154,18 @@ export function App({ session, api }: { session: Session; api: Api }) {
   if (checking) return <div className="page loading">Checking session…</div>;
   if (error && !identity) return <div className="page error">{error}</div>;
   if (!identity) return <SignIn error={error} onSignIn={() => void session.signIn()} />;
+
+  // Signed in, with a bank waiting. Sending them back to `/connected` is the
+  // whole point of remembering: the alternative is a dashboard that looks
+  // normal and a connection that never happened.
+  //
+  // `assign` rather than a route, because this runs before the router exists —
+  // and the code itself is not put back in the URL, where a reload or a
+  // shoulder would find it. `Connected` takes it from the store instead.
+  if (!window.location.pathname.startsWith("/connected") && hasPendingConnection()) {
+    window.location.assign("/connected");
+    return <div className="page loading">Finishing your bank connection…</div>;
+  }
 
   return (
     <BrowserRouter>
