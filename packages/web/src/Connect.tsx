@@ -6,6 +6,7 @@ import {
 import { useEffect, useState } from "react";
 import type { Api } from "./ports";
 import { loadConfig } from "./config";
+import { takePendingConnection } from "./pending-connection";
 
 /**
  * Connecting a bank.
@@ -114,7 +115,15 @@ export function Connected({ api, onFinished }: { api: Api; onFinished: () => voi
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const code = params.get("code");
+    // The URL first, then the store. A journey that crossed a sign-in has no
+    // code in the URL any more — `App` kept it precisely because the sign-in
+    // redirect destroys it — and arriving here with nothing is how an approved
+    // bank connection silently failed to exist. See `pending-connection.ts`.
+    //
+    // Taken unconditionally, so the normal path clears the copy it did not
+    // need rather than leaving it for a later load to resend.
+    const carried = takePendingConnection();
+    const code = params.get("code") ?? carried;
     const error = params.get("error");
 
     if (error) {
@@ -125,7 +134,7 @@ export function Connected({ api, onFinished }: { api: Api; onFinished: () => voi
       setState({
         phase: "failed",
         message:
-          "No authorisation code in the redirect. If you reloaded this page, the code was already used — start the connection again.",
+          "No authorisation code in the redirect. If you reloaded this page, or signed in again on the way back, the code was already used — start the connection again.",
       });
       return;
     }
