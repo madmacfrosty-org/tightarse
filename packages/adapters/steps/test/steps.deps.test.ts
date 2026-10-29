@@ -114,6 +114,9 @@ function fakes(
     },
     connections: {
       list: vi.fn(async () => [connection(), connection({ connectionId: "conn-2" })]),
+      // Direct, by name. The real one reads the secret itself rather than
+      // listing, which is the difference the race turned on.
+      get: vi.fn(async (_tenantId: string, id: string) => connection({ connectionId: id })),
       update: vi.fn(async (c: Connection) => {
         updated.push(c);
       }),
@@ -154,6 +157,47 @@ describe("listConnections", () => {
     const { deps } = fakes();
     const out = await listConnections(deps, { input: { connectionId: "conn-2" } });
     expect(out.connections.map((c) => c.connectionId)).toEqual(["conn-2"]);
+  });
+
+  it("reads a named connection directly, never by listing", async () => {
+    // The whole fix. `list` goes through Secrets Manager's `ListSecrets`,
+    // which is eventually consistent; `get` reads by name and is not. The
+    // connect flow creates a connection and starts this run in the same
+    // breath, so a listing can run before the new secret appears in it.
+    const { deps } = fakes();
+
+    await listConnections(deps, { input: { connectionId: "conn-2" } });
+
+    expect(deps.connections.get).toHaveBeenCalledWith("frost", "conn-2");
+    expect(deps.connections.list).not.toHaveBeenCalled();
+  });
+
+  it("finds a connection a listing has not caught up with yet", async () => {
+    // Prod, 29 October 2026: two banks reconnected seconds apart. The one at
+    // 19:56:05 was found and the one at 19:57:59 was not — its run died with
+    // "No connection … for this household" and the household saw a bank that
+    // had plainly authorised and then shown nothing. Its deep-history window
+    // was only saved by a third attempt inside the hour.
+    const { deps } = fakes();
+    // A listing that does not know about it yet, which is exactly what
+    // ListSecrets does for about a minute after a secret is created.
+    (deps.connections.list as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    const out = await listConnections(deps, { input: { connectionId: "brand-new" } });
+
+    expect(out.connections.map((c) => c.connectionId)).toEqual(["brand-new"]);
+  });
+
+  it("still refuses a connection that genuinely is not there", async () => {
+    // Not a fallback to syncing everything: a connectionId matching nothing
+    // means the caller believes in a connection that does not exist, and
+    // syncing the others would look like success while doing something else.
+    const { deps } = fakes();
+    (deps.connections.get as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    await expect(
+      listConnections(deps, { input: { connectionId: "never-existed" } }),
+    ).rejects.toThrow(/No connection never-existed/);
   });
 
   it("reports nothing to sync on a deployment that has handed syncing over", async () => {

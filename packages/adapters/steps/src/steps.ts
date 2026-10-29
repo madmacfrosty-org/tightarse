@@ -173,6 +173,32 @@ export async function listConnections(
     });
     return { connections: [] };
   }
+  // One named connection is fetched directly, never listed and filtered.
+  //
+  // `list` goes through Secrets Manager's `ListSecrets`, which is eventually
+  // consistent; `get` reads the secret by name and is not. The connect flow
+  // creates a connection and starts this run in the same breath — "the
+  // deep-history window shuts within the hour" — so the listing it used to
+  // perform could run before the secret it was started for appeared in it.
+  //
+  // Measured in prod on 29 October 2026. Two banks reconnected seconds apart:
+  // the one at 19:56:05 was found, the one at 19:57:59 was not, and its run
+  // died with "No connection … for this household". The household saw a bank
+  // that had plainly authorised and then shown nothing. Only a third attempt,
+  // inside the window, saved its deep history.
+  //
+  // Also simply less work: one read rather than a listing and a read each.
+  const only = args?.input?.connectionId;
+  if (only) {
+    const one = await deps.connections.get(deps.tenantId, only);
+    // Still an error rather than a fallback to everything. A connectionId
+    // matching nothing means the caller believes in a connection that is not
+    // there, and syncing the others would look like success while doing
+    // something else entirely.
+    if (!one) throw new Error(`No connection ${only} for this household`);
+    return { connections: [one] };
+  }
+
   const all = await deps.connections.list(deps.tenantId);
   return { connections: selectConnections(all, args?.input) };
 }
