@@ -406,7 +406,37 @@ jobs:
       - name: Install
         run: npm ci
 
+      # Whether there is a credential to drive a browser with.
+      #
+      # An unconfigured canary produces no signal, and withholding a deploy on
+      # no signal is not safety — it is just stopping. This one stopped three
+      # merges in a row, one of them the fix for a sync that had been dead for
+      # a week, while prod sat on code from three weeks earlier.
+      #
+      # So: absent credentials skip, a real failure still blocks. The step
+      # below says loudly which happened, because a canary nobody notices is
+      # back to where this started.
+      - name: Is there a test identity?
+        id: identity
+        env:
+          E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
+        run: |
+          if [ -n "$E2E_EMAIL" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Canary skipped"
+              echo ""
+              echo "\`E2E_EMAIL\` and \`E2E_PASSWORD\` are not set, so nothing drove a browser"
+              echo "at this deployment and **prod shipped unverified**."
+              echo ""
+              echo "Set them under Settings → Secrets and variables → Actions."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Install the browser
+        if: steps.identity.outputs.configured == 'true'
         run: npm run e2e:install -w @tightarse/e2e
 
       # The credential is a dev Cognito user and nothing else: dev holds no
@@ -414,6 +444,7 @@ jobs:
       # cannot reach prod — the suite refuses any base URL but dev's, in
       # `playwright.config.ts`, which is checked before a browser is opened.
       - name: Drive the dashboard
+        if: steps.identity.outputs.configured == 'true'
         env:
           E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
           E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
