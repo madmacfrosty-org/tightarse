@@ -149,3 +149,91 @@ describe("persisting a rotated refresh token", () => {
     });
   });
 });
+
+describe("suspending a connection in the store", () => {
+  /*
+   * Found by the provider's own id rather than ours, because that is what a
+   * household's dashboard knows a connection by. The link is written by the
+   * sync from the `/me` it already fetches.
+   */
+  const seeded = (...conns: Connection[]) =>
+    fakeSecrets(
+      Object.fromEntries(
+        conns.map((c) => [`${PREFIX}/${c.tenantId}/${c.connectionId}`, JSON.stringify(c)]),
+      ),
+    );
+
+  const read = (store: Map<string, { value: string }>, id: string) =>
+    JSON.parse(store.get(`${PREFIX}/frost/${id}`)!.value) as Connection;
+
+  it("marks the connection carrying that consent", async () => {
+    const { secrets, store } = seeded(connection({ credentialsId: "cred-1" }));
+
+    const found = await new Connections(PREFIX, secrets).setSuspended(
+      "frost",
+      "cred-1",
+      "2026-10-30T12:00:00.000Z",
+    );
+
+    expect(found).toBe(true);
+    expect(read(store, "conn-1").suspendedAt).toBe("2026-10-30T12:00:00.000Z");
+  });
+
+  it("keeps the refresh token, because suspending is not deleting", async () => {
+    // The token is the one thing whose loss costs history no retry recovers.
+    const { secrets, store } = seeded(connection({ credentialsId: "cred-1" }));
+
+    await new Connections(PREFIX, secrets).setSuspended("frost", "cred-1", "2026-10-30T12:00:00.000Z");
+
+    expect(read(store, "conn-1").refreshToken).toBe("the-refresh-token");
+  });
+
+  it("marks every connection carrying that consent, not just the first", async () => {
+    // A bank reconnected twice can leave more than one connection on the same
+    // consent id, and suspending one of them would leave the other syncing —
+    // which is the bug this whole change is about.
+    const { secrets, store } = seeded(
+      connection({ connectionId: "conn-1", credentialsId: "cred-1" }),
+      connection({ connectionId: "conn-2", credentialsId: "cred-1" }),
+    );
+
+    await new Connections(PREFIX, secrets).setSuspended("frost", "cred-1", "2026-10-30T12:00:00.000Z");
+
+    expect(read(store, "conn-1").suspendedAt).toBeDefined();
+    expect(read(store, "conn-2").suspendedAt).toBeDefined();
+  });
+
+  it("leaves other households' connections alone", async () => {
+    const { secrets, store } = seeded(
+      connection({ credentialsId: "cred-1" }),
+      connection({ connectionId: "other", tenantId: "someone-else", credentialsId: "cred-1" }),
+    );
+
+    await new Connections(PREFIX, secrets).setSuspended("frost", "cred-1", "2026-10-30T12:00:00.000Z");
+
+    const theirs = JSON.parse(
+      store.get(`${PREFIX}/someone-else/other`)!.value,
+    ) as Connection;
+    expect(theirs.suspendedAt).toBeUndefined();
+  });
+
+  it("removes the mark when resuming, rather than writing an empty one", async () => {
+    const { secrets, store } = seeded(
+      connection({ credentialsId: "cred-1", suspendedAt: "2026-10-30T12:00:00.000Z" }),
+    );
+
+    await new Connections(PREFIX, secrets).setSuspended("frost", "cred-1", undefined);
+
+    expect(read(store, "conn-1")).not.toHaveProperty("suspendedAt");
+  });
+
+  it("says so when no connection carries that consent", async () => {
+    // A consent row can outlive the connection behind it — the phantom this
+    // was first built for — and the caller still has to mark the row.
+    const { secrets } = seeded(connection({ credentialsId: "cred-1" }));
+
+    expect(
+      await new Connections(PREFIX, secrets).setSuspended("frost", "nothing", "2026-10-30T12:00:00.000Z"),
+    ).toBe(false);
+  });
+});

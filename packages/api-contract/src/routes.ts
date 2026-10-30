@@ -24,8 +24,8 @@ import {
   TransactionsResponse,
   RunningBalanceResponse,
   BooksResponse,
-  RemoveConnectionRequest,
-  RemoveConnectionResponse,
+  SuspendConnectionRequest,
+  SuspendConnectionResponse,
 } from "./schemas.js";
 
 /**
@@ -263,17 +263,18 @@ export const ROUTES: readonly Route[] = [
 export const CONNECTION_ROUTES: readonly Route[] = [
   {
     method: "post",
-    path: "/connections/remove",
-    summary: "Stop tracking a connection",
+    path: "/connections/suspend",
+    summary: "Stop or restart syncing a connection",
     description:
-      "Marks a connection removed so it is no longer listed or reported on. The consent row is kept, " +
-      "because it is the only record that the connection existed and when it was granted, and every " +
-      "transaction it produced stays in the ledger. Refuses a connection that is still working: one " +
-      "reaches a removable state precisely because nothing is syncing it, so there is nothing at the " +
-      "provider to revoke. Disconnecting a live bank is a different operation.",
+      "Stops the daily sync touching a connection, or starts it again. Reversible, and allowed on a " +
+      "healthy connection: reconnecting a bank leaves the old connection live and duplicating the new " +
+      "one, and nobody should wait ninety days for it to lapse before they can stop it syncing. " +
+      "Nothing is deleted — the consent row, the stored credential and every transaction the " +
+      "connection produced are all kept, which is what makes resuming possible. Nothing is asked of " +
+      "the provider either: the consent at the bank is unaffected and lapses on its own schedule.",
     query: [],
-    request: { name: "RemoveConnectionRequest", schema: RemoveConnectionRequest },
-    response: { name: "RemoveConnectionResponse", schema: RemoveConnectionResponse },
+    request: { name: "SuspendConnectionRequest", schema: SuspendConnectionRequest },
+    response: { name: "SuspendConnectionResponse", schema: SuspendConnectionResponse },
   },
 ];
 

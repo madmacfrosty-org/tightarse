@@ -80,6 +80,19 @@ export const Consent = z.object({
    * A removed consent is not shown and is not reported on. It is still there.
    */
   removedAt: z.string().optional(),
+  /**
+   * When the household stopped syncing this connection, if it has.
+   *
+   * Distinct from `removedAt`, and the two are stages rather than synonyms.
+   * Suspending stops the work and is undone by resuming; removing deletes the
+   * credential and cannot be. A household suspends a connection it has just
+   * replaced, and removes it once it is sure.
+   *
+   * Nothing here is what the sync reads — the connection secret is. This is
+   * the dashboard's copy, so a suspended connection can be shown as such and
+   * offered a way back.
+   */
+  suspendedAt: z.string().optional(),
 });
 export type Consent = z.infer<typeof Consent>;
 

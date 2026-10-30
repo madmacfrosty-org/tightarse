@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   AccountsResponse,
   pathFor,
-  RemoveConnectionResponse,
+  SuspendConnectionResponse,
   type ConsentView,
 } from "@tightarse/api-contract";
 import type { Api } from "./ports";
@@ -57,17 +57,6 @@ function lastRefreshed(consents: ConsentView[]): string | null {
 
 /**
  * What may be stopped, and what may not.
- *
- * Only a connection nothing is syncing. One still feeding the ledger is not
- * offered rather than confirmed: the guard is a fact about the connection
- * instead of a question about intent, and a dialog asking "are you sure" about
- * something already dead teaches people to click through dialogs.
- *
- * Disconnecting a live bank is a different act — it needs the provider, and
- * getting back means re-authorising, which is the flow with the history window.
- */
-const REMOVABLE: ConsentView["health"][] = ["stale", "expired"];
-
 /** Ordered by urgency rather than by name: the one that needs attention first. */
 const ORDER: ConsentView["health"][] = ["expired", "stale", "escalate", "warn", "ok"];
 
@@ -86,20 +75,33 @@ export function Connections({ api }: { api: Api }) {
 
 
 
-  const remove = async (consentId: string) => {
+  /**
+   * Stop or start syncing one connection.
+   *
+   * Offered on any connection, healthy ones included. The old button refused
+   * anything still feeding the ledger, on the grounds that getting it back
+   * meant re-authorising — but that is an argument about deleting the stored
+   * credential, which this does not do. Reconnecting a bank leaves the old
+   * connection live and duplicating the new one, and nobody should wait
+   * ninety days for it to lapse before they can stop it syncing.
+   */
+  const setSuspended = async (consentId: string, suspended: boolean) => {
     setBusy(consentId);
     setActionError(null);
     try {
-      await api.post(RemoveConnectionResponse, pathFor("/connections/remove"), {
+      await api.post(SuspendConnectionResponse, pathFor("/connections/suspend"), {
         consentId,
+        suspended,
       });
-      // Dropped from the list rather than re-read. The row is still there —
-      // it is the only record the connection existed — and the list is what
-      // stops showing it.
-      setConsents((c) => (c ?? []).filter((x) => x.consentId !== consentId));
+      // Re-read rather than patch the row. Suspending changes what the sync
+      // will do, and the server is what knows it — a row edited here would be
+      // this page agreeing with itself.
+      await read();
     } catch (e: unknown) {
       setActionError(
-        e instanceof Error ? e.message : "Could not remove that connection",
+        e instanceof Error
+          ? e.message
+          : `Could not ${suspended ? "suspend" : "resume"} that connection`,
       );
     } finally {
       setBusy(null);
@@ -172,17 +174,21 @@ export function Connections({ api }: { api: Api }) {
                     <button
                       type="button"
                       className="ghost"
-                      disabled={!REMOVABLE.includes(c.health) || busy !== null}
-                      onClick={() => void remove(c.consentId)}
-                      // Says why it is unavailable rather than leaving a dead
-                      // control. A greyed button with no reason is a puzzle.
+                      disabled={busy !== null}
+                      onClick={() => void setSuspended(c.consentId, c.suspendedAt === undefined)}
                       title={
-                        REMOVABLE.includes(c.health)
-                          ? "Stop tracking this connection. Transactions are kept."
-                          : "Still working — only a connection that has stopped can be removed"
+                        c.suspendedAt === undefined
+                          ? "Stop the daily sync touching this connection. Nothing is deleted and it can be resumed."
+                          : "Start syncing this connection again."
                       }
                     >
-                      {busy === c.consentId ? "Removing…" : "Remove"}
+                      {busy === c.consentId
+                        ? c.suspendedAt === undefined
+                          ? "Suspending…"
+                          : "Resuming…"
+                        : c.suspendedAt === undefined
+                          ? "Suspend"
+                          : "Resume"}
                     </button>
                   </td>
                 </tr>

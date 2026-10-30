@@ -568,6 +568,28 @@ describe("the accounts on the wire", () => {
     });
   });
 
+  it("carries a suspension across, which is what tells it from a fault", () => {
+    // A suspended connection goes `stale` by design, because nothing is
+    // refreshing it. Without this the page would report a deliberate choice
+    // as a broken feed.
+    const out = asAccounts({
+      accounts: [state],
+      consents: [
+        {
+          consentId: "cred-1",
+          expiresAt: "2027-01-27T00:00:00Z",
+          fetchedAt: "2026-10-30T05:00:00Z",
+          providerStatus: "Authorised",
+          daysRemaining: 89,
+          health: "stale",
+          suspendedAt: "2026-10-30T12:00:00.000Z",
+        },
+      ],
+    } as never);
+
+    expect(out.consents[0]).toMatchObject({ suspendedAt: "2026-10-30T12:00:00.000Z" });
+  });
+
   it("omits a bank name the provider never gave", () => {
     const out = asAccounts({
       accounts: [state],

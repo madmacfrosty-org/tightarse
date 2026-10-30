@@ -38,8 +38,6 @@ const withConsents = (consents: unknown[]) => {
   });
 };
 
-
-
 describe("the connections list", () => {
   it("names every bank and how long its consent has left", async () => {
     withConsents([consent()]);
@@ -123,66 +121,10 @@ describe("the connections list", () => {
     expect(line.textContent).not.toContain("20 Sept");
   });
 
-  it("offers Remove only on a connection that has stopped", async () => {
-    // The guard is the disabled state, not a dialog. A live connection is
-    // still feeding the ledger, and getting it back means re-authorising.
-    withConsents([
-      consent({ consentId: "live", institutionName: "Live Bank", health: "ok" }),
-      consent({ consentId: "dead", institutionName: "Quiet Bank", health: "stale" }),
-    ]);
-    render(<Connections api={api} />);
-    await screen.findByText("Live Bank");
-
-    const buttons = screen.getAllByRole("button", { name: /remove/i });
-    const [dead, live] = [buttons[0]!, buttons[1]!]; // stale sorts first
-    expect(dead.hasAttribute("disabled")).toBe(false);
-    expect(live.hasAttribute("disabled")).toBe(true);
+  
+  
+  
   });
-
-  it("says why it cannot be removed rather than leaving a dead control", async () => {
-    withConsents([consent({ health: "ok" })]);
-    render(<Connections api={api} />);
-    await screen.findByText("Example Bank");
-
-    expect(
-      screen.getByRole("button", { name: /remove/i }).getAttribute("title"),
-    ).toMatch(/still working/i);
-  });
-
-  it("stops listing one once it is removed", async () => {
-    withConsents([
-      consent({ consentId: "dead", institutionName: "Quiet Bank", health: "stale" }),
-      consent({ consentId: "live", institutionName: "Live Bank", health: "ok" }),
-    ]);
-    render(<Connections api={api} />);
-    await screen.findByText("Quiet Bank");
-
-    await userEvent.click(screen.getAllByRole("button", { name: /remove/i })[0]!);
-
-    await waitFor(() => expect(screen.queryByText("Quiet Bank")).toBeNull());
-    // Only the one asked for. The row is still stored — this is the list
-    // ceasing to show it, not the record going.
-    expect(screen.getByText("Live Bank")).toBeDefined();
-    expect(apiPost.mock.calls[0]?.[1]).toEqual({ consentId: "dead" });
-  });
-
-  it("reports a refusal instead of quietly leaving the row", async () => {
-    // A connection the server refuses to remove must stay on screen with the
-    // reason. Dropping the row optimistically and then failing would leave the
-    // household believing it had gone.
-    withConsents([consent({ consentId: "dead", health: "stale" })]);
-    render(<Connections api={api} />);
-    const button = await screen.findByRole("button", { name: /^remove$/i });
-
-    apiPost.mockImplementationOnce(() =>
-      Promise.reject(new Error("still working; disconnect it instead")),
-    );
-    await userEvent.click(button);
-
-    await waitFor(() => expect(screen.getByText(/still working/i)).toBeDefined());
-    expect(document.body.textContent).toContain("Example Bank");
-  });
-});
 
 /**
  * Renewing a connection.
@@ -194,3 +136,74 @@ describe("the connections list", () => {
  */
 
 
+describe("suspending and resuming a connection", () => {
+  /*
+   * This replaces a Remove button that wrote the consent row and nothing
+   * else. The sync lists connection secrets, which knew nothing about it, so
+   * a "removed" connection vanished from the page and went on syncing every
+   * morning — spending the provider allowance and reporting the same problem
+   * for ever.
+   */
+  it("is offered on a healthy connection, which is the case that matters", async () => {
+    // Reconnecting a bank leaves the old one live and duplicating the new.
+    // The old button refused anything still working, so tidying up meant
+    // waiting ninety days for it to lapse.
+    withConsents([consent({ health: "ok" })]);
+    render(<Connections api={api} />);
+    await screen.findByText("Example Bank");
+
+    const button = screen.getByRole("button", { name: /suspend/i });
+    expect(button.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("asks the server to stop syncing it, and re-reads", async () => {
+    // Re-read rather than patch: suspending changes what the sync will do,
+    // and the server is what knows it.
+    withConsents([consent({ consentId: "c-1", health: "ok" })]);
+    render(<Connections api={api} />);
+    await screen.findByText("Example Bank");
+
+    await userEvent.click(screen.getByRole("button", { name: /suspend/i }));
+
+    await waitFor(() =>
+      expect(apiPost.mock.calls.at(-1)?.[1]).toEqual({ consentId: "c-1", suspended: true }),
+    );
+  });
+
+  it("offers Resume on one already suspended, not Suspend again", async () => {
+    withConsents([consent({ health: "stale", suspendedAt: "2026-10-30T12:00:00.000Z" })]);
+    render(<Connections api={api} />);
+    await screen.findByText("Example Bank");
+
+    expect(screen.getByRole("button", { name: /resume/i })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /^suspend$/i })).toBeNull();
+  });
+
+  it("asks the server to start it again", async () => {
+    withConsents([
+      consent({ consentId: "c-1", health: "stale", suspendedAt: "2026-10-30T12:00:00.000Z" }),
+    ]);
+    render(<Connections api={api} />);
+    await screen.findByText("Example Bank");
+
+    await userEvent.click(screen.getByRole("button", { name: /resume/i }));
+
+    await waitFor(() =>
+      expect(apiPost.mock.calls.at(-1)?.[1]).toEqual({ consentId: "c-1", suspended: false }),
+    );
+  });
+
+  it("reports a refusal rather than quietly leaving the row", async () => {
+    // The row must stay on screen with the reason. Dropping it and then
+    // failing would leave the household believing it had stopped.
+    withConsents([consent({ health: "ok" })]);
+    render(<Connections api={api} />);
+    await screen.findByText("Example Bank");
+
+    apiPost.mockImplementationOnce(() => Promise.reject(new Error("no such connection")));
+    await userEvent.click(screen.getByRole("button", { name: /suspend/i }));
+
+    await waitFor(() => expect(screen.getByText(/no such connection/i)).toBeDefined());
+    expect(document.body.textContent).toContain("Example Bank");
+  });
+});

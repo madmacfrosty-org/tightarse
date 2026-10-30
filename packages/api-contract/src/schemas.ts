@@ -429,6 +429,14 @@ export const ConsentView = z.object({
       "Decided from the dates alone. `stale` means nothing has refreshed this row — a lapsed " +
         "consent stops producing them, so a comfortable `expiresAt` on a frozen row is not good news",
     ),
+  suspendedAt: z
+    .string()
+    .optional()
+    .describe(
+      "When the household stopped syncing this connection, if it has. A suspended connection " +
+        "goes `stale` by design — nothing is refreshing it — so this is what tells the two apart: " +
+        "one was asked to stop, the other stopped on its own",
+    ),
 });
 export type ConsentView = z.infer<typeof ConsentView>;
 
@@ -899,21 +907,28 @@ export type ConnectCallbackResponse = z.infer<typeof ConnectCallbackResponse>;
  * connection instead of a question about intent, and disconnecting a live bank
  * is a different act that needs the provider.
  */
-export const RemoveConnectionRequest = z.object({
-  consentId: z.string().min(1).describe("The connection to stop tracking"),
+export const SuspendConnectionRequest = z.object({
+  consentId: z.string().min(1).describe("The connection to stop syncing"),
+  /**
+   * Suspending stops the sync; resuming starts it again. One route with a
+   * direction rather than two, because they are a single reversible decision
+   * and a household that can suspend must always be able to undo it.
+   */
+  suspended: z.boolean().describe("True to stop syncing it, false to start again"),
 });
-export type RemoveConnectionRequest = z.infer<typeof RemoveConnectionRequest>;
+export type SuspendConnectionRequest = z.infer<typeof SuspendConnectionRequest>;
 
-export const RemoveConnectionResponse = z.object({
+export const SuspendConnectionResponse = z.object({
   consentId: z.string().min(1),
-  removedAt: z
+  suspendedAt: z
     .string()
+    .optional()
     .describe(
-      "When it was removed. The consent row is kept — it is the only record " +
-        "that this connection existed and when it was granted — and every " +
-        "transaction it produced stays in the ledger",
+      "When syncing stopped, if it has. Absent once resumed. The consent row " +
+        "and the stored credential are both kept — suspending is reversible, " +
+        "and every transaction the connection produced stays in the ledger",
     ),
 });
-export type RemoveConnectionResponse = z.infer<typeof RemoveConnectionResponse>;
+export type SuspendConnectionResponse = z.infer<typeof SuspendConnectionResponse>;
 
 
