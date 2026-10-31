@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   AccountsResponse,
   pathFor,
+  RemoveConnectionResponse,
   SuspendConnectionResponse,
   type ConsentView,
 } from "@tightarse/api-contract";
@@ -108,6 +109,45 @@ export function Connections({ api }: { api: Api }) {
     }
   };
 
+  /**
+   * Delete the stored credential for a suspended connection.
+   *
+   * Offered only once suspended, which is the guard: suspending has already
+   * stopped it syncing, so nothing is lost by the time this is pressed but
+   * the key itself. Getting it back means connecting at the bank again.
+   *
+   * Confirmed rather than merely offered. Remove deliberately had no dialog
+   * when it only hid a row — "a dialog asking are you sure about something
+   * already dead teaches people to click through dialogs" — but this one
+   * cannot be undone, which is exactly when asking is worth it.
+   */
+  const remove = async (c: ConsentView) => {
+    const bank = c.institutionName ?? "this connection";
+    if (
+      !window.confirm(
+        `Delete the stored credential for ${bank}?\n\n` +
+          "Its transactions are kept. Connecting it again means a trip through the bank.",
+      )
+    ) {
+      return;
+    }
+
+    setBusy(c.consentId);
+    setActionError(null);
+    try {
+      await api.post(RemoveConnectionResponse, pathFor("/connections/remove"), {
+        consentId: c.consentId,
+      });
+      await read();
+    } catch (e: unknown) {
+      setActionError(
+        e instanceof Error ? e.message : "Could not remove that connection",
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const read = useCallback(
     () =>
       api
@@ -190,6 +230,17 @@ export function Connections({ api }: { api: Api }) {
                           ? "Suspend"
                           : "Resume"}
                     </button>
+                    {c.suspendedAt !== undefined && (
+                      <button
+                        type="button"
+                        className="ghost"
+                        disabled={busy !== null}
+                        onClick={() => void remove(c)}
+                        title="Delete the stored credential. Transactions are kept; reconnecting means a trip through the bank."
+                      >
+                        Remove
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

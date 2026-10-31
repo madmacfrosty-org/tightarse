@@ -931,4 +931,35 @@ export const SuspendConnectionResponse = z.object({
 });
 export type SuspendConnectionResponse = z.infer<typeof SuspendConnectionResponse>;
 
+/**
+ * Deleting a suspended connection's stored credential.
+ *
+ * The second of two acts and the only irreversible one. Refused on a
+ * connection that has not been suspended: suspending is what stops it
+ * syncing, so by the time this runs nothing is lost but the key itself.
+ */
+export const RemoveConnectionRequest = z.object({
+  consentId: z.string().min(1).describe("The suspended connection to remove"),
+});
+export type RemoveConnectionRequest = z.infer<typeof RemoveConnectionRequest>;
+
+export const RemoveConnectionResponse = z.object({
+  consentId: z.string().min(1),
+  removedAt: z
+    .string()
+    .describe(
+      "When the credential was deleted. The consent row is kept — it is the " +
+        "only record that this connection existed and when it was granted — " +
+        "and every transaction it produced stays in the ledger",
+    ),
+  credentialsDeleted: z
+    .number()
+    .int()
+    .describe(
+      "How many stored credentials carried this consent. Usually one, and " +
+        "zero where the consent row has outlived the connection behind it",
+    ),
+});
+export type RemoveConnectionResponse = z.infer<typeof RemoveConnectionResponse>;
+
 

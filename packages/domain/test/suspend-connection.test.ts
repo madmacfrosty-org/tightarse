@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
+  removeConnection,
+  ConnectionNotSuspended,
   suspendConnection,
   resumeConnection,
   ConnectionNotFound,
@@ -131,5 +133,100 @@ describe("resuming one", () => {
 
     expect(d.written).toHaveLength(0);
     expect(d.marked).toHaveLength(0);
+  });
+});
+
+describe("removing a suspended connection", () => {
+  /*
+   * The second of two deliberate acts, and the only irreversible one. What it
+   * costs is a trip through the bank to connect again; what it does not cost
+   * is history — the ledger and the raw zone keep everything the connection
+   * ever fetched, and the consent row stays as the record that it existed.
+   */
+  const removeDeps = (rows: unknown[], deleted = 1) => {
+    const base = deps(rows);
+    const deleteConnection = vi.fn(async () => deleted);
+    return { ...base, deleteConnection };
+  };
+
+  it("deletes the credential and marks the row", async () => {
+    const d = removeDeps([consent({ suspendedAt: "2026-10-30T12:00:00.000Z" })]);
+
+    const out = await removeConnection(d, "t1", "cred-1", NOW);
+
+    expect(out).toMatchObject({ removedAt: NOW.toISOString(), credentialsDeleted: 1 });
+    expect(d.deleteConnection).toHaveBeenCalledWith("t1", "cred-1");
+    expect(d.written[0]).toMatchObject({ removedAt: NOW.toISOString() });
+  });
+
+  it("refuses one the household has not suspended", async () => {
+    // Not a dialog asking whether they are sure, but a fact about the
+    // connection: a suspended one has already stopped syncing, and somebody
+    // who has not suspended it has not yet decided.
+    const d = removeDeps([consent()]);
+
+    await expect(removeConnection(d, "t1", "cred-1", NOW)).rejects.toBeInstanceOf(
+      ConnectionNotSuspended,
+    );
+    expect(d.deleteConnection).not.toHaveBeenCalled();
+    expect(d.written).toHaveLength(0);
+  });
+
+  it("deletes the credential before it says it has", async () => {
+    // The other order leaves a row saying "removed" over a credential still
+    // sitting in Secrets Manager — which nobody would go looking for.
+    const order: string[] = [];
+    const d = {
+      listConsents: async (): Promise<Row[]> =>
+        [consent({ suspendedAt: "2026-10-30T12:00:00.000Z" })] as Row[],
+      putConsent: vi.fn(async () => void order.push("row")),
+      setConnectionSuspended: vi.fn(async () => {}),
+      deleteConnection: vi.fn(async () => {
+        order.push("credential");
+        return 1;
+      }),
+    };
+
+    await removeConnection(d, "t1", "cred-1", NOW);
+
+    expect(order).toEqual(["credential", "row"]);
+  });
+
+  it("keeps the consent row, which is the record that it existed", async () => {
+    const d = removeDeps([consent({ suspendedAt: "2026-10-30T12:00:00.000Z" })]);
+
+    await removeConnection(d, "t1", "cred-1", NOW);
+
+    // Written, not deleted — and still carrying when it was granted.
+    expect(d.written[0]).toMatchObject({ consentId: "cred-1", expiresAt: expect.any(String) });
+  });
+
+  it("is the same twice, and does not delete again", async () => {
+    const already = "2026-10-29T00:00:00.000Z";
+    const d = removeDeps([consent({ suspendedAt: "2026-10-28T00:00:00.000Z", removedAt: already })]);
+
+    const out = await removeConnection(d, "t1", "cred-1", NOW);
+
+    expect(out.removedAt).toBe(already);
+    expect(d.deleteConnection).not.toHaveBeenCalled();
+    expect(d.written).toHaveLength(0);
+  });
+
+  it("still marks the row when the consent has outlived its connection", async () => {
+    // The phantom this feature was first built for: a row with nothing behind
+    // it. Refusing would leave it on the page for ever.
+    const d = removeDeps([consent({ suspendedAt: "2026-10-30T12:00:00.000Z" })], 0);
+
+    const out = await removeConnection(d, "t1", "cred-1", NOW);
+
+    expect(out.credentialsDeleted).toBe(0);
+    expect(d.written[0]).toMatchObject({ removedAt: NOW.toISOString() });
+  });
+
+  it("says so when there is no such connection", async () => {
+    const d = removeDeps([consent()]);
+    await expect(removeConnection(d, "t1", "other", NOW)).rejects.toBeInstanceOf(
+      ConnectionNotFound,
+    );
   });
 });

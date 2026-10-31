@@ -2,9 +2,11 @@ import { randomUUID } from "node:crypto";
 import { TrueLayerClient, LIVE, SANDBOX, TrueLayerError } from "@tightarse/truelayer";
 import { Connections, consentExpiry, type Connection } from "./connections.js";
 import { AwsSecrets, startExecution } from "@tightarse/aws";
-import { SuspendConnectionRequest } from "@tightarse/api-contract";
+import { RemoveConnectionRequest, SuspendConnectionRequest } from "@tightarse/api-contract";
 import {
   ConnectionNotFound,
+  ConnectionNotSuspended,
+  removeConnection,
   resumeConnection,
   suspendConnection,
   type Consent,
@@ -321,6 +323,33 @@ export async function connectRoutes(deps: ConnectDeps, event: ConnectEvent) {
         : await resumeConnection(store, tenantId, parsed.data.consentId);
       return json(200, { consentId: out.consentId, ...("suspendedAt" in out ? out : {}) });
     } catch (err) {
+      if (err instanceof ConnectionNotFound) return json(404, { error: err.message });
+      throw err;
+    }
+  }
+
+  if (path.endsWith("/connections/remove")) {
+    const parsed = RemoveConnectionRequest.safeParse(parseBody(event));
+    if (!parsed.success) return json(400, { error: "A consentId is required" });
+
+    try {
+      return json(
+        200,
+        await removeConnection(
+          {
+            listConsents: deps.consents.list,
+            putConsent: deps.consents.put,
+            // Unused by removal, and required by the shared dependency shape.
+            setConnectionSuspended: async () => {},
+            deleteConnection: (tenantId, credentialsId) =>
+              deps.connections.deleteForConsent(tenantId, credentialsId),
+          },
+          tenantId,
+          parsed.data.consentId,
+        ),
+      );
+    } catch (err) {
+      if (err instanceof ConnectionNotSuspended) return json(409, { error: err.message });
       if (err instanceof ConnectionNotFound) return json(404, { error: err.message });
       throw err;
     }

@@ -43,6 +43,9 @@ function fakeSecrets(seed: Record<string, string> = {}) {
     },
     // The port's contract: names under the prefix, already paged.
     list: async (prefix) => [...store.keys()].filter((k) => k.startsWith(prefix)),
+    delete: async (name) => {
+      store.delete(name);
+    },
   };
   return { secrets, store };
 }
@@ -235,5 +238,57 @@ describe("suspending a connection in the store", () => {
     expect(
       await new Connections(PREFIX, secrets).setSuspended("frost", "nothing", "2026-10-30T12:00:00.000Z"),
     ).toBe(false);
+  });
+});
+
+describe("deleting the credentials for a consent", () => {
+  const seeded = (...conns: Connection[]) =>
+    fakeSecrets(
+      Object.fromEntries(
+        conns.map((c) => [`${PREFIX}/${c.tenantId}/${c.connectionId}`, JSON.stringify(c)]),
+      ),
+    );
+
+  it("deletes the one carrying that consent, and says it did", async () => {
+    const { secrets, store } = seeded(connection({ credentialsId: "cred-1" }));
+
+    const n = await new Connections(PREFIX, secrets).deleteForConsent("frost", "cred-1");
+
+    expect(n).toBe(1);
+    expect(store.has(`${PREFIX}/frost/conn-1`)).toBe(false);
+  });
+
+  it("deletes every one carrying it, not just the first", async () => {
+    // A bank reconnected twice leaves more than one connection on the same
+    // consent, and deleting one would leave the other holding a credential
+    // nobody can see.
+    const { secrets, store } = seeded(
+      connection({ connectionId: "conn-1", credentialsId: "cred-1" }),
+      connection({ connectionId: "conn-2", credentialsId: "cred-1" }),
+    );
+
+    expect(await new Connections(PREFIX, secrets).deleteForConsent("frost", "cred-1")).toBe(2);
+    expect(store.size).toBe(0);
+  });
+
+  it("leaves other households and other consents alone", async () => {
+    const { secrets, store } = seeded(
+      connection({ credentialsId: "cred-1" }),
+      connection({ connectionId: "other-consent", credentialsId: "cred-2" }),
+      connection({ connectionId: "theirs", tenantId: "someone-else", credentialsId: "cred-1" }),
+    );
+
+    await new Connections(PREFIX, secrets).deleteForConsent("frost", "cred-1");
+
+    expect(store.has(`${PREFIX}/frost/other-consent`)).toBe(true);
+    expect(store.has(`${PREFIX}/someone-else/theirs`)).toBe(true);
+  });
+
+  it("reports none when the consent has outlived its connection", async () => {
+    // The phantom: a row with nothing behind it. The caller still has to mark
+    // the row, so this is a count rather than a failure.
+    const { secrets } = seeded(connection({ credentialsId: "cred-1" }));
+
+    expect(await new Connections(PREFIX, secrets).deleteForConsent("frost", "gone")).toBe(0);
   });
 });

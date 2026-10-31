@@ -279,6 +279,21 @@ export interface Secrets {
    * "which connections exist", and the caller decides which it actually needs.
    */
   list(prefix: string): Promise<string[]>;
+  /**
+   * Delete one, with whatever recovery window the adapter sets.
+   *
+   * Added deliberately and late. This port was three methods on purpose —
+   * "a class holding the whole SDK client could delete one; this can get, set
+   * and list" — and a refresh token is the one thing whose loss costs five
+   * years of history that no retry recovers.
+   *
+   * What changed is that there is now a state in which a credential is
+   * provably finished with: suspended by the household, and therefore not
+   * syncing. Removing one is the second of two deliberate acts, never the
+   * first. The guard lives in the capability rather than here — a port says
+   * what a component may do, not when.
+   */
+  delete(name: string): Promise<void>;
 }
 
 /**

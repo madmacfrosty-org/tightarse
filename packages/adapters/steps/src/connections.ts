@@ -119,6 +119,28 @@ export class Connections {
     return true;
   }
 
+  /**
+   * Delete the credentials for one consent, and say how many there were.
+   *
+   * Only ever called on a connection the household has suspended, which is
+   * the guard that makes this safe: a suspended connection is not syncing, so
+   * its refresh token is doing nothing, and deleting it costs a trip through
+   * the bank rather than any history — the ledger and the raw zone keep
+   * everything it ever fetched.
+   *
+   * Every match, like `setSuspended`: a bank reconnected twice can leave more
+   * than one connection on the same consent id, and deleting one of them
+   * would leave the other holding a credential nobody can see.
+   */
+  async deleteForConsent(tenantId: string, credentialsId: string): Promise<number> {
+    const all = await this.list(tenantId);
+    const found = all.filter((c) => c.credentialsId === credentialsId);
+    for (const c of found) {
+      await this.secrets.delete(this.name(tenantId, c.connectionId));
+    }
+    return found.length;
+  }
+
   async get(tenantId: string, connectionId: string): Promise<Connection | null> {
     const value = await this.secrets.get(this.name(tenantId, connectionId));
     return value ? (JSON.parse(value) as Connection) : null;

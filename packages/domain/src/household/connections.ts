@@ -30,6 +30,28 @@ import type { Row } from "../ports/outbound/index.js";
  * ninety days for it to lapse before they can stop it syncing.
  */
 
+export interface RemoveConnectionDeps extends SuspendConnectionDeps {
+  /**
+   * Delete the stored credential, returning how many there were.
+   *
+   * Separate from suspending because it cannot be undone from here. What it
+   * costs is a trip through the bank to connect again; what it does not cost
+   * is history — the ledger and the raw zone keep everything the connection
+   * ever fetched, and the consent row stays as the record that it existed.
+   */
+  readonly deleteConnection: (tenantId: string, credentialsId: string) => Promise<number>;
+}
+
+/** Refused because the household has not suspended it first. */
+export class ConnectionNotSuspended extends Error {
+  readonly statusCode = 409;
+  constructor() {
+    super(
+      "Suspend this connection before removing it. Suspending is reversible; removing is not.",
+    );
+  }
+}
+
 export interface SuspendConnectionDeps {
   readonly listConsents: (tenantId: string) => Promise<Row[]>;
   readonly putConsent: (consent: Consent) => Promise<void>;
@@ -120,4 +142,50 @@ async function findConsent(
     .find((c) => c.consentId === consentId);
   if (consent === undefined) throw new ConnectionNotFound();
   return consent;
+}
+
+/**
+ * Delete a suspended connection's stored credential.
+ *
+ * The second of two deliberate acts, and the only irreversible one. It
+ * refuses anything the household has not suspended first — not as a dialog
+ * asking whether they are sure, but as a fact about the connection: a
+ * suspended one has already stopped syncing, so nothing is lost by the time
+ * this runs, and somebody who has not suspended it has not yet decided.
+ *
+ * The consent row is kept and marked. It is the only record that this
+ * connection existed and when, and every transaction it produced stays in the
+ * ledger — the thing being deleted is a key to a door, not the room.
+ *
+ * Nothing is asked of the provider. TrueLayer's own delete needs an access
+ * token, which needs a live consent, so it is unavailable for exactly the
+ * connections worth removing; and the household's consent at the bank lapses
+ * on its own schedule regardless of what we hold. Removing is us letting go
+ * of a credential, not revoking anything.
+ */
+export async function removeConnection(
+  deps: RemoveConnectionDeps,
+  tenantId: string,
+  consentId: string,
+  now: Date = new Date(),
+): Promise<{ consentId: string; removedAt: string; credentialsDeleted: number }> {
+  const consent = await findConsent(deps, tenantId, consentId);
+
+  // Already removed is not an error, and must not delete twice or move the
+  // date: two tabs and a double press should arrive at the same state.
+  if (consent.removedAt !== undefined) {
+    return { consentId, removedAt: consent.removedAt, credentialsDeleted: 0 };
+  }
+
+  if (consent.suspendedAt === undefined) throw new ConnectionNotSuspended();
+
+  // The credential first. If the row write fails after it, the household has
+  // a connection that cannot sync and a row that still lists it — visible,
+  // and fixable by pressing the button again. The other order leaves a row
+  // saying "removed" over a credential still sitting in Secrets Manager.
+  const credentialsDeleted = await deps.deleteConnection(tenantId, consentId);
+
+  const removedAt = now.toISOString();
+  await deps.putConsent({ ...consent, removedAt });
+  return { consentId, removedAt, credentialsDeleted };
 }

@@ -7,6 +7,7 @@
  */
 
 import {
+  DeleteSecretCommand,
   CreateSecretCommand,
   GetSecretValueCommand,
   ListSecretsCommand,
@@ -81,6 +82,22 @@ export class AwsSecrets implements Secrets {
    * The filter is server-side, so a household with one connection does not pay
    * for listing every secret in the account.
    */
+  /**
+   * Delete, with a recovery window rather than immediately.
+   *
+   * Seven days, not `ForceDeleteWithoutRecovery`. The household cannot undo a
+   * removal — the button says so — but an operator can, and the thing being
+   * deleted is a refresh token whose loss costs five years of history that no
+   * retry recovers. A week is the difference between a mistake and an
+   * incident, and it costs nothing: a scheduled secret is already invisible
+   * to `list` and `get`.
+   */
+  async delete(name: string): Promise<void> {
+    await this.client.send(
+      new DeleteSecretCommand({ SecretId: name, RecoveryWindowInDays: 7 }),
+    );
+  }
+
   async list(prefix: string): Promise<string[]> {
     const names: string[] = [];
     let token: string | undefined;

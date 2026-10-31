@@ -431,3 +431,62 @@ describe("the shapes API Gateway actually sends a body in", () => {
     expect(body(res)["error"]).not.toContain("undefined");
   });
 });
+
+describe("removing a connection over HTTP", () => {
+  const rows = (over: Record<string, unknown> = {}) => [
+    {
+      tenantId: "frost",
+      consentId: "cred-1",
+      provider: "truelayer",
+      expiresAt: "2027-01-27T00:00:00.000Z",
+      providerStatus: "Authorised",
+      fetchedAt: "2026-10-31T05:00:00.000Z",
+      ...over,
+    },
+  ];
+
+  const removeDeps = (consentOver: Record<string, unknown> = {}) => {
+    const put = vi.fn(async () => {});
+    const deleteForConsent = vi.fn(async (_t: string, _c: string) => 1);
+    const { deps: d } = deps({
+      consents: { list: vi.fn(async () => rows(consentOver)), put },
+      connections: { deleteForConsent },
+    });
+    return { deps: d, put, deleteForConsent };
+  };
+
+  const post = (d: Parameters<typeof connectRoutes>[0], body: unknown) =>
+    connectRoutes(d, event({ rawPath: "/v1/connections/remove", body: JSON.stringify(body) }));
+
+  it("deletes the credential of a suspended connection", async () => {
+    const { deps: d, deleteForConsent, put } = removeDeps({
+      suspendedAt: "2026-10-30T12:00:00.000Z",
+    });
+
+    const res = await post(d, { consentId: "cred-1" });
+
+    expect(res.statusCode).toBe(200);
+    expect(deleteForConsent).toHaveBeenCalledWith("frost", "cred-1");
+    expect(put).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses one that was never suspended, with 409 and the reason", async () => {
+    const { deps: d, deleteForConsent } = removeDeps();
+
+    const res = await post(d, { consentId: "cred-1" });
+
+    expect(res.statusCode).toBe(409);
+    expect(body(res)["error"]).toMatch(/Suspend this connection before removing/);
+    expect(deleteForConsent).not.toHaveBeenCalled();
+  });
+
+  it("says 404 for a consent this household does not have", async () => {
+    const { deps: d } = removeDeps({ suspendedAt: "2026-10-30T12:00:00.000Z" });
+    expect((await post(d, { consentId: "someone-elses" })).statusCode).toBe(404);
+  });
+
+  it("asks for a consentId rather than failing obscurely", async () => {
+    const { deps: d } = removeDeps();
+    expect((await post(d, {})).statusCode).toBe(400);
+  });
+});
