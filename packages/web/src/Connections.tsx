@@ -58,6 +58,9 @@ function lastRefreshed(consents: ConsentView[]): string | null {
 
 /**
  * What may be stopped, and what may not.
+/** What a row can be doing. Each button reports its own, and no other. */
+type Action = "suspend" | "resume" | "remove";
+
 /** Ordered by urgency rather than by name: the one that needs attention first. */
 const ORDER: ConsentView["health"][] = ["expired", "stale", "escalate", "warn", "ok"];
 
@@ -70,7 +73,17 @@ export function Connections({ api }: { api: Api }) {
   // opposite of what happened.
   const [readError, setReadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+  /**
+   * Which connection is working, and at what.
+   *
+   * The action, not only the connection. It used to be the consent id alone,
+   * and both buttons on a row asked the same question — so pressing Remove
+   * made the button beside it say "Resuming…", which is the wrong control
+   * reporting the wrong thing about an action that deletes a credential.
+   */
+  const [busy, setBusy] = useState<{ consentId: string; action: Action } | null>(null);
+  const working = (consentId: string, action: Action) =>
+    busy?.consentId === consentId && busy.action === action;
 
 
 
@@ -87,7 +100,7 @@ export function Connections({ api }: { api: Api }) {
    * ninety days for it to lapse before they can stop it syncing.
    */
   const setSuspended = async (consentId: string, suspended: boolean) => {
-    setBusy(consentId);
+    setBusy({ consentId, action: suspended ? "suspend" : "resume" });
     setActionError(null);
     try {
       await api.post(SuspendConnectionResponse, pathFor("/connections/suspend"), {
@@ -132,7 +145,7 @@ export function Connections({ api }: { api: Api }) {
       return;
     }
 
-    setBusy(c.consentId);
+    setBusy({ consentId: c.consentId, action: "remove" });
     setActionError(null);
     try {
       await api.post(RemoveConnectionResponse, pathFor("/connections/remove"), {
@@ -222,12 +235,12 @@ export function Connections({ api }: { api: Api }) {
                           : "Start syncing this connection again."
                       }
                     >
-                      {busy === c.consentId
-                        ? c.suspendedAt === undefined
+                      {c.suspendedAt === undefined
+                        ? working(c.consentId, "suspend")
                           ? "Suspending…"
-                          : "Resuming…"
-                        : c.suspendedAt === undefined
-                          ? "Suspend"
+                          : "Suspend"
+                        : working(c.consentId, "resume")
+                          ? "Resuming…"
                           : "Resume"}
                     </button>
                     {c.suspendedAt !== undefined && (
@@ -238,7 +251,7 @@ export function Connections({ api }: { api: Api }) {
                         onClick={() => void remove(c)}
                         title="Delete the stored credential. Transactions are kept; reconnecting means a trip through the bank."
                       >
-                        Remove
+                        {working(c.consentId, "remove") ? "Removing…" : "Remove"}
                       </button>
                     )}
                   </td>
