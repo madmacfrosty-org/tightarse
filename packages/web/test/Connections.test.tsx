@@ -207,3 +207,76 @@ describe("suspending and resuming a connection", () => {
     expect(document.body.textContent).toContain("Example Bank");
   });
 });
+
+describe("removing a suspended connection", () => {
+  /*
+   * The second of two acts, and the only irreversible one. Offered only once
+   * suspended — suspending has already stopped it syncing, so nothing is lost
+   * by the time this is pressed but the key itself.
+   */
+  const confirmWith = (answer: boolean) =>
+    vi.spyOn(window, "confirm").mockReturnValue(answer);
+
+  it("is not offered on a connection that is still syncing", async () => {
+    // The guard. Somebody who has not suspended it has not yet decided.
+    withConsents([consent({ health: "ok" })]);
+    render(<Connections api={api} />);
+    await screen.findByText("Example Bank");
+
+    expect(screen.queryByRole("button", { name: /^remove$/i })).toBeNull();
+  });
+
+  it("is offered once suspended", async () => {
+    withConsents([consent({ health: "stale", suspendedAt: "2026-10-30T12:00:00.000Z" })]);
+    render(<Connections api={api} />);
+    await screen.findByText("Example Bank");
+
+    expect(screen.getByRole("button", { name: /^remove$/i })).toBeDefined();
+  });
+
+  it("asks before deleting, because this one cannot be undone", async () => {
+    // Remove deliberately had no dialog when it only hid a row. This deletes
+    // a credential, which is exactly when asking is worth it.
+    const ask = confirmWith(false);
+    withConsents([consent({ health: "stale", suspendedAt: "2026-10-30T12:00:00.000Z" })]);
+    render(<Connections api={api} />);
+    await screen.findByText("Example Bank");
+
+    // Counted rather than asserted as never: `apiPost` is module-scope and
+    // earlier tests in this file have used it.
+    const before = apiPost.mock.calls.length;
+    await userEvent.click(screen.getByRole("button", { name: /^remove$/i }));
+
+    expect(ask).toHaveBeenCalled();
+    expect(apiPost.mock.calls.length).toBe(before);
+    ask.mockRestore();
+  });
+
+  it("names the bank in what it asks, and says the transactions are kept", async () => {
+    const ask = confirmWith(false);
+    withConsents([consent({ health: "stale", suspendedAt: "2026-10-30T12:00:00.000Z" })]);
+    render(<Connections api={api} />);
+    await screen.findByText("Example Bank");
+
+    await userEvent.click(screen.getByRole("button", { name: /^remove$/i }));
+
+    const asked = ask.mock.calls[0]![0] as string;
+    expect(asked).toContain("Example Bank");
+    expect(asked).toMatch(/transactions are kept/i);
+    ask.mockRestore();
+  });
+
+  it("deletes it when agreed, and re-reads", async () => {
+    const ask = confirmWith(true);
+    withConsents([
+      consent({ consentId: "c-1", health: "stale", suspendedAt: "2026-10-30T12:00:00.000Z" }),
+    ]);
+    render(<Connections api={api} />);
+    await screen.findByText("Example Bank");
+
+    await userEvent.click(screen.getByRole("button", { name: /^remove$/i }));
+
+    await waitFor(() => expect(apiPost.mock.calls.at(-1)?.[1]).toEqual({ consentId: "c-1" }));
+    ask.mockRestore();
+  });
+});

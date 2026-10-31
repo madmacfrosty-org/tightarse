@@ -178,3 +178,42 @@ describe("construction", () => {
     expect(() => new AwsSecrets()).not.toThrow();
   });
 });
+
+describe("deleting a secret", () => {
+  it("asks for a recovery window rather than an immediate delete", async () => {
+    // Seven days, not `ForceDeleteWithoutRecovery`. The household cannot undo
+    // a removal — the button says so — but an operator can, and the thing
+    // being deleted is a refresh token whose loss costs five years of history
+    // that no retry recovers. A week is the difference between a mistake and
+    // an incident, and it costs nothing: a scheduled secret is already
+    // invisible to `get` and `list`.
+    const sent: unknown[] = [];
+    const s = new AwsSecrets({
+      client: client(async (cmd: any) => {
+        sent.push(cmd.input);
+        return {};
+      }),
+    });
+
+    await s.delete("tightarse/prod/truelayer/connections/frost/conn-1");
+
+    expect(sent[0]).toMatchObject({
+      SecretId: "tightarse/prod/truelayer/connections/frost/conn-1",
+      RecoveryWindowInDays: 7,
+    });
+    expect(sent[0]).not.toHaveProperty("ForceDeleteWithoutRecovery");
+  });
+
+  it("lets a refusal through rather than reporting a delete that did not happen", async () => {
+    // A caller has already marked the consent row by the time this runs; if
+    // the delete silently failed, the household would be told a credential
+    // was gone while it sat in Secrets Manager.
+    const s = new AwsSecrets({
+      client: client(async () => {
+        throw new Error("denied");
+      }),
+    });
+
+    await expect(s.delete("n")).rejects.toThrow(/denied/);
+  });
+});

@@ -24,6 +24,8 @@ import {
   TransactionsResponse,
   RunningBalanceResponse,
   BooksResponse,
+  RemoveConnectionRequest,
+  RemoveConnectionResponse,
   SuspendConnectionRequest,
   SuspendConnectionResponse,
 } from "./schemas.js";
@@ -275,6 +277,22 @@ export const CONNECTION_ROUTES: readonly Route[] = [
     query: [],
     request: { name: "SuspendConnectionRequest", schema: SuspendConnectionRequest },
     response: { name: "SuspendConnectionResponse", schema: SuspendConnectionResponse },
+  },
+  {
+    method: "post",
+    path: "/connections/remove",
+    summary: "Delete a suspended connection's stored credential",
+    description:
+      "Deletes the refresh token held for a connection the household has already suspended, and " +
+      "marks the consent row removed. Refuses one that is not suspended: suspending is what stops " +
+      "it syncing, and is reversible, so by the time this runs nothing is lost but the key. The " +
+      "consent row and every transaction the connection produced are kept — what goes is the " +
+      "credential, and getting it back means connecting at the bank again. Nothing is asked of the " +
+      "provider: its own delete needs a live consent, so it is unavailable for exactly the " +
+      "connections worth removing, and the consent at the bank lapses on its own schedule.",
+    query: [],
+    request: { name: "RemoveConnectionRequest", schema: RemoveConnectionRequest },
+    response: { name: "RemoveConnectionResponse", schema: RemoveConnectionResponse },
   },
 ];
 
