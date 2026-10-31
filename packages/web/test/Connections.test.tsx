@@ -280,3 +280,71 @@ describe("removing a suspended connection", () => {
     ask.mockRestore();
   });
 });
+
+describe("which button says it is working", () => {
+  /*
+   * Reported from the dashboard: pressing Remove made the button beside it
+   * read "Resuming…". `busy` held the consent id alone, so both controls on
+   * a row asked the same question and both answered yes — the wrong control
+   * reporting the wrong thing about an action that deletes a credential.
+   */
+  const suspended = () =>
+    withConsents([
+      consent({ consentId: "c-1", health: "stale", suspendedAt: "2026-10-30T12:00:00.000Z" }),
+    ]);
+
+  /** A call that never settles, so the in-flight render can be inspected. */
+  const inFlight = () => {
+    let release!: () => void;
+    apiPost.mockImplementationOnce(
+      () => new Promise((resolve) => (release = () => resolve({ consentId: "c-1" }))),
+    );
+    return () => release();
+  };
+
+  it("says Removing on Remove, and leaves Resume alone", async () => {
+    const ask = vi.spyOn(window, "confirm").mockReturnValue(true);
+    suspended();
+    render(<Connections api={api} />);
+    await screen.findByText("Example Bank");
+    const release = inFlight();
+
+    await userEvent.click(screen.getByRole("button", { name: /^remove$/i }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /removing/i })).toBeDefined());
+    // The bug: this used to read "Resuming…".
+    expect(screen.getByRole("button", { name: /^resume$/i })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /resuming/i })).toBeNull();
+
+    release();
+    ask.mockRestore();
+  });
+
+  it("says Resuming on Resume, and leaves Remove alone", async () => {
+    suspended();
+    render(<Connections api={api} />);
+    await screen.findByText("Example Bank");
+    const release = inFlight();
+
+    await userEvent.click(screen.getByRole("button", { name: /^resume$/i }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /resuming/i })).toBeDefined());
+    expect(screen.getByRole("button", { name: /^remove$/i })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /removing/i })).toBeNull();
+
+    release();
+  });
+
+  it("says Suspending on a connection that is still syncing", async () => {
+    withConsents([consent({ consentId: "c-1", health: "ok" })]);
+    render(<Connections api={api} />);
+    await screen.findByText("Example Bank");
+    const release = inFlight();
+
+    await userEvent.click(screen.getByRole("button", { name: /^suspend$/i }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /suspending/i })).toBeDefined());
+
+    release();
+  });
+});
