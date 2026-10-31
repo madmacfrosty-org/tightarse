@@ -162,16 +162,30 @@ jobs:
       # and a score 1.8 points higher than the same commit scores cold. The
       # gate passed on results produced under the old budget.
       #
+      # It happened again on #198, in the shape this is most likely to take.
+      # A new test that kills a previously surviving mutant does not invalidate
+      # that mutant's stored result: the mutant is unchanged and so is the set
+      # of tests recorded as covering it, because the killing test did not
+      # exist when that set was recorded. Stryker reuses `Survived`. The same
+      # commit scored 92.55 on a runner and 93.29 cold, and the five mutants
+      # between the two were exactly the ones the new tests were written for.
+      #
+      # That makes it a trap rather than an edge case. Raising a mutation score
+      # by adding tests is the thing this gate asks for, and doing it to an
+      # unchanged source file is invisible to the incremental differ every
+      # time.
+      #
       # Bump the generation whenever a change should make Stryker reach a
-      # different verdict on a mutant it has already judged. One cold run costs
-      # about eight minutes; a stale one costs the meaning of the number.
+      # different verdict on a mutant it has already judged — including when
+      # the change is only to the tests. One cold run costs about eight
+      # minutes; a stale one costs the meaning of the number.
       - name: Restore the mutation report
         uses: actions/cache/restore@v4
         with:
           path: |
             */*/.stryker/incremental.json
-          key: stryker-g2-${{ github.sha }}
-          restore-keys: stryker-g2-
+          key: stryker-g3-${{ github.sha }}
+          restore-keys: stryker-g3-
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -215,7 +229,7 @@ jobs:
         with:
           path: |
             */*/.stryker/incremental.json
-          key: stryker-g2-${{ github.sha }}
+          key: stryker-g3-${{ github.sha }}
 
       - name: Destroy the ephemeral ledger table
         if: always()
