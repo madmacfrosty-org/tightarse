@@ -85,13 +85,16 @@ describe("the pages", () => {
   it("asks only for the connections on the page nobody opens weekly", async () => {
     // The dev account's Lambda concurrency limit is five and the single page
     // made five calls on load, so what each page asks for on arrival matters.
-    // This one asks for the connections and nothing else: the question it
-    // answers is "what state is everything in", and a page that made you press
-    // something first would not answer it. The reconciliation is still asked
-    // for by a button, and a connection is still a decision.
+    // This one asks what state everything is in — the connections, and who
+    // can see them — and nothing else. A page that made you press something
+    // first would not answer its own question. The reconciliation is still
+    // asked for by a button, and a connection is still a decision.
+    //
+    // Two is the budget here, and the list is spelled out so a third arrives
+    // as a decision rather than as drift.
     await renderAt("/operations");
     await screen.findByText("Connect a bank");
-    expect(requested()).toEqual(["/v1/accounts"]);
+    expect(requested().sort()).toEqual(["/v1/accounts", "/v1/members"]);
   });
 });
 

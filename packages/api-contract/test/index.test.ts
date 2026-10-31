@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import {
+  AddMemberRequest,
+  ConnectCallbackResponse,
+  ConnectStartResponse,
+  MemberView,
+  MembersResponse,
   AccountView,
   AccountsResponse,
   CategoryTotal,
@@ -222,5 +227,68 @@ describe("response envelopes", () => {
       consents: [],
     });
     expect(AccountsResponse.safeParse([]).success).toBe(false);
+  });
+});
+
+describe("the shapes the connect flow returns", () => {
+  // Untested until now, and they carry the two values the whole flow turns
+  // on: where to send somebody, and when their consent runs out.
+  it("keeps the provider's consent URL and the state that carries the household", () => {
+    const out = ConnectStartResponse.parse({
+      url: "https://auth.example.invalid/?client_id=x",
+      state: "opaque-value",
+    });
+
+    expect(out.url).toBe("https://auth.example.invalid/?client_id=x");
+    expect(out.state).toBe("opaque-value");
+  });
+
+  it("refuses a start response with no URL to send anybody to", () => {
+    expect(ConnectStartResponse.safeParse({ url: "", state: "s" }).success).toBe(false);
+    expect(ConnectStartResponse.safeParse({ state: "s" }).success).toBe(false);
+  });
+
+  it("keeps the connection and the date its consent lapses", () => {
+    // The expiry is the reason #69 exists; a callback that dropped it would
+    // leave nothing able to say when the feed stops.
+    const out = ConnectCallbackResponse.parse({
+      connectionId: "conn-1",
+      consentExpiresAt: "2027-01-27T00:00:00.000Z",
+    });
+
+    expect(out.connectionId).toBe("conn-1");
+    expect(out.consentExpiresAt).toBe("2027-01-27T00:00:00.000Z");
+  });
+
+  it("refuses a callback response that names no connection", () => {
+    expect(
+      ConnectCallbackResponse.safeParse({ consentExpiresAt: "2027-01-27T00:00:00.000Z" }).success,
+    ).toBe(false);
+  });
+});
+
+describe("the shapes that decide who can see the household", () => {
+  it("keeps the address and the role", () => {
+    const out = MemberView.parse({ email: "them@example.invalid", role: "member" });
+    expect(out).toMatchObject({ email: "them@example.invalid", role: "member" });
+  });
+
+  it("refuses a role it does not know", () => {
+    // A role nobody enforces is worse than none: it reads like a guarantee.
+    expect(MemberView.safeParse({ email: "x@example.invalid", role: "owner" }).success).toBe(false);
+  });
+
+  it("refuses something that is not an address", () => {
+    expect(AddMemberRequest.safeParse({ email: "not-an-address", role: "member" }).success).toBe(
+      false,
+    );
+    expect(AddMemberRequest.safeParse({ email: "x@example.invalid" }).success).toBe(false);
+  });
+
+  it("carries the list as a list", () => {
+    const out = MembersResponse.parse({
+      members: [{ email: "a@example.invalid", role: "admin" }],
+    });
+    expect(out.members).toHaveLength(1);
   });
 });

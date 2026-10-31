@@ -90,6 +90,29 @@ export function realDeps(): ApiDeps {
  * subtly different. Anything serving a household read or write goes through
  * this and nothing else.
  */
+/**
+ * The person making the request, from their verified token.
+ *
+ * The email comes from the ID token the dashboard sends, which is where
+ * `custom:tenant` lives too. Taking it from the request instead would let
+ * anybody name themselves an administrator.
+ */
+export function actorFrom(event: {
+  requestContext?: {
+    authorizer?: { jwt?: { claims?: Record<string, unknown> } };
+  };
+}): { tenantId: string; email: string } {
+  const tenantId = tenantFrom(event);
+  const email = event.requestContext?.authorizer?.jwt?.claims?.["email"];
+  if (typeof email !== "string" || email.length === 0) {
+    // A token with a household but no address cannot be checked against the
+    // member rows, and the safe answer to "may this person change who has
+    // access" is no.
+    throw Object.assign(new Error("No address on this identity"), { statusCode: 403 });
+  }
+  return { tenantId, email };
+}
+
 export function tenantFrom(event: {
   requestContext?: {
     authorizer?: { jwt?: { claims?: Record<string, unknown> } };

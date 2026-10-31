@@ -24,6 +24,11 @@ import {
   TransactionsResponse,
   RunningBalanceResponse,
   BooksResponse,
+  AddMemberRequest,
+  MemberView,
+  MembersResponse,
+  RemoveMemberRequest,
+  RemoveMemberResponse,
   RemoveConnectionRequest,
   RemoveConnectionResponse,
   SuspendConnectionRequest,
@@ -297,6 +302,52 @@ export const CONNECTION_ROUTES: readonly Route[] = [
 ];
 
 
+
+/**
+ * Who can see the household.
+ *
+ * Served by the function that writes, because these are DynamoDB rows and
+ * nothing else. Deliberately not near the connection routes: those touch a
+ * refresh token, these do not, and keeping them apart is what stops the read
+ * API ever needing one.
+ */
+export const MEMBER_ROUTES: readonly Route[] = [
+  {
+    method: "get",
+    path: "/members",
+    summary: "Who can see this household",
+    description:
+      "Everyone with access, as the household's own list. Administrators only: a row here is the " +
+      "whole authorisation model, and a member who may not change the list may not read it either. " +
+      "The household comes from the verified claim and is never a parameter.",
+    query: [],
+    response: { name: "MembersResponse", schema: MembersResponse },
+  },
+  {
+    method: "post",
+    path: "/members",
+    summary: "Give somebody access to this household",
+    description:
+      "Adds an address, or changes the role of one already present. Refuses an address that belongs " +
+      "to another household rather than moving it — a move is two decisions and only one is being " +
+      "made here — and does not say which household that was. Administrators only.",
+    query: [],
+    request: { name: "AddMemberRequest", schema: AddMemberRequest },
+    response: { name: "MemberView", schema: MemberView },
+  },
+  {
+    method: "post",
+    path: "/members/remove",
+    summary: "Take somebody's access away",
+    description:
+      "Deletes the membership row, which is what the sign-in trigger reads: they keep their account " +
+      "with the identity provider and stop getting a household claim. Refuses the person asking — a " +
+      "household with no administrator cannot add one back from the dashboard. Administrators only.",
+    query: [],
+    request: { name: "RemoveMemberRequest", schema: RemoveMemberRequest },
+    response: { name: "RemoveMemberResponse", schema: RemoveMemberResponse },
+  },
+];
 
 export const CATEGORISATION_ROUTES: readonly Route[] = [
   {

@@ -785,6 +785,92 @@
         ],
         "additionalProperties": false
       },
+      "AddMemberRequest": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "The address they sign in with"
+          },
+          "role": {
+            "$ref": "#/components/schemas/MemberRole"
+          }
+        },
+        "required": [
+          "email",
+          "role"
+        ],
+        "additionalProperties": false
+      },
+      "MemberRole": {
+        "type": "string",
+        "enum": [
+          "admin",
+          "member"
+        ],
+        "description": "`admin` may connect, suspend and remove banks, change settings, and change who has access. `member` reads the ledger and categorises, which is corrigible and open to everyone"
+      },
+      "MemberView": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "As the identity provider gives it, lowercased"
+          },
+          "role": {
+            "$ref": "#/components/schemas/MemberRole"
+          },
+          "addedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "role"
+        ],
+        "additionalProperties": false
+      },
+      "MembersResponse": {
+        "type": "object",
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemberView"
+            }
+          }
+        },
+        "required": [
+          "members"
+        ],
+        "additionalProperties": false
+      },
+      "RemoveMemberRequest": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "additionalProperties": false
+      },
+      "RemoveMemberResponse": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "additionalProperties": false
+      },
       "RemoveConnectionRequest": {
         "type": "object",
         "properties": {
@@ -2179,6 +2265,111 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RemoveConnectionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The range is missing, malformed, or `from` is after `to`"
+          },
+          "401": {
+            "description": "No bearer token, or one this API does not trust"
+          },
+          "403": {
+            "description": "A valid token carrying no household claim"
+          }
+        }
+      }
+    },
+    "/v1/members": {
+      "get": {
+        "operationId": "members",
+        "summary": "Who can see this household",
+        "description": "Everyone with access, as the household's own list. Administrators only: a row here is the whole authorisation model, and a member who may not change the list may not read it either. The household comes from the verified claim and is never a parameter.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Who can see this household",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MembersResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The range is missing, malformed, or `from` is after `to`"
+          },
+          "401": {
+            "description": "No bearer token, or one this API does not trust"
+          },
+          "403": {
+            "description": "A valid token carrying no household claim"
+          }
+        }
+      },
+      "post": {
+        "operationId": "postMembers",
+        "summary": "Give somebody access to this household",
+        "description": "Adds an address, or changes the role of one already present. Refuses an address that belongs to another household rather than moving it — a move is two decisions and only one is being made here — and does not say which household that was. Administrators only.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddMemberRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Give somebody access to this household",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The range is missing, malformed, or `from` is after `to`"
+          },
+          "401": {
+            "description": "No bearer token, or one this API does not trust"
+          },
+          "403": {
+            "description": "A valid token carrying no household claim"
+          }
+        }
+      }
+    },
+    "/v1/members/remove": {
+      "post": {
+        "operationId": "postMembersRemove",
+        "summary": "Take somebody's access away",
+        "description": "Deletes the membership row, which is what the sign-in trigger reads: they keep their account with the identity provider and stop getting a household claim. Refuses the person asking — a household with no administrator cannot add one back from the dashboard. Administrators only.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveMemberRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take somebody's access away",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveMemberResponse"
                 }
               }
             }

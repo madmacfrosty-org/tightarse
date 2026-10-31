@@ -962,4 +962,46 @@ export const RemoveConnectionResponse = z.object({
 });
 export type RemoveConnectionResponse = z.infer<typeof RemoveConnectionResponse>;
 
+/**
+ * Who can see the household.
+ *
+ * A row here is the whole authorisation model: whoever holds that address at
+ * the identity provider sees every transaction, balance and bank. The
+ * household is never taken from the request — it comes from the verified
+ * claim, like everything else — so these carry an address and a role and
+ * nothing about which household they apply to.
+ */
+export const MemberRole = z
+  .enum(["admin", "member"])
+  .describe(
+    "`admin` may connect, suspend and remove banks, change settings, and change " +
+      "who has access. `member` reads the ledger and categorises, which is " +
+      "corrigible and open to everyone",
+  );
+export type MemberRole = z.infer<typeof MemberRole>;
+
+export const MemberView = z.object({
+  email: z.string().describe("As the identity provider gives it, lowercased"),
+  role: MemberRole,
+  addedAt: z.string().optional(),
+});
+export type MemberView = z.infer<typeof MemberView>;
+
+export const MembersResponse = z.object({ members: z.array(MemberView) });
+export type MembersResponse = z.infer<typeof MembersResponse>;
+
+export const AddMemberRequest = z.object({
+  email: z.string().email().describe("The address they sign in with"),
+  role: MemberRole,
+});
+export type AddMemberRequest = z.infer<typeof AddMemberRequest>;
+
+export const RemoveMemberRequest = z.object({
+  email: z.string().email(),
+});
+export type RemoveMemberRequest = z.infer<typeof RemoveMemberRequest>;
+
+export const RemoveMemberResponse = z.object({ email: z.string() });
+export type RemoveMemberResponse = z.infer<typeof RemoveMemberResponse>;
+
 

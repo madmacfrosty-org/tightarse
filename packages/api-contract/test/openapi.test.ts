@@ -8,6 +8,7 @@ import {
   API_VERSION,
   CATEGORISATION_ROUTES,
   CONNECTION_ROUTES,
+  MEMBER_ROUTES,
   CONNECT_PATHS,
   ROUTES,
   pathFor,
@@ -103,6 +104,7 @@ describe("what must survive generation", () => {
           ...ROUTES,
           ...CATEGORISATION_ROUTES,
           ...CONNECTION_ROUTES,
+          ...MEMBER_ROUTES,
         ].map(pathFor),
       ),
     );
@@ -220,7 +222,7 @@ describe("routes that take a body", () => {
       .filter(([method]) => method === "get")
       .map(([, op]) => op.operationId);
 
-    expect(ids.sort()).toEqual(["accounts", "balances", "books", "categories", "categorisationGaps", "diagnosticsRunningBalance", "summary", "transactions"]);
+    expect(ids.sort()).toEqual(["accounts", "balances", "books", "categories", "categorisationGaps", "diagnosticsRunningBalance", "members", "summary", "transactions"]);
   });
 
   it("gives every operation in the document a distinct id", () => {
@@ -334,5 +336,90 @@ describe("a path served two ways", () => {
     const built = buildOpenApiDocument([get, post]).paths["/v1/categories"] as Record<string, { operationId: string }>;
 
     expect(built["get"]!.operationId).not.toBe(built["post"]!.operationId);
+  });
+});
+
+describe("what a route accepts", () => {
+  const all = [...ROUTES, ...CATEGORISATION_ROUTES, ...CONNECTION_ROUTES, ...MEMBER_ROUTES];
+
+  it("asks for nothing in the query string on a route that takes a body", () => {
+    // A write carries what it needs in the body. A POST that also read a
+    // query parameter would have two places to look for the same decision,
+    // and a generated client would offer both.
+    //
+    // One exception, named rather than excused: a proposal is made *over a
+    // range*, and the range is the thing being proposed about rather than
+    // part of the proposal. Listing it here means adding a second exception
+    // is a decision somebody makes on purpose.
+    const takesARange = ["/categorisation/proposals"];
+
+    for (const route of all.filter((r) => r.method === "post")) {
+      if (takesARange.includes(route.path)) {
+        expect(route.query.map((q) => q.name)).toEqual(["from", "to", "commit"]);
+        continue;
+      }
+      expect(route.query, `${pathFor(route)} should take no query`).toEqual([]);
+    }
+  });
+
+  it("takes no parameters on the reads whose answer is the whole household", () => {
+    // `/accounts`, `/books` and `/members` answer "what is there" rather than
+    // "what about this". A range or an id on them would be a second way to
+    // ask a question the claim already settles — and on `/members`
+    // especially, a household parameter is exactly what the authorisation
+    // model refuses to accept.
+    for (const path of ["/accounts", "/books", "/members"]) {
+      const route = all.find((r) => r.path === path && r.method === "get");
+      expect(route, `${path} should exist`).toBeDefined();
+      expect(route!.query, `${path} should take no query`).toEqual([]);
+    }
+  });
+
+  it("declares a body on every route that writes, and none that reads", () => {
+    // A GET with a request body is unreachable from a browser's fetch and
+    // from most generated clients, so it would be a route nothing could call.
+    for (const route of all) {
+      if (route.method === "get") expect(route.request).toBeUndefined();
+      else expect(route.request, `${pathFor(route)} should take a body`).toBeDefined();
+    }
+  });
+});
+
+describe("what the published document promises about itself", () => {
+  const all = [...ROUTES, ...CATEGORISATION_ROUTES, ...CONNECTION_ROUTES, ...MEMBER_ROUTES];
+
+  it("gives every route a summary and a description worth reading", () => {
+    // This document is generated for clients to build against — the iOS
+    // repository among them. A route with an empty summary ships as an
+    // unexplained method name in somebody else's codebase, and the first
+    // person to notice is whoever has to call it.
+    for (const route of all) {
+      expect(route.summary.length, `${pathFor(route)} summary`).toBeGreaterThan(10);
+      expect(route.description.length, `${pathFor(route)} description`).toBeGreaterThan(40);
+    }
+  });
+
+  it("describes every query parameter it accepts", () => {
+    // A parameter with no description is one a client's author has to guess
+    // at, and the guesses are not visible from here.
+    for (const route of all) {
+      for (const p of route.query) {
+        expect(p.name.length, `${pathFor(route)} parameter name`).toBeGreaterThan(0);
+        expect(p.description.length, `${pathFor(route)} ${p.name}`).toBeGreaterThan(10);
+      }
+    }
+  });
+
+  it("carries the summary and description through to the document", () => {
+    // Asserted on the output rather than the input: the routes could be
+    // perfect and the generator still drop them, which is the failure a
+    // client would actually see.
+    const doc = buildOpenApiDocument();
+    for (const [path, ops] of Object.entries(doc.paths as Record<string, Record<string, { summary: string; description: string }>>)) {
+      for (const [method, op] of Object.entries(ops)) {
+        expect(op.summary?.length, `${method} ${path}`).toBeGreaterThan(10);
+        expect(op.description?.length, `${method} ${path}`).toBeGreaterThan(40);
+      }
+    }
   });
 });

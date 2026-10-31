@@ -46,6 +46,7 @@ export * from "./categorisation/resolve.js";
 export * from "./household/member.js";
 export * from "./household/settings.js";
 export * from "./household/connections.js";
+export * from "./household/members.js";
 export * from "./household/consent.js";
 export * from "./raw/keys.js";
 export * from "./reporting/summary.js";

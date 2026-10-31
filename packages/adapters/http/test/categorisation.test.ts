@@ -66,6 +66,11 @@ const deps = (
       proposals.push(request);
       return { prediction: EMPTY_PREDICTION };
     }),
+    members: {
+      list: vi.fn(async () => [{ email: "owner@example.invalid", role: "admin" as const }]),
+      add: vi.fn(async (_a: unknown, email: string, role: "admin" | "member") => ({ email, role })),
+      remove: vi.fn(async (_a: unknown, email: string) => ({ email })),
+    },
     addCategory: vi.fn(
       async (tenantId: string, request: { label: string; nature?: string }) => {
         seen.push(tenantId);
@@ -789,3 +794,133 @@ describe("reading the commit mode on its own", () => {
   });
 });
 
+
+describe("who can see the household", () => {
+  /*
+   * Served here because these are DynamoDB rows and nothing else — the
+   * connection routes touch a refresh token and live elsewhere. The guard is
+   * the capability's; what is tested here is that the route hands it a caller
+   * taken from the verified token rather than from the request.
+   */
+  const signedAs = (email: string | undefined, tenant = "frost") => ({
+    requestContext: {
+      authorizer: {
+        jwt: { claims: { ...(email === undefined ? {} : { email }), "custom:tenant": tenant } },
+      },
+      http: { method: "GET" },
+    },
+  });
+
+  it("lists the household's members", async () => {
+    const d = deps();
+    const res = await route(d, {
+      ...signedAs("owner@example.invalid"),
+      rawPath: "/v1/members",
+    } as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(d.members.list).toHaveBeenCalledWith({
+      email: "owner@example.invalid",
+      tenantId: "frost",
+    });
+  });
+
+  it("takes the caller from the token, never from the body", async () => {
+    // Otherwise anybody could name themselves an administrator.
+    const d = deps();
+    const res = await route(d, {
+      ...signedAs("owner@example.invalid"),
+      rawPath: "/v1/members",
+      requestContext: {
+        ...signedAs("owner@example.invalid").requestContext,
+        http: { method: "POST" },
+      },
+      body: JSON.stringify({
+        email: "them@example.invalid",
+        role: "admin",
+        actor: "someone-else@example.invalid",
+      }),
+    } as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(d.members.add).toHaveBeenCalledWith(
+      { email: "owner@example.invalid", tenantId: "frost" },
+      "them@example.invalid",
+      "admin",
+    );
+  });
+
+  it("refuses a token carrying no address", async () => {
+    // It cannot be checked against the member rows, and the safe answer to
+    // "may this person change who has access" is no.
+    const d = deps();
+    const res = await route(d, {
+      ...signedAs(undefined),
+      rawPath: "/v1/members",
+    } as never);
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("removes by address", async () => {
+    const d = deps();
+    const res = await route(d, {
+      ...signedAs("owner@example.invalid"),
+      rawPath: "/v1/members/remove",
+      body: JSON.stringify({ email: "them@example.invalid" }),
+    } as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(d.members.remove).toHaveBeenCalledWith(
+      { email: "owner@example.invalid", tenantId: "frost" },
+      "them@example.invalid",
+    );
+  });
+
+  it("reads rather than writes when the event names no method", async () => {
+    // The gateway's event shape varies, and the safe default for a route
+    // that both lists and grants access is the one that only looks.
+    const d = deps();
+    const res = await route(d, {
+      requestContext: {
+        authorizer: {
+          jwt: { claims: { email: "owner@example.invalid", "custom:tenant": "frost" } },
+        },
+      },
+      rawPath: "/v1/members",
+    } as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(d.members.list).toHaveBeenCalled();
+    expect(d.members.add).not.toHaveBeenCalled();
+  });
+
+  it("asks for an address and a role when adding", async () => {
+    // The POST half of `/members`. A body that does not parse must be a 400
+    // rather than a call into the capability with nothing in it.
+    const d = deps();
+    const res = await route(d, {
+      ...signedAs("owner@example.invalid"),
+      rawPath: "/v1/members",
+      requestContext: {
+        ...signedAs("owner@example.invalid").requestContext,
+        http: { method: "POST" },
+      },
+      body: JSON.stringify({ email: "not-an-address" }),
+    } as never);
+
+    expect(res.statusCode).toBe(400);
+    expect(d.members.add).not.toHaveBeenCalled();
+  });
+
+  it("asks for an address rather than failing obscurely", async () => {
+    const d = deps();
+    const res = await route(d, {
+      ...signedAs("owner@example.invalid"),
+      rawPath: "/v1/members/remove",
+      body: JSON.stringify({}),
+    } as never);
+
+    expect(res.statusCode).toBe(400);
+  });
+});

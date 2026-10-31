@@ -546,11 +546,13 @@ suite("household access", () => {
       email: alice,
       tenantId: TENANT,
       addedAt: new Date().toISOString(),
+        role: "admin" as const,
     });
     await ledger.putMember({
       email: bob,
       tenantId: TENANT,
       addedAt: new Date().toISOString(),
+        role: "admin" as const,
     });
 
     const mine = (await ledger.listMembers()).filter(
@@ -570,6 +572,7 @@ suite("household access", () => {
       email: alice,
       tenantId: TENANT,
       addedAt: new Date().toISOString(),
+        role: "admin" as const,
     });
     expect(await ledger.getMemberTenant(`  ${alice.toUpperCase()} `)).toBe(
       TENANT,

@@ -1,4 +1,6 @@
 import {
+  AddMemberRequest,
+  RemoveMemberRequest,
   NewCategoryRequest,
   ProposalRequest,
 } from "@tightarse/api-contract";
@@ -11,11 +13,14 @@ import type {
   RuleSet,
 } from "@tightarse/domain";
 import {
+  addMember,
+  listHouseholdMembers,
+  removeMember,
   createCategory,
   inspection,
   proposeRules,
 } from "@tightarse/domain";
-import { ledgerConfig, tenantFrom } from "./handler.js";
+import { actorFrom, ledgerConfig, tenantFrom } from "./handler.js";
 import { asBacklog, asProposalResponse } from "./wire.js";
 
 /**
@@ -59,6 +64,27 @@ export interface CategorisationDeps {
    * is, is the function that writes.
    */
   /** Adding a category, which has to exist before a rule may name it. */
+  /**
+   * Who can see the household.
+   *
+   * Grouped, because all three share a guard: a row here is the whole
+   * authorisation model, so every one of them refuses a caller who is not an
+   * administrator of the household they are acting on.
+   */
+  readonly members: {
+    readonly list: (
+      actor: { email: string; tenantId: string },
+    ) => Promise<Array<{ email: string; role: "admin" | "member"; addedAt: string }>>;
+    readonly add: (
+      actor: { email: string; tenantId: string },
+      email: string,
+      role: "admin" | "member",
+    ) => Promise<{ email: string; role: "admin" | "member" }>;
+    readonly remove: (
+      actor: { email: string; tenantId: string },
+      email: string,
+    ) => Promise<{ email: string }>;
+  };
   readonly addCategory: (
     tenantId: string,
     request: {
@@ -259,6 +285,26 @@ export async function route(deps: CategorisationDeps, event: HttpEvent) {
     const path = event.rawPath ?? "/";
 
 
+    if (path.endsWith("/members/remove")) {
+      const parsed = RemoveMemberRequest.safeParse(jsonBody(event));
+      if (!parsed.success) throw badRequest(parsed.error.issues);
+      return json(200, await deps.members.remove(actorFrom(event), parsed.data.email));
+    }
+
+    if (path.endsWith("/members")) {
+      // One path, two methods: the list and the addition. Decided on the
+      // method rather than the path, which is what the contract declares.
+      if ((event.requestContext?.http?.method ?? "GET").toUpperCase() === "POST") {
+        const parsed = AddMemberRequest.safeParse(jsonBody(event));
+        if (!parsed.success) throw badRequest(parsed.error.issues);
+        return json(
+          200,
+          await deps.members.add(actorFrom(event), parsed.data.email, parsed.data.role),
+        );
+      }
+      return json(200, { members: await deps.members.list(actorFrom(event)) });
+    }
+
     if (path.endsWith("/categorisation/gaps")) {
       const range = rangeFrom(event);
       return json(
@@ -341,6 +387,15 @@ export function realDeps(): CategorisationDeps {
   };
   return {
     inspection: inspection({ transactions: store, ruleSets: store }),
+    members: {
+      // Bound rather than wrapped, for the same reason as the others: a
+      // wrapper here is a function no test can reach without a table, and an
+      // unreachable line in the composition root is how the routing itself
+      // went untested before.
+      list: listHouseholdMembers.bind(null, store),
+      add: addMember.bind(null, store),
+      remove: removeMember.bind(null, store),
+    },
     // Bound rather than wrapped, for the same reason as above: a wrapper here
     // is a function no test can reach without a table.
     addCategory: createCategory.bind(null, { categories: store }),

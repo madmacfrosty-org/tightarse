@@ -25,7 +25,7 @@ import { DynamoStore } from "@tightarse/dynamodb";
 
 const usage = `usage:
   access list
-  access grant <email> <tenantId>
+  access grant <email> <tenantId> [admin|member]
   access revoke <email>`;
 
 async function main(): Promise<void> {
@@ -68,13 +68,19 @@ async function main(): Promise<void> {
           `${email} already belongs to household "${existing}". Revoke first if the move is intended.`,
         );
       }
+      // `admin` from this tool, deliberately. It is run by somebody with the
+      // ledger table name and AWS credentials, which is a higher bar than the
+      // dashboard, and the first member of a household has to be able to add
+      // the second. The dashboard is where a `member` is created.
+      const role = process.argv[5] === "member" ? "member" : "admin";
       await ledger.putMember({
         email: email.trim().toLowerCase(),
         tenantId,
         addedAt: new Date().toISOString(),
+        role,
       });
       console.log(
-        `granted ${email.trim().toLowerCase()} access to household ${tenantId}`,
+        `granted ${email.trim().toLowerCase()} ${role} access to household ${tenantId}`,
       );
       console.log(
         "they will see every transaction in it, including everyone else's",
