@@ -177,8 +177,13 @@ jobs:
       #
       # Bump the generation whenever a change should make Stryker reach a
       # different verdict on a mutant it has already judged — including when
-      # the change is only to the tests. One cold run costs about eight
-      # minutes; a stale one costs the meaning of the number.
+      # the change is only to the tests.
+      #
+      # A cold run of every package costs about 38 minutes, not the eight this
+      # said before #200 measured it — the domain alone is 21 of them. That is
+      # the real price of a bump, and it is still worth paying: a stale report
+      # costs the meaning of the number, and #198 failed its gate on a score
+      # its own commit does not produce.
       - name: Restore the mutation report
         uses: actions/cache/restore@v4
         with:
