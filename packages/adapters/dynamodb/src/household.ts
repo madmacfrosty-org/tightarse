@@ -60,7 +60,7 @@ export class DynamoHousehold extends TableAdapter implements Household {
   }
 
   /**
-   * Everyone with access to any household.
+   * Everyone with access to a household, or to any of them.
    *
    * A Scan, deliberately. Member rows sit in their own partitions keyed by
    * email — that is what makes the sign-in lookup a single Get on the hot path
@@ -68,8 +68,10 @@ export class DynamoHousehold extends TableAdapter implements Household {
    * administrative command run a handful of times would cost storage on every
    * write forever. Scanning a table this size, for this, is the cheaper trade.
    */
-  async listMembers(): Promise<
-    Array<{ email: string; tenantId: string; addedAt?: string }>
+  async listMembers(
+    tenantId?: string,
+  ): Promise<
+    Array<{ email: string; tenantId: string; addedAt?: string; role?: string }>
   > {
     const found: Array<{ email: string; tenantId: string; addedAt?: string }> =
       [];
@@ -85,9 +87,21 @@ export class DynamoHousehold extends TableAdapter implements Household {
         }),
       );
       for (const item of res.Items ?? []) {
-        found.push(
-          item as { email: string; tenantId: string; addedAt?: string },
-        );
+        const row = item as {
+          email: string;
+          tenantId: string;
+          addedAt?: string;
+          role?: string;
+        };
+        // Filtered here rather than left to the caller.
+        //
+        // This is a Scan over every household's members — "everyone with
+        // access to any household" — which was fine while its only caller
+        // was an administrative CLI. The dashboard can ask for this now, and
+        // a list that quietly included other households would be a leak of
+        // exactly the thing this table exists to control.
+        if (tenantId !== undefined && row.tenantId !== tenantId) continue;
+        found.push(row);
       }
       last = res.LastEvaluatedKey;
     } while (last);

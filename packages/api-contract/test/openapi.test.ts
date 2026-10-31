@@ -8,6 +8,7 @@ import {
   API_VERSION,
   CATEGORISATION_ROUTES,
   CONNECTION_ROUTES,
+  MEMBER_ROUTES,
   CONNECT_PATHS,
   ROUTES,
   pathFor,
@@ -103,6 +104,7 @@ describe("what must survive generation", () => {
           ...ROUTES,
           ...CATEGORISATION_ROUTES,
           ...CONNECTION_ROUTES,
+          ...MEMBER_ROUTES,
         ].map(pathFor),
       ),
     );
@@ -220,7 +222,7 @@ describe("routes that take a body", () => {
       .filter(([method]) => method === "get")
       .map(([, op]) => op.operationId);
 
-    expect(ids.sort()).toEqual(["accounts", "balances", "books", "categories", "categorisationGaps", "diagnosticsRunningBalance", "summary", "transactions"]);
+    expect(ids.sort()).toEqual(["accounts", "balances", "books", "categories", "categorisationGaps", "diagnosticsRunningBalance", "members", "summary", "transactions"]);
   });
 
   it("gives every operation in the document a distinct id", () => {

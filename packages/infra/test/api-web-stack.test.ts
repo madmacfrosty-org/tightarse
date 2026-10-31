@@ -135,12 +135,15 @@ describe("api", () => {
       "GET /v1/connect/callback",
       "GET /v1/connect/start",
       "GET /v1/diagnostics/running-balance",
+      "GET /v1/members",
       "GET /v1/summary",
       "GET /v1/transactions",
       "POST /v1/categories",
       "POST /v1/categorisation/proposals",
       "POST /v1/connections/remove",
       "POST /v1/connections/suspend",
+      "POST /v1/members",
+      "POST /v1/members/remove",
     ]);
   });
 
