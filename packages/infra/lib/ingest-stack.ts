@@ -738,6 +738,9 @@ export class IngestStack extends cdk.Stack {
         // Derived from the site URL, and registered with TrueLayer by hand —
         // the provider matches this exactly and nothing in CDK can register it.
         CONNECT_REDIRECT_URI: connectRedirectUri(settings),
+        // The ledger, for the consent rows a suspend writes. The sync reads
+        // the connection secret; the dashboard reads this.
+        TABLE_NAME: table.tableName,
         SYNC_STATE_MACHINE_ARN: syncMachine.stateMachineArn,
         TL_ENV: settings.providerEnvironment,
         // Sandbox has none of the real banks in it. Offering the mock is what
@@ -766,6 +769,10 @@ export class IngestStack extends cdk.Stack {
     // connection prefix, so the TrueLayer client secret and the Google
     // credentials stay unreadable from here.
     connect.addToRolePolicy(listSecrets);
+    // Suspending a connection writes its consent row as well as its secret:
+    // the secret is what the sync reads, the row is what lets the dashboard
+    // say a connection is suspended rather than merely silent.
+    table.grantReadWriteData(connect);
     // Started, not awaited. The deep-history window is open at this moment and
     // shuts within the hour, so waiting for the daily schedule would silently
     // reduce a new connection to 90 days of history. Starting the machine

@@ -195,6 +195,15 @@ export interface ConsentView {
   readonly providerStatus: string;
   readonly daysRemaining: number;
   readonly health: ConsentHealth;
+  /**
+   * When the household stopped syncing this connection, if it has.
+   *
+   * A suspended connection goes `stale` by design — nothing is refreshing it
+   * — so this is what tells the two apart: one was asked to stop, the other
+   * stopped on its own. Without it the page would report a deliberate choice
+   * as a fault.
+   */
+  readonly suspendedAt?: string | undefined;
 }
 
 /** Every account the household holds, with its latest known state. */

@@ -136,6 +136,10 @@ export const asAccounts = (a: AccountsResult): AccountsResponse => ({
     providerStatus: c.providerStatus,
     daysRemaining: c.daysRemaining,
     health: c.health,
+    // What tells a suspended connection from a broken one. Both read `stale`,
+    // because nothing is refreshing either — only this says which was asked
+    // to stop.
+    ...(c.suspendedAt === undefined ? {} : { suspendedAt: c.suspendedAt }),
     ...(c.institutionName === undefined
       ? {}
       : { institutionName: c.institutionName }),

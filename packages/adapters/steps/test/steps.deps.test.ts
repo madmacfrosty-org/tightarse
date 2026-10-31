@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { ConsentExpired } from "@tightarse/domain";
 import {
+  credentialsIdIn,
   listConnections,
   refreshAndList,
   fetchItem,
@@ -624,5 +625,91 @@ describe("the two environments", () => {
       // here.
       syncEnabled: true,
     });
+  });
+});
+
+describe("learning which consent a connection is", () => {
+  // The dashboard knows a connection by the provider's `credentials_id`, the
+  // secrets are keyed by ours, and nothing joined the two. Suspending a
+  // connection is the first thing that needs to.
+  const me = (body: unknown) => [{ dataset: "truelayer.me", itemId: null, body }];
+
+  it("takes the id out of the /me already fetched", () => {
+    expect(credentialsIdIn(me({ results: [{ credentials_id: "cred-1" }] }))).toBe("cred-1");
+  });
+
+  it("says nothing rather than guessing when the payload is bare", () => {
+    // Every field on `/me` is optional in the provider's own schema, and a
+    // payload that says nothing must leave an existing link alone rather than
+    // erase it.
+    expect(credentialsIdIn(me({}))).toBeUndefined();
+    expect(credentialsIdIn(me({ results: [] }))).toBeUndefined();
+    expect(credentialsIdIn(me({ results: [{}] }))).toBeUndefined();
+    expect(credentialsIdIn(me({ results: [{ credentials_id: "" }] }))).toBeUndefined();
+    expect(credentialsIdIn([])).toBeUndefined();
+  });
+
+  it("stores the link the first time it learns it", async () => {
+    const { deps, updated } = fakes();
+    (deps.bank.listItems as ReturnType<typeof vi.fn>).mockResolvedValue({
+      items: [],
+      payloads: me({ results: [{ credentials_id: "cred-1" }] }),
+      skipped: [],
+      failed: [],
+    });
+
+    const out = await refreshAndList(deps, { connection: connection() });
+
+    expect(out.connection.credentialsId).toBe("cred-1");
+    expect(updated.some((c) => c.credentialsId === "cred-1")).toBe(true);
+  });
+
+  it("writes nothing when the link has not changed", async () => {
+    // A settled connection must not pay a write every morning.
+    const { deps, updated } = fakes();
+    (deps.bank.listItems as ReturnType<typeof vi.fn>).mockResolvedValue({
+      items: [],
+      payloads: me({ results: [{ credentials_id: "cred-1" }] }),
+      skipped: [],
+      failed: [],
+    });
+
+    await refreshAndList(deps, { connection: connection({ credentialsId: "cred-1" }) });
+
+    // One write only: the refresh token, which is persisted unconditionally.
+    expect(updated).toHaveLength(1);
+    expect(updated[0]!.credentialsId).toBe("cred-1");
+  });
+});
+
+describe("a suspended connection is not synced", () => {
+  // The entire point of suspending one, and the thing the old Remove button
+  // did not do: it wrote the consent row the dashboard reads and left the
+  // connection secret alone, so a "removed" connection went on syncing every
+  // morning — spending the provider allowance and reporting the same problem
+  // for ever.
+  it("is left out of the daily run", async () => {
+    const { deps } = fakes();
+    (deps.connections.list as ReturnType<typeof vi.fn>).mockResolvedValue([
+      connection({ connectionId: "live" }),
+      connection({ connectionId: "paused", suspendedAt: "2026-10-30T12:00:00.000Z" }),
+    ]);
+
+    const out = await listConnections(deps, {});
+
+    expect(out.connections.map((c) => c.connectionId)).toEqual(["live"]);
+  });
+
+  it("is left out even when asked for by name", async () => {
+    // Otherwise a connect-triggered run could sync something the household
+    // has suspended, which is the one route that bypasses the daily list.
+    const { deps } = fakes();
+    (deps.connections.get as ReturnType<typeof vi.fn>).mockResolvedValue(
+      connection({ connectionId: "paused", suspendedAt: "2026-10-30T12:00:00.000Z" }),
+    );
+
+    await expect(
+      listConnections(deps, { input: { connectionId: "paused" } }),
+    ).rejects.toThrow(/suspended and will not be synced/);
   });
 });

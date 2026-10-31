@@ -34,6 +34,19 @@ export interface Connection {
    * ingest path is the one that can cost five years of history.
    */
   credentialsId?: string;
+  /**
+   * When the household stopped syncing this connection, if it has.
+   *
+   * Here rather than only on the consent row because this is what the sync
+   * lists. The old Remove button wrote the row alone, so a connection it had
+   * "removed" went on syncing every morning — spending the provider
+   * allowance and reporting the same problem for ever.
+   *
+   * The refresh token stays. Suspending is undone by resuming, and the token
+   * is the one thing whose loss costs history no retry recovers; deleting it
+   * is a separate, deliberate second act.
+   */
+  suspendedAt?: string;
 }
 
 export class Connections {
@@ -78,6 +91,32 @@ export class Connections {
       this.name(connection.tenantId, connection.connectionId),
       JSON.stringify(connection),
     );
+  }
+
+  /**
+   * Stop or restart syncing one connection, found by the provider's own id.
+   *
+   * Takes `credentialsId` rather than our `connectionId` because that is what
+   * a household's dashboard knows a connection by. The link is written by the
+   * sync from the `/me` it already fetches.
+   */
+  async setSuspended(
+    tenantId: string,
+    credentialsId: string,
+    suspendedAt: string | undefined,
+  ): Promise<boolean> {
+    const all = await this.list(tenantId);
+    const found = all.filter((c) => c.credentialsId === credentialsId);
+    if (found.length === 0) return false;
+
+    // Every match, not the first. A bank reconnected twice can leave more than
+    // one connection carrying the same consent id, and suspending one of them
+    // would leave the other syncing — which is the bug this is fixing.
+    for (const c of found) {
+      const { suspendedAt: _was, ...rest } = c;
+      await this.update(suspendedAt === undefined ? rest : { ...rest, suspendedAt });
+    }
+    return true;
   }
 
   async get(tenantId: string, connectionId: string): Promise<Connection | null> {

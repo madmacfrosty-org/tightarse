@@ -1312,3 +1312,33 @@ describe("the summary as it stood", () => {
     expect(then.spend).toBe(-30_00);
   });
 });
+
+describe("a suspended consent on the way out", () => {
+  beforeEach(() => {
+    getSettings.mockResolvedValue(null);
+  });
+
+  // A suspended connection goes `stale` by design, because nothing is
+  // refreshing it. This is what lets the page tell the two apart: one was
+  // asked to stop, the other stopped on its own.
+  it("carries the suspension through to the view", async () => {
+    listConsents.mockResolvedValue([
+      {
+        tenantId: "frost",
+        consentId: "cred-1",
+        provider: "truelayer",
+        expiresAt: "2027-01-27T00:00:00.000Z",
+        providerStatus: "Authorised",
+        fetchedAt: "2026-10-30T05:00:00.000Z",
+        suspendedAt: "2026-10-30T12:00:00.000Z",
+      },
+    ]);
+
+    const r = await accounts(deps, "frost");
+
+    expect(r.consents[0]).toMatchObject({
+      consentId: "cred-1",
+      suspendedAt: "2026-10-30T12:00:00.000Z",
+    });
+  });
+});

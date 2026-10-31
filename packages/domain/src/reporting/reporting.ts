@@ -510,6 +510,7 @@ export async function accounts(
         fetchedAt: c.fetchedAt,
         providerStatus: c.providerStatus,
         daysRemaining,
+        ...(c.suspendedAt === undefined ? {} : { suspendedAt: c.suspendedAt }),
         health,
         ...(c.institutionName === undefined
           ? {}

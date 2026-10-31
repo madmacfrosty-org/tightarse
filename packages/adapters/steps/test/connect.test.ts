@@ -283,3 +283,151 @@ describe("an event that is not shaped the way the gateway usually sends it", () 
     expect(body(res)["error"]).toMatch(/Provider rejected the code/);
   });
 });
+
+describe("suspending a connection over HTTP", () => {
+  /*
+   * Served by this function rather than the read API, because it writes the
+   * connection secret and that holds a refresh token. Giving the read and
+   * categorisation API those would widen it to every credential the household
+   * has.
+   */
+  const suspendDeps = (over: Record<string, unknown> = {}) => {
+    const rows = [
+      {
+        tenantId: "frost",
+        consentId: "cred-1",
+        provider: "truelayer",
+        expiresAt: "2027-01-27T00:00:00.000Z",
+        providerStatus: "Authorised",
+        fetchedAt: "2026-10-30T05:00:00.000Z",
+      },
+    ];
+    const put = vi.fn(async () => {});
+    // Typed, so `mock.calls` carries the arguments the assertions read.
+    const setSuspended = vi.fn(
+      async (_tenantId: string, _credentialsId: string, _at: string | undefined) => true,
+    );
+    const { deps: d } = deps({
+      consents: { list: vi.fn(async () => rows), put },
+      connections: { setSuspended },
+      ...over,
+    });
+    return { deps: d, put, setSuspended };
+  };
+
+  const post = (d: Parameters<typeof connectRoutes>[0], body: unknown) =>
+    connectRoutes(d, event({ rawPath: "/v1/connections/suspend", body: JSON.stringify(body) }));
+
+  it("stops the sync and records it", async () => {
+    const { deps: d, put, setSuspended } = suspendDeps();
+
+    const res = await post(d, { consentId: "cred-1", suspended: true });
+
+    expect(res.statusCode).toBe(200);
+    expect(setSuspended.mock.calls[0]?.slice(0, 2)).toEqual(["frost", "cred-1"]);
+    expect(put).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts it again", async () => {
+    const { deps: d, setSuspended } = suspendDeps();
+
+    const res = await post(d, { consentId: "cred-1", suspended: false });
+
+    expect(res.statusCode).toBe(200);
+    // Resuming passes no date, which is what clears the mark.
+    expect(setSuspended.mock.calls[0]?.[2]).toBeUndefined();
+  });
+
+  it("asks for what it needs rather than failing obscurely", async () => {
+    const { deps: d } = suspendDeps();
+    expect((await post(d, { consentId: "cred-1" })).statusCode).toBe(400);
+    expect((await post(d, "not json")).statusCode).toBe(400);
+  });
+
+  it("says 404 for a consent this household does not have", async () => {
+    const { deps: d } = suspendDeps();
+    expect((await post(d, { consentId: "someone-elses", suspended: true })).statusCode).toBe(404);
+  });
+
+  it("still marks the row when no connection carries the consent", async () => {
+    // A consent row can outlive the connection behind it — the phantom this
+    // was first built for. Refusing would leave it on the page for ever.
+    const { deps: d, put } = suspendDeps({
+      connections: {
+        setSuspended: vi.fn(
+          async (_t: string, _c: string, _at: string | undefined) => false,
+        ),
+      },
+    });
+
+    const res = await post(d, { consentId: "cred-1", suspended: true });
+
+    expect(res.statusCode).toBe(200);
+    expect(put).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the shapes API Gateway actually sends a body in", () => {
+  // Decided by the gateway rather than by the caller, so a handler that
+  // ignores the flag works until the day the encoding changes under it.
+  const withBody = (body: string, base64 = false) => {
+    const { deps: d } = deps({
+      consents: {
+        list: vi.fn(async () => [
+          {
+            tenantId: "frost",
+            consentId: "cred-1",
+            provider: "truelayer",
+            expiresAt: "2027-01-27T00:00:00.000Z",
+            providerStatus: "Authorised",
+            fetchedAt: "2026-10-30T05:00:00.000Z",
+          },
+        ]),
+        put: vi.fn(async () => {}),
+      },
+      connections: {
+        setSuspended: vi.fn(async (_t: string, _c: string, _at: string | undefined) => true),
+      },
+    });
+    return connectRoutes(
+      d,
+      event({ rawPath: "/v1/connections/suspend", body, isBase64Encoded: base64 }),
+    );
+  };
+
+  it("reads a base64 body", async () => {
+    const json64 = Buffer.from(
+      JSON.stringify({ consentId: "cred-1", suspended: true }),
+      "utf8",
+    ).toString("base64");
+
+    expect((await withBody(json64, true)).statusCode).toBe(200);
+  });
+
+  it("treats a request with no body as a bad one", async () => {
+    const { deps: d } = deps();
+    const res = await connectRoutes(d, event({ rawPath: "/v1/connections/suspend" }));
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("reports a provider refusal that carries no error code", async () => {
+    // TrueLayerError takes a null code, and a template assuming a string
+    // would print "undefined" into the message somebody reads.
+    const { TrueLayerError } = await import("@tightarse/truelayer");
+    const { deps: d } = deps({
+      truelayer: {
+        exchangeCode: vi.fn(async () => {
+          throw new TrueLayerError("nope", 400, null);
+        }),
+      },
+    });
+
+    const res = await connectRoutes(
+      d,
+      event({ rawPath: "/connect/callback", queryStringParameters: { code: "spent" } }),
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(body(res)["error"]).not.toContain("undefined");
+  });
+});

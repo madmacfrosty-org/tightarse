@@ -34,8 +34,8 @@ import {
   Cadence,
   CategoriesResponse,
   NewCategoryRequest,
-  RemoveConnectionRequest,
-  RemoveConnectionResponse,
+  SuspendConnectionRequest,
+  SuspendConnectionResponse,
   CategoryChoiceView,
   CategoryTallyView,
   CategoryTotal,
@@ -124,8 +124,8 @@ const NAMED = {
   CategoryChoiceView,
   CategoriesResponse,
   NewCategoryRequest,
-  RemoveConnectionRequest,
-  RemoveConnectionResponse,
+  SuspendConnectionRequest,
+  SuspendConnectionResponse,
   // Categorisation. Named for the same reason as the leaves above: unnamed,
   // a shape used by two responses is inlined into each, and a client generator
   // produces several structurally identical structs with different names.

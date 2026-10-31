@@ -2,6 +2,15 @@ import { randomUUID } from "node:crypto";
 import { TrueLayerClient, LIVE, SANDBOX, TrueLayerError } from "@tightarse/truelayer";
 import { Connections, consentExpiry, type Connection } from "./connections.js";
 import { AwsSecrets, startExecution } from "@tightarse/aws";
+import { SuspendConnectionRequest } from "@tightarse/api-contract";
+import {
+  ConnectionNotFound,
+  resumeConnection,
+  suspendConnection,
+  type Consent,
+  type Row,
+} from "@tightarse/domain";
+import { DynamoStore } from "@tightarse/dynamodb";
 
 /**
  * The connect flow: turn a bank authorisation into a stored connection.
@@ -36,6 +45,18 @@ export interface ConnectDeps {
   readonly startSync?: ((connectionId: string) => Promise<void>) | undefined;
   /** Whether this deployment talks to the sandbox. Decides which banks exist. */
   readonly sandbox: boolean;
+  /**
+   * The consent rows, which are what the dashboard shows.
+   *
+   * Suspending writes both this and the connection secret: the secret is what
+   * the sync reads, and the row is what lets the page say a connection is
+   * suspended rather than merely silent. Without the row it would go `stale`
+   * after two days and read as broken.
+   */
+  readonly consents: {
+    readonly list: (tenantId: string) => Promise<Row[]>;
+    readonly put: (consent: Consent) => Promise<void>;
+  };
 }
 
 /**
@@ -143,6 +164,8 @@ export async function completeConnect(
 
 export interface ConnectEvent {
   rawPath?: string;
+  body?: string;
+  isBase64Encoded?: boolean;
   queryStringParameters?: Record<string, string | undefined> | null;
   requestContext?: { authorizer?: { jwt?: { claims?: Record<string, unknown> } } };
 }
@@ -155,6 +178,14 @@ export interface ConnectEvent {
  */
 export async function realConnectDeps(): Promise<ConnectDeps> {
   const secrets = new AwsSecrets();
+  // The ledger, for the consent rows. Configured here rather than imported
+  // from the read API's handler: this function has its own entry point and
+  // borrowing another adapter's wiring is how two deployments end up
+  // disagreeing about which table they mean.
+  const store = new DynamoStore({
+    tableName: required("TABLE_NAME"),
+    region: process.env["AWS_REGION"] ?? "eu-west-1",
+  });
   const stored = await secrets.get(required("CLIENT_SECRET_ID"));
   const creds = JSON.parse(stored ?? "{}") as { clientId: string; clientSecret: string };
   const sandbox = process.env["TL_ENV"] === "sandbox";
@@ -166,6 +197,10 @@ export async function realConnectDeps(): Promise<ConnectDeps> {
     redirectUri: required("CONNECT_REDIRECT_URI"),
     providers: process.env["TL_PROVIDERS"] ?? "uk-ob-all uk-oauth-all",
     sandbox,
+    consents: {
+      list: (tenantId: string) => store.listConsents(tenantId),
+      put: (consent: Consent) => store.putConsent(consent),
+    },
     clientId: creds.clientId,
     authBase: sandbox ? SANDBOX.auth : LIVE.auth,
     ...(machine
@@ -258,6 +293,39 @@ export async function connectRoutes(deps: ConnectDeps, event: ConnectEvent) {
   }
 
 
+  if (path.endsWith("/connections/suspend")) {
+    const parsed = SuspendConnectionRequest.safeParse(parseBody(event));
+    if (!parsed.success) return json(400, { error: "A consentId and suspended are required" });
+
+    const store = {
+      listConsents: deps.consents.list,
+      putConsent: deps.consents.put,
+      // The connection store, by the provider's own id. The link is written by
+      // the sync from the `/me` it already fetches.
+      setConnectionSuspended: async (tenantId: string, credentialsId: string, on: boolean) => {
+        const found = await deps.connections.setSuspended(
+          tenantId,
+          credentialsId,
+          on ? new Date().toISOString() : undefined,
+        );
+        // Not an error. A consent row can outlive the connection behind it —
+        // the phantom this feature was first built for — and suspending one
+        // must still mark the row so it stops being shown.
+        if (!found) console.log(JSON.stringify({ event: "suspend.noConnection", credentialsId }));
+      },
+    };
+
+    try {
+      const out = parsed.data.suspended
+        ? await suspendConnection(store, tenantId, parsed.data.consentId)
+        : await resumeConnection(store, tenantId, parsed.data.consentId);
+      return json(200, { consentId: out.consentId, ...("suspendedAt" in out ? out : {}) });
+    } catch (err) {
+      if (err instanceof ConnectionNotFound) return json(404, { error: err.message });
+      throw err;
+    }
+  }
+
   return json(404, { error: `No route for ${path}` });
 }
 
@@ -272,6 +340,25 @@ export async function connectRoutes(deps: ConnectDeps, event: ConnectEvent) {
  */
 export async function handler(event: ConnectEvent) {
   return connectRoutes(await realConnectDeps(), event);
+}
+
+/**
+ * The request body, or undefined.
+ *
+ * API Gateway hands a string, base64-encoded when it decides to. A parse
+ * failure is undefined rather than a throw: the caller validates the shape
+ * anyway, and a malformed body is a 400 either way.
+ */
+function parseBody(event: ConnectEvent): unknown {
+  const raw = event.body;
+  if (typeof raw !== "string") return undefined;
+  try {
+    return JSON.parse(
+      event.isBase64Encoded === true ? Buffer.from(raw, "base64").toString("utf8") : raw,
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 function json(statusCode: number, body: unknown) {

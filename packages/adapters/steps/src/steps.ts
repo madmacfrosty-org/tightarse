@@ -196,11 +196,40 @@ export async function listConnections(
     // there, and syncing the others would look like success while doing
     // something else entirely.
     if (!one) throw new Error(`No connection ${only} for this household`);
+    // Suspended means not synced on every route, not just the daily list.
+    // A run asked for one by name is the one path that skips the list, and
+    // leaving it unchecked would make "suspended" true only most of the time.
+    if (one.suspendedAt !== undefined) {
+      throw new Error(`Connection ${only} is suspended and will not be synced`);
+    }
     return { connections: [one] };
   }
 
   const all = await deps.connections.list(deps.tenantId);
-  return { connections: selectConnections(all, args?.input) };
+
+  // Suspended connections are not synced. That is the whole point of
+  // suspending one: the old Remove button hid a connection from the dashboard
+  // and left it syncing every morning, spending the provider allowance and
+  // reporting the same problem for ever.
+  const active = all.filter((c) => c.suspendedAt === undefined);
+  return { connections: selectConnections(active, args?.input) };
+}
+
+/**
+ * The provider's own id for a consent, out of the `/me` payload.
+ *
+ * Exported so the rule is testable without a provider: the shape is somebody
+ * else's and every field on it is optional, so a payload that says nothing
+ * must leave the link alone rather than erase it.
+ */
+export function credentialsIdIn(
+  payloads: readonly { dataset: string; body: unknown }[],
+): string | undefined {
+  const me = payloads.find((p) => p.dataset === "truelayer.me");
+  if (!me) return undefined;
+  const first = ((me.body as { results?: { credentials_id?: string }[] }).results ?? [])[0];
+  const id = first?.credentials_id;
+  return typeof id === "string" && id.length > 0 ? id : undefined;
 }
 
 /** The scoping rule on its own, so it can be tested without Secrets Manager. */
@@ -314,8 +343,26 @@ export async function refreshAndList(
   const skipped = [...listing.skipped];
   const failedResources = listing.failed.map((f) => ({ ...f }));
 
+  // Learn which consent this connection is, from the `/me` just landed.
+  //
+  // The dashboard knows a connection by the provider's `credentials_id`; the
+  // secrets are keyed by ours; and nothing joined the two, so nothing acting
+  // on a consent could find the connection behind it. Suspending one is the
+  // first thing that needs to.
+  //
+  // Taken from a payload already fetched rather than by asking again — the
+  // allowance is four calls per endpoint, account and consent per day, and a
+  // join is not worth one of them. Written only when it changes, so a settled
+  // connection costs nothing.
+  const linked = credentialsIdIn(listing.payloads);
+  const connectionNow =
+    linked !== undefined && linked !== updated.credentialsId
+      ? { ...updated, credentialsId: linked }
+      : updated;
+  if (connectionNow !== updated) await conns.update(connectionNow);
+
   return {
-    connection: updated,
+    connection: connectionNow,
     accessToken: tokens.accessToken,
     items,
     skipped,

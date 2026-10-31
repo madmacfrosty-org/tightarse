@@ -150,6 +150,27 @@ export class ApiStack extends cdk.Stack {
         });
       }
 
+      // Suspending a connection is served here, not by the read API, because
+      // it writes the connection secret — and the secret holds a refresh
+      // token. The categorisation function serves everything else that writes,
+      // but giving it these would widen the read and categorisation API to
+      // every refresh token the household has.
+      //
+      // The connect function already holds them: it is the one that mints
+      // them. Nothing is widened by putting this here.
+      for (const route of CONNECTION_ROUTES) {
+        const path = pathFor(route);
+        this.api.addRoutes({
+          path,
+          methods: [route.method === "post" ? apigw.HttpMethod.POST : apigw.HttpMethod.GET],
+          integration: new integrations.HttpLambdaIntegration(
+            `Int${path.replace(/[^a-zA-Z0-9]/g, "")}`,
+            connect,
+          ),
+          authorizer,
+        });
+      }
+
     }
 
     // Categorisation. Same authoriser as everything else, different function.
@@ -199,8 +220,8 @@ export class ApiStack extends cdk.Stack {
     table.grantReadWriteData(categorisation);
 
     // Served by the same function, for the reason above: it is the one that
-    // writes. Removing a connection writes a consent row.
-    for (const route of [...CATEGORISATION_ROUTES, ...CONNECTION_ROUTES]) {
+    // writes.
+    for (const route of CATEGORISATION_ROUTES) {
       const path = pathFor(route);
       this.api.addRoutes({
         path,

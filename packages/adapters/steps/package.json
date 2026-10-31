@@ -15,6 +15,7 @@
     "@tightarse/api-contract": "*",
     "@tightarse/aws": "*",
     "@tightarse/domain": "*",
+    "@tightarse/dynamodb": "*",
     "@tightarse/metrics": "*",
     "@tightarse/truelayer": "*"
   },

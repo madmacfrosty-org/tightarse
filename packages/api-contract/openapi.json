@@ -516,6 +516,10 @@
               "stale"
             ],
             "description": "Decided from the dates alone. `stale` means nothing has refreshed this row — a lapsed consent stops producing them, so a comfortable `expiresAt` on a frozen row is not good news"
+          },
+          "suspendedAt": {
+            "type": "string",
+            "description": "When the household stopped syncing this connection, if it has. A suspended connection goes `stale` by design — nothing is refreshing it — so this is what tells the two apart: one was asked to stop, the other stopped on its own"
           }
         },
         "required": [
@@ -781,35 +785,39 @@
         ],
         "additionalProperties": false
       },
-      "RemoveConnectionRequest": {
+      "SuspendConnectionRequest": {
         "type": "object",
         "properties": {
           "consentId": {
             "type": "string",
             "minLength": 1,
-            "description": "The connection to stop tracking"
+            "description": "The connection to stop syncing"
+          },
+          "suspended": {
+            "type": "boolean",
+            "description": "True to stop syncing it, false to start again"
           }
         },
         "required": [
-          "consentId"
+          "consentId",
+          "suspended"
         ],
         "additionalProperties": false
       },
-      "RemoveConnectionResponse": {
+      "SuspendConnectionResponse": {
         "type": "object",
         "properties": {
           "consentId": {
             "type": "string",
             "minLength": 1
           },
-          "removedAt": {
+          "suspendedAt": {
             "type": "string",
-            "description": "When it was removed. The consent row is kept — it is the only record that this connection existed and when it was granted — and every transaction it produced stays in the ledger"
+            "description": "When syncing stopped, if it has. Absent once resumed. The consent row and the stored credential are both kept — suspending is reversible, and every transaction the connection produced stays in the ledger"
           }
         },
         "required": [
-          "consentId",
-          "removedAt"
+          "consentId"
         ],
         "additionalProperties": false
       },
@@ -2072,29 +2080,29 @@
         }
       }
     },
-    "/v1/connections/remove": {
+    "/v1/connections/suspend": {
       "post": {
-        "operationId": "postConnectionsRemove",
-        "summary": "Stop tracking a connection",
-        "description": "Marks a connection removed so it is no longer listed or reported on. The consent row is kept, because it is the only record that the connection existed and when it was granted, and every transaction it produced stays in the ledger. Refuses a connection that is still working: one reaches a removable state precisely because nothing is syncing it, so there is nothing at the provider to revoke. Disconnecting a live bank is a different operation.",
+        "operationId": "postConnectionsSuspend",
+        "summary": "Stop or restart syncing a connection",
+        "description": "Stops the daily sync touching a connection, or starts it again. Reversible, and allowed on a healthy connection: reconnecting a bank leaves the old connection live and duplicating the new one, and nobody should wait ninety days for it to lapse before they can stop it syncing. Nothing is deleted — the consent row, the stored credential and every transaction the connection produced are all kept, which is what makes resuming possible. Nothing is asked of the provider either: the consent at the bank is unaffected and lapses on its own schedule.",
         "parameters": [],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RemoveConnectionRequest"
+                "$ref": "#/components/schemas/SuspendConnectionRequest"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Stop tracking a connection",
+            "description": "Stop or restart syncing a connection",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RemoveConnectionResponse"
+                  "$ref": "#/components/schemas/SuspendConnectionResponse"
                 }
               }
             }
