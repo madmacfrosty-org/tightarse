@@ -43,6 +43,18 @@ export const Account = z.object({
   isCard: z.boolean().default(false),
   /** Provider's own account type, e.g. TRANSACTION. */
   accountType: z.string().optional(),
+  /**
+   * The account that superseded this one, where the provider has renamed it.
+   *
+   * Set by reconciliation, never by a person and never by the provider. The
+   * row stays, its transactions stay, and they are read under the account
+   * named here — so this is undone by clearing one field. See
+   * `ledger/reconciliation.ts` for why the provider's id cannot be trusted as
+   * an identity, and #199 for what it cost.
+   */
+  supersededBy: z.string().optional(),
+  /** When reconciliation established `supersededBy`. */
+  reconciledAt: z.string().datetime().optional(),
   /** Present only for accounts we have successfully fetched at least once. */
   lastSyncedAt: z.string().datetime().optional(),
 });

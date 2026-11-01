@@ -1342,3 +1342,127 @@ describe("a suspended consent on the way out", () => {
     });
   });
 });
+
+/**
+ * A card the provider renamed, read as one account.
+ *
+ * This is the production failure of #199 reduced to its smallest form: an old
+ * card with the history, a new card carrying the balance it inherited, and the
+ * three things that went wrong as a result. Each assertion here corresponds to
+ * something a household actually saw.
+ */
+describe("an account the provider has renamed", () => {
+  const oldCard = (over: Record<string, unknown> = {}) => ({
+    accountId: "old",
+    isCard: true,
+    currentBalance: 15_44,
+    lastSyncedAt: "2026-07-22T05:00:00.000Z",
+    ...over,
+  });
+  const newCard = {
+    accountId: "new",
+    isCard: true,
+    // Carries the debt it inherited, which is what makes its opening balance
+    // far from zero and therefore makes it look like an account with history
+    // nobody can see.
+    currentBalance: 50_00,
+    lastSyncedAt: "2026-08-30T05:00:00.000Z",
+  };
+
+  // The old card's history, then the new card's fortnight.
+  const history = [
+    txn({ dedupKey: "o1", accountId: "old", timestamp: "2026-01-15T00:00:00Z", amount: -10_00, runningBalance: undefined }),
+    txn({ dedupKey: "o2", accountId: "old", timestamp: "2026-02-15T00:00:00Z", amount: -10_00, runningBalance: undefined }),
+    txn({ dedupKey: "n1", accountId: "new", timestamp: "2026-08-15T00:00:00Z", amount: -5_00, runningBalance: undefined }),
+    txn({ dedupKey: "n2", accountId: "new", timestamp: "2026-08-20T00:00:00Z", amount: -5_00, runningBalance: undefined }),
+  ];
+  const asked = { from: "2026-02-01", to: "2026-08-30" };
+
+  beforeEach(() => {
+    listRange.mockResolvedValue({ transactions: history, categorisations: [] });
+  });
+
+  it("counts the retired card as a second account until it is linked", async () => {
+    // What the household was shown: two cards, one of which they had cut up,
+    // its last known balance still counted against them.
+    listAccounts.mockResolvedValue([oldCard(), newCard]);
+
+    const r = await accounts(deps, "frost");
+
+    expect(r.accounts.map((a) => a.accountId).sort()).toEqual(["new", "old"]);
+  });
+
+  it("stops listing it once the rename is recorded", async () => {
+    listAccounts.mockResolvedValue([oldCard({ supersededBy: "new" }), newCard]);
+
+    const r = await accounts(deps, "frost");
+
+    expect(r.accounts.map((a) => a.accountId)).toEqual(["new"]);
+  });
+
+  it("clamps the chart to the new card's first day until it is linked", async () => {
+    // The symptom that got noticed: ninety days asked for, a fortnight drawn.
+    // `completeFrom` is right to refuse — on the facts it has, an account's
+    // history is missing.
+    listAccounts.mockResolvedValue([oldCard(), newCard]);
+
+    const r = await balances(deps, "frost", asked);
+
+    expect(r.range.from).toBe("2026-08-15");
+  });
+
+  it("draws the whole range once the rename is recorded", async () => {
+    // Nothing about the data changed. The question asked of it did.
+    listAccounts.mockResolvedValue([oldCard({ supersededBy: "new" }), newCard]);
+
+    const r = await balances(deps, "frost", asked);
+
+    expect(r.range.from).toBe(asked.from);
+  });
+
+  it("reads both cards' transactions under the one account that remains", async () => {
+    listAccounts.mockResolvedValue([oldCard({ supersededBy: "new" }), newCard]);
+
+    const r = await balances(deps, "frost", asked);
+
+    // One series, not two, and the retired id contributes no line of its own.
+    expect(r.series.map((s) => s.accountId)).toEqual(["new"]);
+  });
+
+  it("survives an account row with no account id at all", async () => {
+    // The read boundary's usual tolerance: a malformed row must not stop the
+    // household seeing the accounts that did parse.
+    //
+    // It still appears, under an empty id. That is this function's existing
+    // behaviour — `toAccountFacts` has always fallen back the same way — and
+    // not something resolving renames should quietly change. What matters
+    // here is that the empty id is not treated as a link: a second row
+    // missing an id must not be joined to the first, which is exactly what
+    // would happen if "" were allowed to name an account.
+    listAccounts.mockResolvedValue([{ isCard: true }, { isCard: false }, newCard]);
+
+    const r = await accounts(deps, "frost");
+
+    expect(r.accounts.map((a) => a.accountId)).toContain("new");
+    expect(r.accounts.filter((a) => a.accountId === "")).toHaveLength(2);
+  });
+
+  it("keeps the old card's transactions rather than dropping them with its row", async () => {
+    // The failure to avoid while fixing the other one: resolving an id must
+    // never be a reason to lose money out of a total.
+    listAccounts.mockResolvedValue([oldCard({ supersededBy: "new" }), newCard]);
+
+    const r = await transactions(deps, "frost", asked);
+
+    // All four, the retired card's included. `listRange` is stubbed to answer
+    // both the ranged read and the full-history one with the same list, so the
+    // range itself is not what this asserts — only that nothing was discarded
+    // along with the account row that used to name it.
+    expect(r.transactions.map((t) => t.dedupKey).sort()).toEqual([
+      "n1",
+      "n2",
+      "o1",
+      "o2",
+    ]);
+  });
+});

@@ -73,6 +73,8 @@ export class DynamoStore
     (...a) => this.categorisations.listCategorisationHistory(...a);
   readonly listAccounts: Accounts["listAccounts"] = (...a) =>
     this.accounts.listAccounts(...a);
+  readonly markSuperseded: Accounts["markSuperseded"] = (...a) =>
+    this.accounts.markSuperseded(...a);
   readonly putAccount: Accounts["putAccount"] = (...a) =>
     this.accounts.putAccount(...a);
   readonly putBalances: Accounts["putBalances"] = (...a) =>

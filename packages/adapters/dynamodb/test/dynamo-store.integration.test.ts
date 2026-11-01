@@ -390,6 +390,77 @@ suite("DynamoStore account merge (integration)", () => {
     expect(found?.["currentBalance"]).toBe(12345);
     expect(found?.["availableBalance"]).toBe(20000);
   });
+
+  it("records that the provider renamed an account", async () => {
+    const card = (accountId: string) => ({
+      tenantId: TENANT,
+      accountId,
+      provider: "truelayer" as const,
+      providerAccountId: accountId,
+      displayName: "A Card",
+      institutionName: "TEST-BANK",
+      currency: "GBP",
+      isCard: true,
+    });
+    await ledger.putAccount(card("renameOld"));
+    await ledger.putAccount(card("renameNew"));
+
+    await ledger.markSuperseded(
+      TENANT,
+      "renameOld",
+      "renameNew",
+      "2026-11-01T12:00:00.000Z",
+    );
+
+    const found = (await ledger.listAccounts(TENANT)).find(
+      (r) => r["accountId"] === "renameOld",
+    );
+    expect(found?.["supersededBy"]).toBe("renameNew");
+    expect(found?.["reconciledAt"]).toBe("2026-11-01T12:00:00.000Z");
+  });
+
+  it("will not rewrite a link that is already recorded", async () => {
+    // The condition that makes a daily job safe. Without it, a sync that
+    // weighed the evidence differently could repoint an account at a second
+    // successor — and the household would have no way of knowing which answer
+    // they were looking at.
+    const card = (accountId: string) => ({
+      tenantId: TENANT,
+      accountId,
+      provider: "truelayer" as const,
+      providerAccountId: accountId,
+      displayName: "A Card",
+      institutionName: "TEST-BANK",
+      currency: "GBP",
+      isCard: true,
+    });
+    await ledger.putAccount(card("twiceOld"));
+
+    await ledger.markSuperseded(TENANT, "twiceOld", "first", "2026-11-01T12:00:00.000Z");
+    // Second attempt names a different successor and must be ignored rather
+    // than throwing: the job is expected to re-offer what it found last time.
+    await expect(
+      ledger.markSuperseded(TENANT, "twiceOld", "second", "2026-11-02T12:00:00.000Z"),
+    ).resolves.toBeUndefined();
+
+    const found = (await ledger.listAccounts(TENANT)).find(
+      (r) => r["accountId"] === "twiceOld",
+    );
+    expect(found?.["supersededBy"]).toBe("first");
+    expect(found?.["reconciledAt"]).toBe("2026-11-01T12:00:00.000Z");
+  });
+
+  it("records a link on a row that does not exist yet", async () => {
+    // `UpdateCommand` creates the row. That is the right behaviour here: an
+    // account the provider has stopped returning may never have had a row
+    // written, and the link still has to be recordable.
+    await ledger.markSuperseded(TENANT, "ghost", "live", "2026-11-01T12:00:00.000Z");
+
+    const found = (await ledger.listAccounts(TENANT)).find(
+      (r) => r["accountId"] === "ghost",
+    );
+    expect(found?.["supersededBy"]).toBe("live");
+  });
 });
 
 suite("a set owned by somebody else (integration)", () => {
