@@ -201,6 +201,53 @@ export function dedupKey(t: {
 }
 
 /**
+ * The same transaction, named without reference to the account that carried it.
+ *
+ * `dedupKey` includes the account id, deliberately and for a measured reason.
+ * The consequence is that the provider renaming an account makes every
+ * transaction in it a new transaction, which no amount of deduplication can
+ * see. #199.
+ *
+ * This is the same scheme with the account removed, and it exists to answer one
+ * question: are these two rows, under two account ids, the same transaction?
+ * Measured across the whole real ledger, the answer collapsed 12,522
+ * transactions to 12,430 — exactly the 92 belonging to two renamed accounts,
+ * and nothing else. So the account id is not what makes those transactions
+ * distinct, and dropping it here merges nothing it should not.
+ *
+ * NOT a replacement for `dedupKey` and not a storage key. Nothing is keyed on
+ * it, because changing what identifies a stored transaction would orphan every
+ * categorisation that joins on the old one. It is a comparison, computed on
+ * the way past and thrown away.
+ *
+ * It must keep step with `dedupKey`: the two differ in the account and nothing
+ * else, or a pair that is really the same transaction stops looking like it.
+ */
+export function transactionIdentity(t: {
+  normalisedProviderTransactionId?: string | undefined;
+  providerTransactionId?: string | undefined;
+  timestamp: string;
+  amount: number;
+  description: string;
+}): string {
+  const content = [t.timestamp, String(t.amount), t.description].join("|");
+  const digest = (input: string): string =>
+    createHash("sha256").update(input).digest("hex").slice(0, 32);
+
+  if (t.normalisedProviderTransactionId) {
+    return `n:${digest(`${t.normalisedProviderTransactionId}|${content}`)}`;
+  }
+  if (t.providerTransactionId) {
+    return `p:${digest(`${t.providerTransactionId}|${content}`)}`;
+  }
+  // Without a provider identifier two transactions alike in time, amount and
+  // description are indistinguishable even before the account is dropped. This
+  // path therefore says less than the others, and `reconcile` requires more
+  // than one match before it concludes anything.
+  return `c:${digest(content)}`;
+}
+
+/**
  * How a household's transactions get categorised.
  *
  *   off    provider payment type only — mechanism, not purpose

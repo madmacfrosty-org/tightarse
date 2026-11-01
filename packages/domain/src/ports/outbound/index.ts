@@ -167,6 +167,23 @@ export interface Accounts {
       isCard?: boolean;
     },
   ): Promise<void>;
+  /**
+   * Record that the provider has renamed an account.
+   *
+   * Written on the superseded account, which the provider has stopped
+   * returning and nothing will touch again. Writing it on the surviving one
+   * would put it on the row every sync rewrites.
+   *
+   * Narrow on purpose. This decides which transactions belong to which
+   * account, and it should not be reachable through the same call that updates
+   * a balance. See `ledger/account-renames.ts` and #199.
+   */
+  markSuperseded(
+    tenantId: string,
+    accountId: string,
+    supersededBy: string,
+    reconciledAt: string,
+  ): Promise<void>;
 }
 
 /** Where balance readings are stored. Append-only: a reading is a fact about a moment. */

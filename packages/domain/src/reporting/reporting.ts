@@ -69,6 +69,12 @@ import {
   coverageOf,
   type AccountCoverage,
 } from "./coverage.js";
+import {
+  currentAccounts,
+  resolveAccountId,
+  resolvedAccountIds,
+  type LinkedAccount,
+} from "../ledger/account-renames.js";
 
 /**
  * The port's own vocabulary, re-exported under the name this module used.
@@ -208,6 +214,84 @@ export function toAccountFacts(row: Record<string, unknown>): AccountFacts {
   };
 }
 
+/**
+ * The account row, narrowed to the question of which account it is.
+ *
+ * Separate from `toAccountFacts` on purpose. Which account a figure belongs to
+ * is not part of the balance arithmetic, and `AccountFacts` is that
+ * arithmetic's input — putting a link on it would hand every balance
+ * calculation a field it has to remember to ignore.
+ */
+export function toLinkedAccount(row: Record<string, unknown>): LinkedAccount {
+  return {
+    accountId: String(row["accountId"] ?? ""),
+    ...(typeof row["supersededBy"] === "string" && row["supersededBy"] !== ""
+      ? { supersededBy: row["supersededBy"] }
+      : {}),
+  };
+}
+
+/**
+ * The accounts the household holds, and how to read a transaction against them.
+ *
+ * Every read goes through this rather than using `listAccounts` directly. The
+ * provider renames accounts (#199), so a stored account id is a name at a
+ * point in time and not the account — and a read that forgets to resolve one
+ * double-counts a card or truncates a chart, silently and plausibly. Returning
+ * the filtered rows and the resolver together means a caller cannot take one
+ * without the other being to hand.
+ */
+function heldAccounts(rows: readonly Record<string, unknown>[]): {
+  readonly rows: Record<string, unknown>[];
+  readonly resolve: (accountId: string) => string;
+} {
+  const chain = rows.map(toLinkedAccount);
+  const ids = resolvedAccountIds(chain);
+  const held = new Set(currentAccounts(chain).map((a) => a.accountId));
+  return {
+    rows: rows.filter((r) => held.has(String(r["accountId"] ?? ""))),
+    resolve: (accountId: string) => resolveAccountId(ids, accountId),
+  };
+}
+
+/**
+ * Group anything carrying an account id under the account that now holds it.
+ *
+ * Appends rather than rebuilding the array per item, which the four hand-rolled
+ * versions this replaces all did — at twelve thousand transactions that is
+ * twelve thousand copies of a growing list.
+ */
+function groupByAccount<T extends { readonly accountId: string }>(
+  items: readonly T[],
+  resolve: (accountId: string) => string,
+): Map<string, T[]> {
+  const by = new Map<string, T[]>();
+  for (const item of items) {
+    const id = resolve(item.accountId);
+    const at = by.get(id);
+    if (at === undefined) by.set(id, [item]);
+    else at.push(item);
+  }
+  return by;
+}
+
+/**
+ * Movements with each account id read as the account that now holds it.
+ *
+ * For anything that groups internally rather than taking a prepared map —
+ * `netPositionSeries` does — resolving has to happen before the call or the
+ * retired id becomes a series of its own.
+ */
+function resolveMovements(
+  movements: readonly Movement[],
+  resolve: (accountId: string) => string,
+): Movement[] {
+  return movements.map((m) => {
+    const accountId = resolve(m.accountId);
+    return accountId === m.accountId ? m : { ...m, accountId };
+  });
+}
+
 /** Transactions, narrowed the same way. */
 export function toMovements(rows: readonly RecordedTransaction[]): Movement[] {
   return rows.map((r) => ({
@@ -232,12 +316,10 @@ function coverageFor(
   rows: readonly Record<string, unknown>[],
   txns: readonly RecordedTransaction[],
 ): Map<string, AccountCoverage> {
-  const movements = toMovements(txns);
-  const byAccount = new Map<string, Movement[]>();
-  for (const m of movements)
-    byAccount.set(m.accountId, [...(byAccount.get(m.accountId) ?? []), m]);
+  const held = heldAccounts(rows);
+  const byAccount = groupByAccount(toMovements(txns), held.resolve);
   return new Map(
-    rows.map((row) => {
+    held.rows.map((row) => {
       const facts = toAccountFacts(row);
       return [
         facts.accountId,
@@ -325,11 +407,10 @@ export async function transactions(
   // The position after each transaction, per account. `positionAtEach` needs the
   // account's own facts: a card is anchored on what is owed, a current account
   // on its first stated running balance.
-  const byAccount = new Map<string, Movement[]>();
-  for (const m of toMovements(history))
-    byAccount.set(m.accountId, [...(byAccount.get(m.accountId) ?? []), m]);
+  const held = heldAccounts(accountRows);
+  const byAccount = groupByAccount(toMovements(history), held.resolve);
   const balances = new Map<string, number>();
-  for (const facts of accountRows.map(toAccountFacts))
+  for (const facts of held.rows.map(toAccountFacts))
     for (const [dedupKey, at] of positionAtEach(
       facts,
       byAccount.get(facts.accountId) ?? [],
@@ -411,9 +492,8 @@ export async function books(
   const catalogue = categoryRows.map((r) => Category.parse(r));
   const movements = toMovements(all);
 
-  const byAccount = new Map<string, Movement[]>();
-  for (const m of movements)
-    byAccount.set(m.accountId, [...(byAccount.get(m.accountId) ?? []), m]);
+  const held = heldAccounts(accountRows);
+  const byAccount = groupByAccount(movements, held.resolve);
 
   // One rule for every book, which is the whole claim of #108: a position is
   // the running sum of the book's legs. An account is not computed one way and
@@ -523,11 +603,10 @@ export async function accounts(
   const coverage = coverageFor(rows, all);
   const complete = completeFrom([...coverage.values()]);
   const movements = toMovements(all);
-  const byAccount = new Map<string, Movement[]>();
-  for (const m of movements)
-    byAccount.set(m.accountId, [...(byAccount.get(m.accountId) ?? []), m]);
+  const held = heldAccounts(rows);
+  const byAccount = groupByAccount(movements, held.resolve);
   return {
-    accounts: rows.map((row) => {
+    accounts: held.rows.map((row) => {
       const c = coverage.get(String(row["accountId"]));
       const facts = toAccountFacts(row);
       // The ledger's own answer, next to the provider's. #108 step 2: a
@@ -569,12 +648,17 @@ export async function balances(
   ]);
   const complete = completeFrom([...coverageFor(rows, all).values()]);
   const served = clampToCoverage(range, complete);
+  // Only the accounts the household holds, with every transaction read under
+  // the account that now holds it. Passing the raw list here is what counted a
+  // retired card's last known balance as debt the household still carried —
+  // and because the figure was stale rather than absurd, it looked right. #199.
+  const held = heldAccounts(rows);
   // The whole history, not `served`. A card's balance on a given day is what is
   // owed today less everything since, so transactions after the requested range
   // are load-bearing.
   const { points, series } = netPositionSeries(
-    rows.map(toAccountFacts),
-    toMovements(all),
+    held.rows.map(toAccountFacts),
+    resolveMovements(toMovements(all), held.resolve),
     daysBetween(served.from, served.to),
   );
   return { range: served, points, series };
@@ -626,20 +710,14 @@ export async function runningBalanceCheck(
   ]);
 
   const movements = toMovements(all);
-  const byAccount = new Map<string, Movement[]>();
-  for (const m of movements)
-    byAccount.set(m.accountId, [...(byAccount.get(m.accountId) ?? []), m]);
+  const held = heldAccounts(rows);
+  const byAccount = groupByAccount(movements, held.resolve);
 
   // The rows themselves, so a displacement can name the transaction rather than
   // only the amount. `Movement` deliberately carries no description.
-  const rowsByAccount = new Map<string, RecordedTransaction[]>();
-  for (const t of all)
-    rowsByAccount.set(t.accountId, [
-      ...(rowsByAccount.get(t.accountId) ?? []),
-      t,
-    ]);
+  const rowsByAccount = groupByAccount(all, held.resolve);
 
-  const accounts = rows.map(toAccountFacts).map((facts) => {
+  const accounts = held.rows.map(toAccountFacts).map((facts) => {
     const mine = byAccount.get(facts.accountId) ?? [];
     const chain = checkRunningBalanceChain(mine);
     const days = dailyPositionChecks(mine);

@@ -128,4 +128,60 @@ export class DynamoAccounts extends TableAdapter implements Accounts {
       }),
     );
   }
+
+  /**
+   * Record that the provider renamed this account, if it has not been recorded.
+   *
+   * Conditional on the field's absence, so re-running a sync cannot rewrite a
+   * link — and in particular cannot point an account at a second successor
+   * because a later sync weighed the evidence differently. The first answer
+   * stands until a person removes it, which is the whole reason this is
+   * reversible by clearing one field.
+   *
+   * A row that already carries one is left alone rather than treated as an
+   * error: the sync is expected to re-offer what it found last time.
+   */
+  async markSuperseded(
+    tenantId: string,
+    accountId: string,
+    supersededBy: string,
+    reconciledAt: string,
+  ): Promise<void> {
+    const { pk, sk } = keys.account(tenantId, accountId);
+    try {
+      await this.doc.send(
+        new UpdateCommand({
+          TableName: this.table,
+          Key: { pk, sk },
+          // The identity fields too, exactly as `putBalances` does. An update
+          // creates the row if it is absent, and one carrying only a link
+          // reads back as an account with no id — which every caller then
+          // falls back to "" for, so two such rows would look like one
+          // account. Writing them costs nothing and the row is always
+          // readable.
+          UpdateExpression:
+            "SET #kind = :kind, #tenantId = :tenantId, #accountId = :accountId, " +
+            "#supersededBy = :supersededBy, #reconciledAt = :reconciledAt",
+          ConditionExpression: "attribute_not_exists(#supersededBy)",
+          ExpressionAttributeNames: {
+            "#kind": "kind",
+            "#tenantId": "tenantId",
+            "#accountId": "accountId",
+            "#supersededBy": "supersededBy",
+            "#reconciledAt": "reconciledAt",
+          },
+          ExpressionAttributeValues: {
+            ":kind": "ACCOUNT",
+            ":tenantId": tenantId,
+            ":accountId": accountId,
+            ":supersededBy": supersededBy,
+            ":reconciledAt": reconciledAt,
+          },
+        }),
+      );
+    } catch (err) {
+      if ((err as { name?: string }).name === "ConditionalCheckFailedException") return;
+      throw err;
+    }
+  }
 }
