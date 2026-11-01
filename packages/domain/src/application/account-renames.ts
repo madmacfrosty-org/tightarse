@@ -19,6 +19,7 @@ import {
   type LinkedAccount,
   type RenamedAccount,
 } from "../ledger/account-renames.js";
+import { emit } from "@tightarse/metrics";
 import type { Accounts, LedgerReads, Row } from "../ports/outbound/index.js";
 
 /**
@@ -144,5 +145,53 @@ export async function recordAccountRenames(
       now.toISOString(),
     );
   }
+  return found;
+}
+
+/**
+ * The job around the use case: run it, say what it did, measure it.
+ *
+ * Split the same way balance reconciliation is — `recordAccountRenames`
+ * decides and writes, this names and counts. A rename is rare and
+ * consequential, so it gets a line of its own in the log rather than only a
+ * metric: a household whose chart suddenly lengthens should be able to find
+ * out why.
+ *
+ * `RenamesRecorded` is the number to alarm on, and it should be zero almost
+ * always. Anything above zero is either a card replaced or this concluding
+ * something it should not have, and both are worth a person looking. That
+ * alarm needs a subscriber, which is #67.
+ */
+export async function recordRenamesFrom(
+  deps: RenameDeps,
+  config: { readonly tenantId: string; readonly environment: string },
+  now: Date = new Date(),
+  write?: (line: string) => void,
+): Promise<RenamedAccount[]> {
+  const found = await recordAccountRenames(deps, config.tenantId, now);
+  const say = write ?? console.log;
+
+  for (const r of found) {
+    // Ids, not names. An account's display name is the household's own and
+    // belongs in the dashboard rather than in CloudWatch.
+    say(
+      `account ${r.supersededId} is the same account as ${r.survivingId} ` +
+        `(${r.evidence.shared} transactions in common); its history now reads ` +
+        `under the latter`,
+    );
+  }
+
+  emit(
+    {
+      namespace: "Tightarse",
+      // The deployment, not the TrueLayer environment. A metric emitted under
+      // "live" is invisible to an alarm watching "dev", which is #31.
+      environment: config.environment,
+      metrics: { RenamesRecorded: found.length },
+      properties: { tenantId: config.tenantId },
+    },
+    ...(write ? [write] : []),
+  );
+
   return found;
 }
