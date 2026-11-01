@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { recordAccountRenames, stillReturned } from "../src/index.js";
+import { recordAccountRenames, recordRenamesFrom, stillReturned } from "../src/index.js";
 
 /**
  * Finding and recording a rename for a whole household.
@@ -237,5 +237,94 @@ describe("recording a rename", () => {
     });
 
     await expect(recordAccountRenames(deps, "frost", NOW)).resolves.toEqual([]);
+  });
+});
+
+describe("the scheduled run", () => {
+  const config = { tenantId: "frost", environment: "prod" };
+
+  it("says what it joined, and to what, with the evidence", async () => {
+    // A household whose chart suddenly lengthens should be able to find out
+    // why. A metric alone cannot answer that.
+    listAccounts.mockResolvedValue([
+      account("old", "2026-10-22T05:00:00.000Z"),
+      account("new", "2026-11-01T05:00:00.000Z"),
+    ]);
+    listRange.mockResolvedValue({
+      transactions: [txn("old", "p1"), txn("new", "p1"), txn("old", "p2"), txn("new", "p2")],
+      categorisations: [],
+    });
+    const lines: string[] = [];
+
+    await recordRenamesFrom(deps, config, NOW, (l) => lines.push(l));
+
+    expect(lines.some((l) => l.includes("old") && l.includes("new"))).toBe(true);
+    expect(lines.some((l) => l.includes("2 transactions in common"))).toBe(true);
+  });
+
+  it("counts nothing when there is nothing to record", async () => {
+    listAccounts.mockResolvedValue([account("a", "2026-11-01T05:00:00.000Z")]);
+    listRange.mockResolvedValue({ transactions: [], categorisations: [] });
+    const lines: string[] = [];
+
+    const found = await recordRenamesFrom(deps, config, NOW, (l) => lines.push(l));
+
+    expect(found).toEqual([]);
+    // The metric is still emitted at zero. A gauge that only appears when
+    // something happened cannot be alarmed on.
+    expect(lines.join("\n")).toContain("RenamesRecorded");
+  });
+
+  it("emits under the deployment it was told about, not a default", async () => {
+    // An undefined or wrong dimension emits where no alarm is watching, which
+    // is #31.
+    listAccounts.mockResolvedValue([account("a", "2026-11-01T05:00:00.000Z")]);
+    listRange.mockResolvedValue({ transactions: [], categorisations: [] });
+    const lines: string[] = [];
+
+    await recordRenamesFrom(deps, config, NOW, (l) => lines.push(l));
+
+    expect(lines.join("\n")).toContain("prod");
+  });
+
+  it("writes to the console when given nowhere else, which is what the Lambda does", async () => {
+    // The handler calls this with no writer, so the fallback is the path that
+    // actually runs in production — and a rename recorded with its line sent
+    // nowhere would be a chart silently lengthening.
+    listAccounts.mockResolvedValue([
+      account("old", "2026-10-22T05:00:00.000Z"),
+      account("new", "2026-11-01T05:00:00.000Z"),
+    ]);
+    listRange.mockResolvedValue({
+      transactions: [txn("old", "p1"), txn("new", "p1"), txn("old", "p2"), txn("new", "p2")],
+      categorisations: [],
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      const found = await recordRenamesFrom(deps, config, NOW);
+      expect(found.map((r) => r.supersededId)).toEqual(["old"]);
+      expect(log.mock.calls.flat().join("\n")).toContain("old");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("names no display name, only ids", async () => {
+    // The household's own names for its accounts belong in the dashboard, not
+    // in CloudWatch.
+    listAccounts.mockResolvedValue([
+      account("old", "2026-10-22T05:00:00.000Z", { displayName: "Mrs Smith's Card" }),
+      account("new", "2026-11-01T05:00:00.000Z", { displayName: "Mrs Smith's Card" }),
+    ]);
+    listRange.mockResolvedValue({
+      transactions: [txn("old", "p1"), txn("new", "p1"), txn("old", "p2"), txn("new", "p2")],
+      categorisations: [],
+    });
+    const lines: string[] = [];
+
+    await recordRenamesFrom(deps, config, NOW, (l) => lines.push(l));
+
+    expect(lines.join("\n")).not.toContain("Smith");
   });
 });
