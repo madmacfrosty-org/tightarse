@@ -47,6 +47,7 @@ export * from "./household/member.js";
 export * from "./household/settings.js";
 export * from "./ledger/account-renames.js";
 export * from "./application/account-renames.js";
+export * from "./application/rule-sets.js";
 export * from "./household/connections.js";
 export * from "./household/members.js";
 export * from "./household/consent.js";

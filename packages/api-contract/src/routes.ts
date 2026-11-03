@@ -18,6 +18,7 @@ import {
   NewCategoryRequest,
   ProposalRequest,
   ProposalResponse,
+  RuleSetsResponse,
   BalancesResponse,
   IsoDate,
   SummaryResponse,
@@ -240,6 +241,19 @@ export const ROUTES: readonly Route[] = [
       "derivable from a summary.",
     query: [],
     response: { name: "CategoriesResponse", schema: CategoriesResponse },
+  },
+  {
+    method: "get",
+    path: "/categorisation/rules",
+    summary: "The rule sets deciding this household's categories",
+    description:
+      "Every set the household has, adopted first and in the order they apply, each with its rules. " +
+      "Precedence is the household's own adoption order rather than anything carried on a set, because " +
+      "a set shared between households ranks differently for each. A set that exists and has not been " +
+      "adopted is reported with `adopted: false` and no precedence: it applies to nothing, which no " +
+      "other view says. Sets that cannot be read are counted rather than hidden.",
+    query: [],
+    response: { name: "RuleSetsResponse", schema: RuleSetsResponse },
   },
   {
     method: "get",
