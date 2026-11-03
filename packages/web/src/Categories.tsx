@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AccountsResponse, pathFor } from "@tightarse/api-contract";
 import { Categorise } from "./Categorise";
+import { RuleSets } from "./RuleSets";
 import type { Api } from "./ports";
 import { rangeFor } from "./positions";
 
@@ -15,6 +16,11 @@ import { rangeFor } from "./positions";
  *
  * Pre-window transactions are real — they are simply from accounts that existed
  * while a later one did not — and a rule made here still reaches them.
+ *
+ * The rules themselves sit above the tool that adds to them. Categorising a
+ * merchant is the common errand, but when the answer is wrong the question is
+ * always "what is deciding this", and that was previously answerable only from
+ * a terminal with the ledger's table name.
  */
 export function Categories({ api }: { api: Api }) {
   const [completeFrom, setCompleteFrom] = useState<string | null>(null);
@@ -30,10 +36,13 @@ export function Categories({ api }: { api: Api }) {
   }, [api]);
 
   return (
-    <Categorise
-      api={api}
-      from={completeFrom ?? rangeFor(365, new Date()).from}
-      to={rangeFor(0, new Date()).to}
-    />
+    <>
+      <RuleSets api={api} />
+      <Categorise
+        api={api}
+        from={completeFrom ?? rangeFor(365, new Date()).from}
+        to={rangeFor(0, new Date()).to}
+      />
+    </>
   );
 }

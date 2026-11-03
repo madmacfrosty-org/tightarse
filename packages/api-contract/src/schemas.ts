@@ -704,6 +704,45 @@ export const RuleView = z.object({
 });
 export type RuleView = z.infer<typeof RuleView>;
 
+/**
+ * A rule set as it currently stands, which is a different thing from one being
+ * proposed.
+ *
+ * `ProposedRuleSetView` carries `order`, because a proposal states where it
+ * wants to sit. This carries `adopted` and `precedence` instead, because where
+ * a set sits is already decided and a household needs to know whether it is
+ * decided at all — a set that exists and has not been adopted applies to
+ * nothing, and no other view says so.
+ */
+export const StoredRuleSetView = z.object({
+  setId: z.string().min(1),
+  name: z.string().min(1),
+  version: Count.describe("The version in force. A change produces the next one, never a mutation."),
+  status: z
+    .enum(["proposed", "effective", "rejected"])
+    .describe("`effective` is the one the fold reads; `proposed` awaits a decision; `rejected` records one declined, so the same thing is not proposed again."),
+  authored: z.boolean().describe("Whether a person wrote it. Gates automatic approval only."),
+  adopted: z
+    .boolean()
+    .describe("Whether this household has adopted it. An unadopted set exists and applies to nothing."),
+  precedence: Count.optional().describe(
+    "Position in the household's adoption order, lower winning. Absent when the set is not adopted, because there is no rank to report.",
+  ),
+  rules: z.array(RuleView),
+  createdAt: z.string().describe("ISO-8601."),
+  createdBy: z.string().optional(),
+});
+export type StoredRuleSetView = z.infer<typeof StoredRuleSetView>;
+
+/** Every set a household has, adopted first and in the order they apply. */
+export const RuleSetsResponse = z.object({
+  sets: z.array(StoredRuleSetView),
+  unreadable: Count.describe(
+    "Stored sets that could not be read, and so are not listed. Reported rather than hidden: a set vanishing from this screen is how somebody concludes a rule was deleted.",
+  ),
+});
+export type RuleSetsResponse = z.infer<typeof RuleSetsResponse>;
+
 export const ProposedRuleSetView = z.object({
   setId: z.string().min(1),
   version: Count.describe("The version being proposed, which must be higher than the current one"),

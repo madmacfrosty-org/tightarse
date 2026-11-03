@@ -27,6 +27,7 @@ import type {
   AccountsResponse,
   BacklogResponse,
   CategoriesResponse,
+  RuleSetsResponse,
   EffectView,
   PredictionView,
   ProposalResponse,
@@ -41,6 +42,7 @@ import type {
   Backlog,
   BalancesResult,
   CategoriesResult,
+  Rule,
   CategoriseReport,
   Preview,
   Proposed,
@@ -93,6 +95,50 @@ export const asCategories = (c: CategoriesResult): CategoriesResponse => ({
     label: x.label,
     nature: x.nature,
   })),
+});
+
+/**
+ * Rule sets on the wire.
+ *
+ * Mapped field by field rather than spread, for the reason every other mapper
+ * here is: the domain shape and the published shape are free to diverge, and a
+ * spread would publish whatever a set happened to gain next. A matcher is
+ * passed through whole — it is a closed algebra the contract mirrors exactly,
+ * and restating its five cases here would be a second copy to keep in step.
+ */
+export const asRuleSets = (r: {
+  sets: readonly {
+    setId: string;
+    name: string;
+    version: number;
+    status: "proposed" | "effective" | "rejected";
+    authored: boolean;
+    adopted: boolean;
+    precedence?: number | undefined;
+    rules: readonly Rule[];
+    createdAt: string;
+    createdBy?: string | undefined;
+  }[];
+  unreadable: number;
+}): RuleSetsResponse => ({
+  sets: r.sets.map((s) => ({
+    setId: s.setId,
+    name: s.name,
+    version: s.version,
+    status: s.status,
+    authored: s.authored,
+    adopted: s.adopted,
+    ...(s.precedence !== undefined ? { precedence: s.precedence } : {}),
+    rules: s.rules.map((rule) => ({
+      matcher: rule.matcher,
+      contributes: rule.contributes,
+      appliesTo: rule.appliesTo,
+      ...(rule.note !== undefined ? { note: rule.note } : {}),
+    })),
+    createdAt: s.createdAt,
+    ...(s.createdBy !== undefined ? { createdBy: s.createdBy } : {}),
+  })),
+  unreadable: r.unreadable,
 });
 
 export const asTransactions = (

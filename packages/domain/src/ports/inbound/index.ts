@@ -20,6 +20,7 @@ import type { AccountSeries } from "../../reporting/balances.js";
 import type { ConsentHealth } from "../../household/consent.js";
 import type { DateRange } from "../index.js";
 import type { AccountId } from "../../ledger/account.js";
+import type { RuleSetView } from "../../application/rule-sets.js";
 import type { DescriptionSummary, Recurrence } from "../../categorisation/corpus.js";
 import type { Conflict, Gap } from "../../categorisation/evidence.js";
 import type {
@@ -366,6 +367,19 @@ export interface CategoriesResult {
 }
 
 /**
+ * The rules as they stand.
+ *
+ * `unreadable` is part of the answer rather than a detail. A set that will not
+ * parse is left out, which matches what application does with it — it matches
+ * nothing — but a set silently absent from this list is how somebody concludes
+ * a rule they wrote was deleted.
+ */
+export interface RuleSetsResult {
+  readonly sets: readonly RuleSetView[];
+  readonly unreadable: number;
+}
+
+/**
  * What the household can be shown.
  *
  * The read side in full. Every driver — the Lambda, the local HTTP server, the
@@ -383,6 +397,16 @@ export interface Reporting {
   runningBalanceCheck(tenantId: string): Promise<RunningBalanceReport>;
   /** Every book and its position, with what the household is worth. */
   books(tenantId: string): Promise<BooksResult>;
+  /**
+   * The rule sets deciding this household's categories, in the order they
+   * apply.
+   *
+   * A read, so it belongs on the read-only function alongside the rest of the
+   * dashboard rather than on the one that writes — even though the write path
+   * is what needs it, since a proposal replaces a whole set and you cannot
+   * edit what you have not been shown.
+   */
+  ruleSets(tenantId: string): Promise<RuleSetsResult>;
 }
 
 /**
