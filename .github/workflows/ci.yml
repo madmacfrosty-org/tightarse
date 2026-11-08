@@ -253,11 +253,31 @@ jobs:
       #
       # `--redact` so a finding never prints the secret it found into a public
       # build log, which would publish the thing the check exists to prevent.
+      #
+      # Retried, because the download is a third party and the job fails closed.
+      # On 8 November a 504 from the release CDN failed this job on `main`,
+      # which skipped the deploy — the scan never ran at all, so the build was
+      # blocked by the scanner being unreachable rather than by anything it
+      # found. Failing closed is right and a single attempt at a network fetch
+      # is not.
+      #
+      # Piping curl into tar also hid it: `curl -sSfL | tar -xz` reports tar's
+      # status, so a 504 surfaced as "gzip: unexpected end of file" rather than
+      # as the HTTP error it was. Downloaded to a file first, so a failure says
+      # which half failed.
       - name: gitleaks
         run: |
           VERSION=8.28.0
-          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
-            | tar -xz -C /usr/local/bin gitleaks
+          URL="https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
+          for attempt in 1 2 3; do
+            if curl -sSfL --retry 2 --retry-all-errors -o /tmp/gitleaks.tar.gz "$URL"; then
+              break
+            fi
+            echo "attempt $attempt to fetch gitleaks failed"
+            [ "$attempt" = 3 ] && exit 1
+            sleep $((attempt * 5))
+          done
+          tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
           gitleaks --version
           gitleaks detect --source . --redact --verbose --exit-code 1
 
