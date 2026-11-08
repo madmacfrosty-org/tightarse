@@ -285,6 +285,7 @@ describe("binding the use cases to the inbound port", () => {
       "balances",
       "books",
       "categories",
+      "ruleSets",
       "runningBalanceCheck",
       "summary",
       "transactions",
@@ -317,6 +318,7 @@ describe("binding the use cases to the inbound port", () => {
     await expect(app.books("frost")).resolves.toHaveProperty(
       "householdPosition",
     );
+    await expect(app.ruleSets("frost")).resolves.toHaveProperty("sets");
     await expect(app.runningBalanceCheck("frost")).resolves.toHaveProperty(
       "verdict",
     );

@@ -7,6 +7,7 @@ import {
   asBalances,
   asRunningBalance,
   asCategories,
+  asRuleSets,
   asSummary,
   asTransactions,
 } from "./wire.js";
@@ -231,6 +232,13 @@ export async function route(deps: ApiDeps, event: HttpEvent) {
       );
     if (path.endsWith("/categories"))
       return json(200, asCategories(await deps.reporting.categories(tenantId)));
+
+    // A read, so it is here rather than on the function that writes. The write
+    // path is what needs it — a proposal replaces a whole set, and you cannot
+    // edit what you have not been shown — but needing a read is not a reason
+    // to give the writing function one.
+    if (path.endsWith("/categorisation/rules"))
+      return json(200, asRuleSets(await deps.reporting.ruleSets(tenantId)));
     if (path.endsWith("/accounts"))
       return json(200, asAccounts(await deps.reporting.accounts(tenantId)));
     if (path.endsWith("/books"))

@@ -70,6 +70,8 @@ import {
   PredictionView,
   ProposalRequest,
   ProposalResponse,
+  StoredRuleSetView,
+  RuleSetsResponse,
   ProposedRuleSetView,
   Provisional,
   RecurrenceView,
@@ -171,6 +173,8 @@ const NAMED = {
   IntroducedConflictView,
   PredictionView,
   ProposalResponse,
+  StoredRuleSetView,
+  RuleSetsResponse,
 } as const;
 
 /**

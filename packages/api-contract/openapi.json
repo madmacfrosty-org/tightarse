@@ -1713,6 +1713,90 @@
           "prediction"
         ],
         "additionalProperties": false
+      },
+      "StoredRuleSetView": {
+        "type": "object",
+        "properties": {
+          "setId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The version in force. A change produces the next one, never a mutation."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "proposed",
+              "effective",
+              "rejected"
+            ],
+            "description": "`effective` is the one the fold reads; `proposed` awaits a decision; `rejected` records one declined, so the same thing is not proposed again."
+          },
+          "authored": {
+            "type": "boolean",
+            "description": "Whether a person wrote it. Gates automatic approval only."
+          },
+          "adopted": {
+            "type": "boolean",
+            "description": "Whether this household has adopted it. An unadopted set exists and applies to nothing."
+          },
+          "precedence": {
+            "$ref": "#/components/schemas/Count",
+            "description": "Position in the household's adoption order, lower winning. Absent when the set is not adopted, because there is no rank to report."
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RuleView"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "ISO-8601."
+          },
+          "createdBy": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "setId",
+          "name",
+          "version",
+          "status",
+          "authored",
+          "adopted",
+          "rules",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "RuleSetsResponse": {
+        "type": "object",
+        "properties": {
+          "sets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StoredRuleSetView"
+            }
+          },
+          "unreadable": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Stored sets that could not be read, and so are not listed. Reported rather than hidden: a set vanishing from this screen is how somebody concludes a rule was deleted."
+          }
+        },
+        "required": [
+          "sets",
+          "unreadable"
+        ],
+        "additionalProperties": false
       }
     }
   },
@@ -2030,6 +2114,35 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CategoryChoiceView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The range is missing, malformed, or `from` is after `to`"
+          },
+          "401": {
+            "description": "No bearer token, or one this API does not trust"
+          },
+          "403": {
+            "description": "A valid token carrying no household claim"
+          }
+        }
+      }
+    },
+    "/v1/categorisation/rules": {
+      "get": {
+        "operationId": "categorisationRules",
+        "summary": "The rule sets deciding this household's categories",
+        "description": "Every set the household has, adopted first and in the order they apply, each with its rules. Precedence is the household's own adoption order rather than anything carried on a set, because a set shared between households ranks differently for each. A set that exists and has not been adopted is reported with `adopted: false` and no precedence: it applies to nothing, which no other view says. Sets that cannot be read are counted rather than hidden.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "The rule sets deciding this household's categories",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleSetsResponse"
                 }
               }
             }

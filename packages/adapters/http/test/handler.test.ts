@@ -630,6 +630,48 @@ describe("routing, against the application rather than through it", () => {
       called.push("books");
       return { books: [], householdPosition: 0 };
     },
+    ruleSets: async () => {
+      called.push("ruleSets");
+      return {
+        sets: [
+          {
+            setId: "household",
+            name: "This household",
+            version: 14,
+            status: "effective" as const,
+            authored: true,
+            adopted: true,
+            precedence: 0,
+            rules: [
+              {
+                matcher: { kind: "merchant" as const, pattern: "somemart" },
+                contributes: { kind: "assert" as const, category: "groceries" },
+                appliesTo: "debits" as const,
+                note: "the big one",
+              },
+              {
+                matcher: { kind: "providerCategory" as const, value: "DIRECT_DEBIT" },
+                contributes: { kind: "assert" as const, category: "bills" },
+                appliesTo: "all" as const,
+              },
+            ],
+            createdAt: "2026-08-27T00:00:00.000Z",
+            createdBy: "someone@example.invalid",
+          },
+          {
+            setId: "offered",
+            name: "Not adopted",
+            version: 1,
+            status: "effective" as const,
+            authored: false,
+            adopted: false,
+            rules: [],
+            createdAt: "2026-09-01T00:00:00.000Z",
+          },
+        ],
+        unreadable: 2,
+      };
+    },
   };
   const only: ApiDeps = { reporting: fake };
 
@@ -644,10 +686,66 @@ describe("routing, against the application rather than through it", () => {
     ["/balances", "balances"],
     ["/diagnostics/running-balance", "runningBalanceCheck"],
     ["/books", "books"],
+    ["/categorisation/rules", "ruleSets"],
   ])("dispatches %s to exactly one use case", async (path, expected) => {
     const res = await route(only, event({ rawPath: `/v1${path}` }));
     expect(res.statusCode).toBe(200);
     expect(called).toEqual([expected]);
+  });
+
+  it("serves the rule sets, adopted first and with their standing", async () => {
+    const res = await route(only, event({ rawPath: "/v1/categorisation/rules" }));
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      sets: [
+        { setId: "household", version: 14, adopted: true, precedence: 0, authored: true },
+        { setId: "offered", adopted: false },
+      ],
+      unreadable: 2,
+    });
+  });
+
+  it("carries a rule through whole, matcher included", async () => {
+    // The matcher is a closed algebra the contract mirrors exactly. Restating
+    // its cases on the way out would be a second copy to keep in step, so it
+    // passes through — and this is what says it still arrives intact.
+    const res = await route(only, event({ rawPath: "/v1/categorisation/rules" }));
+    const sets = JSON.parse(res.body).sets as { rules: unknown[] }[];
+
+    expect(sets[0]?.rules[0]).toEqual({
+      matcher: { kind: "merchant", pattern: "somemart" },
+      contributes: { kind: "assert", category: "groceries" },
+      appliesTo: "debits",
+      note: "the big one",
+    });
+  });
+
+  it("omits a note the rule does not have, rather than publishing an empty one", async () => {
+    // `note: undefined` on the wire is a field a client has to handle for no
+    // reason. Absent means absent.
+    const res = await route(only, event({ rawPath: "/v1/categorisation/rules" }));
+    const sets = JSON.parse(res.body).sets as { rules: Record<string, unknown>[] }[];
+
+    expect(sets[0]?.rules[1]).not.toHaveProperty("note");
+  });
+
+  it("omits precedence for an unadopted set rather than inventing one", async () => {
+    // A number would invite a comparison that means nothing: the set applies
+    // to nothing, so it has no rank.
+    const res = await route(only, event({ rawPath: "/v1/categorisation/rules" }));
+    const sets = JSON.parse(res.body).sets as Record<string, unknown>[];
+
+    expect(sets[1]).not.toHaveProperty("precedence");
+  });
+
+  it("needs no range, because the rules are not a window on the ledger", async () => {
+    const res = await route(
+      only,
+      event({ rawPath: "/v1/categorisation/rules", queryStringParameters: {} }),
+    );
+
+    expect(res.statusCode).toBe(200);
   });
 
   it("passes the resolved household through, never anything from the request", async () => {
@@ -969,6 +1067,7 @@ describe("asking what the summary said at a past moment", () => {
         accounts: [],
       }),
       books: async () => ({ books: [], householdPosition: 0 }),
+      ruleSets: async () => ({ sets: [], unreadable: 0 }),
     },
   });
 

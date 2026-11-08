@@ -69,6 +69,7 @@ import {
   coverageOf,
   type AccountCoverage,
 } from "./coverage.js";
+import { ruleSets } from "../application/rule-sets.js";
 import {
   currentAccounts,
   resolveAccountId,
@@ -686,6 +687,7 @@ export function reporting(deps: Deps): Reporting {
     balances: (tenantId, range) => balances(deps, tenantId, range),
     runningBalanceCheck: (tenantId) => runningBalanceCheck(deps, tenantId),
     books: (tenantId) => books(deps, tenantId),
+    ruleSets: (tenantId) => ruleSets(deps, tenantId),
   };
 }
 
