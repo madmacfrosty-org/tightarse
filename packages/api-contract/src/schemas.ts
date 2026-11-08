@@ -745,9 +745,20 @@ export type RuleSetsResponse = z.infer<typeof RuleSetsResponse>;
 
 export const ProposedRuleSetView = z.object({
   setId: z.string().min(1),
-  version: Count.describe("The version being proposed, which must be higher than the current one"),
+  version: Count.describe(
+    "The version you read, NOT the one being written — the next version is the server's to decide. " +
+      "The proposal is refused with 409 if the set has moved since, because a proposal replaces the " +
+      "whole set and applying a stale one would put the older rules back silently. Zero for a set " +
+      "that does not exist yet, which is what reading nothing means.",
+  ),
   name: z.string().min(1),
-  order: z.number().int().describe("Precedence. Lower wins: overrides -1, household 0, built-in 2, provider 3."),
+  order: z
+    .number()
+    .int()
+    .describe(
+      "Ignored. Precedence is the household's adoption order and is not carried on a set (#121), so " +
+        "nothing reads this. Kept because it is published; a client should send 0.",
+    ),
   authored: z.boolean().describe("Whether a human wrote it. Gates automatic approval only, never whether it may be proposed."),
   rules: z.array(RuleView),
 });

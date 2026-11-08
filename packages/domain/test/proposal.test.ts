@@ -529,6 +529,85 @@ describe("what the prediction is measured against", () => {
     expect(out.prediction.gained.transactions).toBeGreaterThan(0);
   });
 
+  it("refuses a set built on a version that has moved", async () => {
+    // The lost update this exists to prevent: somebody reads 3, somebody else
+    // publishes 4, the first submits a set built from 3's rules. A proposal
+    // carries the WHOLE set, so applying it would put the older rules back and
+    // say nothing about it.
+    const d = deps();
+
+    await expect(
+      proposeRules(d, "frost", {
+        sets: [{ ...proposedSet(), version: 2 }],
+        commit: "apply",
+        by: "me",
+        now: NOW,
+        range: RANGE,
+      }),
+    ).rejects.toThrow(/changed since they were read/);
+    expect(d.written).toEqual([]);
+  });
+
+  it("names the versions, so a client can say what happened", async () => {
+    const d = deps();
+
+    await expect(
+      proposeRules(d, "frost", {
+        sets: [{ ...proposedSet(), version: 2 }],
+        commit: "apply",
+        by: "me",
+        now: NOW,
+        range: RANGE,
+      }),
+    ).rejects.toThrow(/household \(read 2, now 3\)/);
+  });
+
+  it("refuses a stale set before computing anything, not after", async () => {
+    // A caller asking what a change would do deserves to be told the change
+    // is unwritable, rather than being shown a prediction for it.
+    const d = deps();
+
+    await expect(
+      proposeRules(d, "frost", {
+        sets: [{ ...proposedSet(), version: 2 }],
+        commit: "preview",
+        by: "me",
+        now: NOW,
+        range: RANGE,
+      }),
+    ).rejects.toThrow(/changed since they were read/);
+  });
+
+  it("accepts a set built on the version that is current", async () => {
+    const d = deps();
+
+    const out = await proposeRules(d, "frost", {
+      sets: [proposedSet()],
+      commit: "apply",
+      by: "me",
+      now: NOW,
+      range: RANGE,
+    });
+
+    expect(out.proposed).toEqual([{ setId: "household", version: 4, rules: 1 }]);
+  });
+
+  it("checks nothing for a merchant rule, which is built from what it just read", async () => {
+    // There is no window to be stale in: the set is assembled here from the
+    // rows fetched a line earlier.
+    const d = deps();
+
+    const out = await proposeRules(d, "frost", {
+      merchant: { term: "somemart", category: "groceries" },
+      commit: "apply",
+      by: "me",
+      now: NOW,
+      range: RANGE,
+    });
+
+    expect(out.proposed?.[0]?.version).toBe(4);
+  });
+
   it("starts a set that does not exist yet at version one", async () => {
     // Proposing the overrides set for the first time, or any set a tenant has
     // never had. Nothing to advance from, so it begins rather than fails.
@@ -537,6 +616,10 @@ describe("what the prediction is measured against", () => {
       ...proposedSet(),
       setId: "overrides",
       name: "overrides",
+      // Zero, because that is what was read: nothing. A set a household has
+      // never had is at no version, and claiming otherwise is claiming to
+      // have read something that does not exist.
+      version: 0,
     } as typeof currentSet & RuleSet;
     const out = await proposeRules(d, "frost", {
       sets: [brandNew],
