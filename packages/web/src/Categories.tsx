@@ -37,7 +37,13 @@ export function Categories({ api }: { api: Api }) {
 
   return (
     <>
-      <RuleSets api={api} />
+      <RuleSets
+        api={api}
+        range={{
+          from: completeFrom ?? rangeFor(365, new Date()).from,
+          to: rangeFor(0, new Date()).to,
+        }}
+      />
       <Categorise
         api={api}
         from={completeFrom ?? rangeFor(365, new Date()).from}

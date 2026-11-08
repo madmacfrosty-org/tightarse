@@ -13,6 +13,8 @@ import { RuleSets, describeMatcher } from "../src/RuleSets";
  * never in a file here.
  */
 
+const RANGE = { from: "2026-01-01", to: "2026-12-31" };
+
 const apiGet = vi.fn(async (_p: string): Promise<unknown> => ({ sets: [], unreadable: 0 }));
 const api = {
   get: <T,>(schema: Parses<T>, p: string) => apiGet(p).then((b: unknown) => schema.parse(b)),
@@ -40,8 +42,17 @@ const set = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+const CATEGORIES = [
+  { id: "groceries", label: "Groceries", nature: "expense" },
+  { id: "fuel", label: "Fuel", nature: "expense" },
+];
+
 const withSets = (sets: unknown[], unreadable = 0) => {
-  apiGet.mockImplementation(async () => ({ sets, unreadable }));
+  apiGet.mockImplementation(async (p: string) =>
+    p.includes("/categorisation/rules")
+      ? { sets, unreadable }
+      : { categories: CATEGORIES },
+  );
 };
 
 beforeEach(() => {
@@ -100,14 +111,14 @@ describe("putting a matcher into words", () => {
 describe("the sets", () => {
   it("says a set applies first, so precedence is readable without counting", async () => {
     withSets([set({ precedence: 0 })]);
-    render(<RuleSets api={api} />);
+    render(<RuleSets api={api} range={RANGE} />);
 
     expect(await screen.findByText(/applies first/)).toBeDefined();
   });
 
   it("numbers a later set rather than calling it first", async () => {
     withSets([set({ setId: "a", precedence: 0 }), set({ setId: "b", name: "Shipped", precedence: 1 })]);
-    render(<RuleSets api={api} />);
+    render(<RuleSets api={api} range={RANGE} />);
 
     expect(await screen.findByText(/applies 2nd/)).toBeDefined();
   });
@@ -116,7 +127,7 @@ describe("the sets", () => {
     // A set sitting in the table is an offer, not an instruction, and no other
     // view says so. Somebody debugging a category needs telling.
     withSets([set({ setId: "offered", name: "Offered", adopted: false, precedence: undefined })]);
-    render(<RuleSets api={api} />);
+    render(<RuleSets api={api} range={RANGE} />);
 
     expect(await screen.findByText(/not adopted/)).toBeDefined();
   });
@@ -124,7 +135,7 @@ describe("the sets", () => {
   it("keeps the rules out of the way until asked", async () => {
     // Seventy-odd rules is not a screen anybody reads top to bottom.
     withSets([set()]);
-    render(<RuleSets api={api} />);
+    render(<RuleSets api={api} range={RANGE} />);
     await screen.findByText(/This household/);
 
     expect(screen.queryByText(/somemart/)).toBeNull();
@@ -132,7 +143,7 @@ describe("the sets", () => {
 
   it("shows them when the set is opened", async () => {
     withSets([set()]);
-    render(<RuleSets api={api} />);
+    render(<RuleSets api={api} range={RANGE} />);
 
     await userEvent.click(await screen.findByRole("button", { name: /This household/ }));
 
@@ -144,7 +155,7 @@ describe("the sets", () => {
     // An employer sharing a name with a retailer once filed a year of salary
     // as Shopping. Direction is not a detail.
     withSets([set({ rules: [rule({ appliesTo: "credits" })] })]);
-    render(<RuleSets api={api} />);
+    render(<RuleSets api={api} range={RANGE} />);
 
     await userEvent.click(await screen.findByRole("button", { name: /This household/ }));
 
@@ -155,7 +166,7 @@ describe("the sets", () => {
     withSets([
       set({ rules: [rule({ contributes: { kind: "refine", category: "fuel" } })] }),
     ]);
-    render(<RuleSets api={api} />);
+    render(<RuleSets api={api} range={RANGE} />);
 
     await userEvent.click(await screen.findByRole("button", { name: /This household/ }));
 
@@ -164,7 +175,7 @@ describe("the sets", () => {
 
   it("says a set is empty rather than showing an empty table", async () => {
     withSets([set({ rules: [] })]);
-    render(<RuleSets api={api} />);
+    render(<RuleSets api={api} range={RANGE} />);
 
     await userEvent.click(await screen.findByRole("button", { name: /This household/ }));
 
@@ -177,14 +188,14 @@ describe("what it admits to", () => {
     // A set vanishing from this screen is how somebody concludes a rule was
     // deleted.
     withSets([set()], 2);
-    render(<RuleSets api={api} />);
+    render(<RuleSets api={api} range={RANGE} />);
 
     expect(await screen.findByText(/2 stored sets could not be read/)).toBeDefined();
   });
 
   it("says nothing about unreadable sets when there are none", async () => {
     withSets([set()], 0);
-    render(<RuleSets api={api} />);
+    render(<RuleSets api={api} range={RANGE} />);
     await screen.findByText(/This household/);
 
     expect(screen.queryByText(/could not be read/)).toBeNull();
@@ -192,14 +203,14 @@ describe("what it admits to", () => {
 
   it("says nothing is categorising when there are no sets at all", async () => {
     withSets([]);
-    render(<RuleSets api={api} />);
+    render(<RuleSets api={api} range={RANGE} />);
 
     expect(await screen.findByText(/Nothing is categorising/)).toBeDefined();
   });
 
   it("reports a failure to read instead of an empty screen", async () => {
     apiGet.mockRejectedValue(new Error("the API said no"));
-    render(<RuleSets api={api} />);
+    render(<RuleSets api={api} range={RANGE} />);
 
     expect(await screen.findByText("the API said no")).toBeDefined();
   });
