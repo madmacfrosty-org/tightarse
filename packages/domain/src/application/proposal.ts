@@ -172,6 +172,35 @@ function setWith(
   };
 }
 
+/**
+ * A proposal built on a version that is no longer current.
+ *
+ * Refused rather than merged. A proposal carries a whole set, so there is no
+ * way to tell which rules the caller meant to change and which they simply
+ * had not seen — and guessing would mean sometimes keeping a change the editor
+ * never knew about and sometimes dropping it.
+ *
+ * Carries the versions, so a client can say "somebody else changed this, here
+ * it is again" rather than "something went wrong".
+ */
+export class RuleSetMoved extends Error {
+  readonly statusCode = 409;
+  constructor(
+    readonly sets: readonly {
+      readonly setId: string;
+      readonly sent: number;
+      readonly current: number;
+    }[],
+  ) {
+    super(
+      `These rule sets changed since they were read: ${sets
+        .map((s) => `${s.setId} (read ${s.sent}, now ${s.current})`)
+        .join(", ")}. Read them again and re-apply the change.`,
+    );
+    this.name = "RuleSetMoved";
+  }
+}
+
 export async function proposeRules(
   deps: ProposalDeps,
   tenantId: string,
@@ -183,6 +212,32 @@ export async function proposeRules(
   ]);
 
   const before = parseRuleSets(currentRows);
+
+  // A proposal replaces a WHOLE set, so a caller editing one must be editing
+  // the version that is current. Otherwise: somebody reads version 14, somebody
+  // else publishes 15, the first submits a set built from 14's rules, and 16
+  // lands with the second person's change quietly gone. Nothing would say so —
+  // the write succeeds, the version increments, and the rules are simply the
+  // older ones again.
+  //
+  // The versioned record is immutable, which catches two writes racing at the
+  // same instant. It cannot catch this: the two proposals compute different
+  // version numbers and both are free to land.
+  //
+  // Only for `sets`. The merchant and transaction paths build their set here
+  // from what was just read, so there is no window to be stale in.
+  if (request.sets !== undefined) {
+    const moved = request.sets
+      .map((set) => ({
+        setId: set.setId,
+        sent: set.version,
+        current: before.find((b) => b.setId === set.setId)?.version ?? 0,
+      }))
+      .filter((v) => v.sent !== v.current);
+    if (moved.length > 0) {
+      throw new RuleSetMoved(moved);
+    }
+  }
   // Where each kind of rule belongs is decided by what it means, not by the
   // caller. A merchant pattern is a household rule; naming one transaction
   // outright is an override. A client that could choose would eventually choose

@@ -6,6 +6,7 @@ import {
   type CategorisationDeps,
 } from "../src/categorisation.js";
 import type { Backlog } from "@tightarse/domain";
+import { RuleSetMoved } from "@tightarse/domain";
 
 /**
  * The signed categorisation route.
@@ -368,6 +369,40 @@ describe("proposing a change", () => {
       body: JSON.stringify({ sets: [set] }),
       ...over,
     });
+
+  it("answers 409 when the set moved, with the message that says what to do", async () => {
+    // The only thing standing between an editor and a silently lost update is
+    // that this reaches the reader intact. `RuleSetMoved` carries
+    // `statusCode = 409` and the generic handler is supposed to honour it and
+    // keep the message — which until now was read rather than tested.
+    const d = {
+      ...deps(),
+      propose: vi.fn(async () => {
+        throw new RuleSetMoved([{ setId: "household", sent: 3, current: 4 }]);
+      }),
+    } as unknown as CategorisationDeps;
+
+    const res = await route(d, post());
+
+    expect(res.statusCode).toBe(409);
+    expect(body(res)["error"]).toContain("household (read 3, now 4)");
+    expect(body(res)["error"]).toContain("Read them again");
+  });
+
+  it("does not dress a stale set up as an internal error", async () => {
+    // A 500 would hide the one sentence that tells somebody to re-read, and
+    // they would retry the same stale edit instead.
+    const d = {
+      ...deps(),
+      propose: vi.fn(async () => {
+        throw new RuleSetMoved([{ setId: "household", sent: 3, current: 4 }]);
+      }),
+    } as unknown as CategorisationDeps;
+
+    const res = await route(d, post());
+
+    expect(body(res)["error"]).not.toBe("Internal error");
+  });
 
   it.each(["preview", "propose", "apply"])(
     "takes commit=%s at its word",

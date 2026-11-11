@@ -64,8 +64,8 @@ const DESCRIBED: Array<[string, { description?: string | undefined }, string]> =
   ["Contribution.assert", ContributionView.options[0].shape.category, "Establishes"],
   ["Contribution.refine", ContributionView.options[1].shape.category, "Inert"],
   ["Rule.appliesTo", RuleView.shape.appliesTo, "Credits are excluded"],
-  ["ProposedRuleSet.version", ProposedRuleSetView.shape.version, "higher than the current"],
-  ["ProposedRuleSet.order", ProposedRuleSetView.shape.order, "Lower wins"],
+  ["ProposedRuleSet.version", ProposedRuleSetView.shape.version, "The version you read"],
+  ["ProposedRuleSet.order", ProposedRuleSetView.shape.order, "Ignored"],
   ["ProposedRuleSet.authored", ProposedRuleSetView.shape.authored, "never whether it may be proposed"],
   ["ProposalRequest.sets", ProposalRequest.shape.sets, "left out are unchanged"],
   ["ProposalRequest.because", ProposalRequest.shape.because, "carried onto the stored version"],
@@ -223,8 +223,21 @@ describe("what a proposed set promises", () => {
     expect(ProposedRuleSetView.parse(set)).toEqual(set);
   });
 
-  it("says lower order wins, because the opposite is the natural guess", () => {
-    expect(ProposedRuleSetView.shape.order.description).toContain("Lower wins");
+  it("admits that order is ignored, rather than documenting a rule nothing follows", () => {
+    // It said "Lower wins: overrides -1, household 0, built-in 2, provider 3",
+    // which described a model #121 replaced. Precedence is the household's
+    // adoption order and is not carried on a set, so nothing reads this field.
+    expect(ProposedRuleSetView.shape.order.description).toContain("Ignored");
+  });
+
+  it("says the version is the one you read, not the one being written", () => {
+    // It claimed the version "must be higher than the current one". Nothing
+    // enforced that and nothing used it — the next version is computed from
+    // what is current. It now means the version the proposal was built on, and
+    // a stale one is refused.
+    const said = ProposedRuleSetView.shape.version.description ?? "";
+    expect(said).toContain("The version you read");
+    expect(said).toContain("409");
   });
 
   it("says `authored` gates approval and not proposing", () => {

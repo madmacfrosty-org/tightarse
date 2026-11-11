@@ -1448,7 +1448,7 @@
           "version": {
             "type": "integer",
             "minimum": 0,
-            "description": "The version being proposed, which must be higher than the current one"
+            "description": "The version you read, NOT the one being written — the next version is the server's to decide. The proposal is refused with 409 if the set has moved since, because a proposal replaces the whole set and applying a stale one would put the older rules back silently. Zero for a set that does not exist yet, which is what reading nothing means."
           },
           "name": {
             "type": "string",
@@ -1456,7 +1456,7 @@
           },
           "order": {
             "type": "integer",
-            "description": "Precedence. Lower wins: overrides -1, household 0, built-in 2, provider 3."
+            "description": "Ignored. Precedence is the household's adoption order and is not carried on a set (#121), so nothing reads this. Kept because it is published; a client should send 0."
           },
           "authored": {
             "type": "boolean",
