@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { RuleSetsResponse, pathFor } from "@tightarse/api-contract";
+import { useCallback, useEffect, useState } from "react";
+import { CategoriesResponse, RuleSetsResponse, pathFor } from "@tightarse/api-contract";
 import type { MatcherView, RuleView, StoredRuleSetView } from "@tightarse/api-contract";
 import type { Api } from "./ports";
+import { RuleSetEditor } from "./RuleSetEditor";
 
 /**
  * What is actually deciding the categories.
@@ -124,8 +125,21 @@ function ordinal(n: number): string {
   return "th";
 }
 
-function Set({ set }: { set: StoredRuleSetView }) {
+function Set({
+  api,
+  set,
+  categories,
+  range,
+  onApplied,
+}: {
+  api: Api;
+  set: StoredRuleSetView;
+  categories: CategoriesResponse["categories"];
+  range: { from: string; to: string };
+  onApplied: () => Promise<void> | void;
+}) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   return (
     <div style={{ marginBottom: 16 }}>
@@ -141,7 +155,33 @@ function Set({ set }: { set: StoredRuleSetView }) {
           — {set.rules.length} rule{set.rules.length === 1 ? "" : "s"} · {standing(set)}
         </span>
       </button>
+      {open && editing && (
+        <RuleSetEditor
+          api={api}
+          set={set}
+          categories={categories}
+          range={range}
+          onApplied={onApplied}
+          onClose={() => setEditing(false)}
+        />
+      )}
+      {open && !editing && (
+        <div className="provider-row" style={{ gap: 8, margin: "8px 0" }}>
+          {set.authored ? (
+            <button type="button" className="ghost" onClick={() => setEditing(true)}>
+              Edit these rules
+            </button>
+          ) : (
+            <span className="subtle">
+              Generated, so it is rebuilt — an edit here would disappear the next
+              time it is regenerated. Change it by categorising a merchant, which
+              writes to a set you own.
+            </span>
+          )}
+        </div>
+      )}
       {open &&
+        !editing &&
         (set.rules.length === 0 ? (
           <p className="note">No rules in this set.</p>
         ) : (
@@ -172,20 +212,46 @@ function Set({ set }: { set: StoredRuleSetView }) {
   );
 }
 
-export function RuleSets({ api }: { api: Api }) {
+export function RuleSets({
+  api,
+  range,
+}: {
+  api: Api;
+  /**
+   * The window a change is measured and recategorised over.
+   *
+   * The same one the page already works out from `completeFrom`, rather than a
+   * default of this component's own: a prediction over a different range from
+   * the one on screen is a number nobody can check.
+   */
+  range: { from: string; to: string };
+}) {
   const [data, setData] = useState<RuleSetsResponse | null>(null);
+  const [categories, setCategories] = useState<CategoriesResponse["categories"]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  const read = useCallback(async () => {
+    try {
+      setData(await api.get(RuleSetsResponse, pathFor("/categorisation/rules")));
+      setError(null);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not read the rules");
+    }
+  }, [api]);
+
   useEffect(() => {
+    void read();
+  }, [read]);
+
+  useEffect(() => {
+    // Separately, and a failure here is not surfaced: without the catalogue the
+    // category dropdown has only each rule's own answer in it, which still
+    // lets a pattern or a direction be fixed. Refusing to show the rules
+    // because the list of labels did not load would be the worse trade.
     api
-      .get(RuleSetsResponse, pathFor("/categorisation/rules"))
-      .then((r) => {
-        setData(r);
-        setError(null);
-      })
-      .catch((e: unknown) =>
-        setError(e instanceof Error ? e.message : "Could not read the rules"),
-      );
+      .get(CategoriesResponse, pathFor("/categories"))
+      .then((c) => setCategories(c.categories))
+      .catch(() => setCategories([]));
   }, [api]);
 
   return (
@@ -205,7 +271,14 @@ export function RuleSets({ api }: { api: Api }) {
         </p>
       )}
       {data?.sets.map((set) => (
-        <Set key={set.setId} set={set} />
+        <Set
+          key={set.setId}
+          api={api}
+          set={set}
+          categories={categories}
+          range={range}
+          onApplied={read}
+        />
       ))}
       {data !== null && data.unreadable > 0 && (
         <p className="note provisional">

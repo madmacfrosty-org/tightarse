@@ -9,6 +9,7 @@ import {
 } from "@tightarse/api-contract";
 import { useEffect, useState } from "react";
 import type { Api } from "./ports";
+import { RuleChangePreview } from "./rule-change";
 
 /**
  * Finding a merchant's transactions, and choosing which of them to categorise.
@@ -435,46 +436,15 @@ export function Categorise({ api, from, to }: { api: Api; from: string; to: stri
       ) : null}
 
       {pending ? (
-        <div className="card" style={{ marginTop: 12 }}>
-          <h2>Before this is written</h2>
-          <p className="note">
-            Categorising {pending.what} as {chosen?.label ?? category}. Measured against the whole
-            ledger, not just what is on screen.
-          </p>
-          <table>
-            <tbody>
-              <tr>
-                <td>Gain a category</td>
-                <td className="num">{pending.prediction.gained.transactions.toLocaleString("en-GB")}</td>
-              </tr>
-              <tr>
-                <td>Change category</td>
-                <td className="num">{pending.prediction.recategorised.transactions.toLocaleString("en-GB")}</td>
-              </tr>
-              <tr>
-                <td>Lose their category</td>
-                <td className="num">{pending.prediction.lost.transactions.toLocaleString("en-GB")}</td>
-              </tr>
-              <tr>
-                <td>Already right</td>
-                <td className="num">{pending.prediction.unchanged.transactions.toLocaleString("en-GB")}</td>
-              </tr>
-            </tbody>
-          </table>
-          {pending.prediction.introducedConflicts.length > 0 ? (
-            <p className="error" style={{ fontSize: 13 }}>
-              This would make a rule set claim two answers at once, which produces none.
-            </p>
-          ) : null}
-          <div className="provider-row" style={{ gap: 8 }}>
-            <button type="button" disabled={busy} onClick={() => void confirm()}>
-              {busy ? "Applying…" : "Confirm"}
-            </button>
-            <button type="button" className="ghost" disabled={busy} onClick={() => setPending(null)}>
-              Cancel
-            </button>
-          </div>
-        </div>
+        <RuleChangePreview
+          change={{
+            ...pending,
+            what: `Categorising ${pending.what} as ${chosen?.label ?? category}`,
+          }}
+          busy={busy}
+          onConfirm={() => void confirm()}
+          onCancel={() => setPending(null)}
+        />
       ) : null}
 
       {rows.length > 0 ? (
