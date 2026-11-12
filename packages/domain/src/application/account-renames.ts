@@ -143,6 +143,7 @@ export async function recordAccountRenames(
       r.supersededId,
       r.survivingId,
       now.toISOString(),
+      { shared: r.evidence.shared },
     );
   }
   return found;

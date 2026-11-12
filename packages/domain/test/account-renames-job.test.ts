@@ -111,6 +111,9 @@ describe("recording a rename", () => {
       "old",
       "new",
       NOW.toISOString(),
+      // The evidence, so a person can judge the match rather than take it on
+      // trust. Two is the threshold and worth a second look.
+      { shared: 2 },
     );
   });
 

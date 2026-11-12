@@ -75,6 +75,8 @@ export class DynamoStore
     this.accounts.listAccounts(...a);
   readonly markSuperseded: Accounts["markSuperseded"] = (...a) =>
     this.accounts.markSuperseded(...a);
+  readonly clearSuperseded: Accounts["clearSuperseded"] = (...a) =>
+    this.accounts.clearSuperseded(...a);
   readonly putAccount: Accounts["putAccount"] = (...a) =>
     this.accounts.putAccount(...a);
   readonly putBalances: Accounts["putBalances"] = (...a) =>

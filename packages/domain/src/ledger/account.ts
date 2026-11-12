@@ -53,8 +53,25 @@ export const Account = z.object({
    * an identity, and #199 for what it cost.
    */
   supersededBy: z.string().optional(),
-  /** When reconciliation established `supersededBy`. */
+  /** When `supersededBy` was established. */
   reconciledAt: z.string().datetime().optional(),
+  /**
+   * How many transactions the two accounts held in common.
+   *
+   * The evidence, kept so a person can judge the match rather than take it on
+   * trust. Eighty-six is a card reissued; two is the threshold and worth a
+   * second look. Present only when the link was worked out automatically.
+   */
+  reconciledShared: z.number().int().nonnegative().optional(),
+  /**
+   * Who joined these by hand, where nobody worked it out.
+   *
+   * The automatic match needs two transactions in common, which an account
+   * renamed while dormant will never have. Present only when a person said so,
+   * and the two fields are exclusive: one says a machine decided, the other
+   * says a person did.
+   */
+  reconciledBy: z.string().optional(),
   /** Present only for accounts we have successfully fetched at least once. */
   lastSyncedAt: z.string().datetime().optional(),
 });

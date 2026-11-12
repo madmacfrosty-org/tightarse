@@ -69,6 +69,11 @@ import {
   TransactionsRequestView,
   PredictionView,
   ProposalRequest,
+  JoinAccountsRequest,
+  JoinAccountsResponse,
+  SeparateAccountRequest,
+  SeparateAccountResponse,
+  ContinuedAccountView,
   ProposalResponse,
   StoredRuleSetView,
   RuleSetsResponse,
@@ -82,6 +87,7 @@ import {
 } from "./schemas.js";
 import {
   API_VERSION,
+  ACCOUNT_LINK_ROUTES,
   CATEGORISATION_ROUTES,
   CONNECTION_ROUTES,
   MEMBER_ROUTES,
@@ -175,6 +181,11 @@ const NAMED = {
   ProposalResponse,
   StoredRuleSetView,
   RuleSetsResponse,
+  ContinuedAccountView,
+  JoinAccountsRequest,
+  JoinAccountsResponse,
+  SeparateAccountRequest,
+  SeparateAccountResponse,
 } as const;
 
 /**
@@ -306,6 +317,7 @@ export function buildOpenApiDocument(
   routes: readonly Route[] = [
     ...ROUTES,
     ...CATEGORISATION_ROUTES,
+    ...ACCOUNT_LINK_ROUTES,
     ...CONNECTION_ROUTES,
     ...MEMBER_ROUTES,
   ],

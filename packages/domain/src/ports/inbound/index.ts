@@ -21,6 +21,7 @@ import type { ConsentHealth } from "../../household/consent.js";
 import type { DateRange } from "../index.js";
 import type { AccountId } from "../../ledger/account.js";
 import type { RuleSetView } from "../../application/rule-sets.js";
+import type { ContinuedAccount } from "../../application/account-links.js";
 import type { DescriptionSummary, Recurrence } from "../../categorisation/corpus.js";
 import type { Conflict, Gap } from "../../categorisation/evidence.js";
 import type {
@@ -137,6 +138,15 @@ export interface CategorisedTransaction {
  */
 export interface AccountState {
   readonly accountId: string;
+  /**
+   * Accounts this one continues, where the provider renamed it.
+   *
+   * Empty for almost every account. Present so the household can see that two
+   * ids were joined and on whose say-so — a join files one account's
+   * transactions under another, and the total looks entirely plausible either
+   * way, so it must not be invisible. #199.
+   */
+  readonly continues?: readonly ContinuedAccount[] | undefined;
   readonly displayName?: string | undefined;
   readonly institutionName?: string | undefined;
   readonly currency?: string | undefined;

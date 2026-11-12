@@ -410,6 +410,7 @@ suite("DynamoStore account merge (integration)", () => {
       "renameOld",
       "renameNew",
       "2026-11-01T12:00:00.000Z",
+      { shared: 86 },
     );
 
     const found = (await ledger.listAccounts(TENANT)).find(
@@ -417,6 +418,69 @@ suite("DynamoStore account merge (integration)", () => {
     );
     expect(found?.["supersededBy"]).toBe("renameNew");
     expect(found?.["reconciledAt"]).toBe("2026-11-01T12:00:00.000Z");
+    // The evidence, so a person can judge the match rather than take it on
+    // trust. 86 is a card reissued; 2 is the threshold and worth a look.
+    expect(found?.["reconciledShared"]).toBe(86);
+    expect(found?.["reconciledBy"]).toBeUndefined();
+  });
+
+  it("records a link a person made, without a count that implies a machine did", async () => {
+    const card = (accountId: string) => ({
+      tenantId: TENANT,
+      accountId,
+      provider: "truelayer" as const,
+      providerAccountId: accountId,
+      displayName: "A Card",
+      institutionName: "TEST-BANK",
+      currency: "GBP",
+      isCard: true,
+    });
+    await ledger.putAccount(card("byHandOld"));
+
+    await ledger.markSuperseded(TENANT, "byHandOld", "live", "2026-11-12T00:00:00.000Z", {
+      by: "someone@example.invalid",
+    });
+
+    const found = (await ledger.listAccounts(TENANT)).find(
+      (r) => r["accountId"] === "byHandOld",
+    );
+    expect(found?.["reconciledBy"]).toBe("someone@example.invalid");
+    expect(found?.["reconciledShared"]).toBeUndefined();
+  });
+
+  it("undoes a link, leaving the account row otherwise alone", async () => {
+    // The whole reason the link is one field: a wrong match files one
+    // account's transactions under another and the total still looks
+    // plausible, so taking it back must not need a rebuild.
+    const card = (accountId: string) => ({
+      tenantId: TENANT,
+      accountId,
+      provider: "truelayer" as const,
+      providerAccountId: accountId,
+      displayName: "Undo Me",
+      institutionName: "TEST-BANK",
+      currency: "GBP",
+      isCard: true,
+    });
+    await ledger.putAccount(card("undoOld"));
+    await ledger.markSuperseded(TENANT, "undoOld", "live", "2026-11-12T00:00:00.000Z", {
+      shared: 5,
+    });
+
+    await ledger.clearSuperseded(TENANT, "undoOld");
+
+    const found = (await ledger.listAccounts(TENANT)).find(
+      (r) => r["accountId"] === "undoOld",
+    );
+    expect(found?.["supersededBy"]).toBeUndefined();
+    expect(found?.["reconciledShared"]).toBeUndefined();
+    expect(found?.["displayName"]).toBe("Undo Me");
+  });
+
+  it("treats undoing a link that is not there as the state asked for", async () => {
+    // An undo button reporting an error for having nothing to do is worse
+    // than one that quietly agrees.
+    await expect(ledger.clearSuperseded(TENANT, "neverLinked")).resolves.toBeUndefined();
   });
 
   it("will not rewrite a link that is already recorded", async () => {
@@ -436,11 +500,15 @@ suite("DynamoStore account merge (integration)", () => {
     });
     await ledger.putAccount(card("twiceOld"));
 
-    await ledger.markSuperseded(TENANT, "twiceOld", "first", "2026-11-01T12:00:00.000Z");
+    await ledger.markSuperseded(TENANT, "twiceOld", "first", "2026-11-01T12:00:00.000Z", {
+      shared: 9,
+    });
     // Second attempt names a different successor and must be ignored rather
     // than throwing: the job is expected to re-offer what it found last time.
     await expect(
-      ledger.markSuperseded(TENANT, "twiceOld", "second", "2026-11-02T12:00:00.000Z"),
+      ledger.markSuperseded(TENANT, "twiceOld", "second", "2026-11-02T12:00:00.000Z", {
+        shared: 2,
+      }),
     ).resolves.toBeUndefined();
 
     const found = (await ledger.listAccounts(TENANT)).find(
@@ -454,7 +522,9 @@ suite("DynamoStore account merge (integration)", () => {
     // `UpdateCommand` creates the row. That is the right behaviour here: an
     // account the provider has stopped returning may never have had a row
     // written, and the link still has to be recordable.
-    await ledger.markSuperseded(TENANT, "ghost", "live", "2026-11-01T12:00:00.000Z");
+    await ledger.markSuperseded(TENANT, "ghost", "live", "2026-11-01T12:00:00.000Z", {
+      by: "someone@example.invalid",
+    });
 
     const found = (await ledger.listAccounts(TENANT)).find(
       (r) => r["accountId"] === "ghost",

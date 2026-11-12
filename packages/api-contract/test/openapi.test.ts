@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { buildOpenApiDocument, renderOpenApiDocument, schemasFrom } from "../src/openapi.js";
 import {
   API_VERSION,
+  ACCOUNT_LINK_ROUTES,
   CATEGORISATION_ROUTES,
   CONNECTION_ROUTES,
   MEMBER_ROUTES,
@@ -103,6 +104,7 @@ describe("what must survive generation", () => {
         [
           ...ROUTES,
           ...CATEGORISATION_ROUTES,
+          ...ACCOUNT_LINK_ROUTES,
           ...CONNECTION_ROUTES,
           ...MEMBER_ROUTES,
         ].map(pathFor),
