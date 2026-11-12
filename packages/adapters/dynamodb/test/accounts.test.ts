@@ -31,7 +31,7 @@ describe("recording that an account was superseded", () => {
     });
 
     await expect(
-      adapter(send).markSuperseded("frost", "old", "new", "2026-11-01T00:00:00.000Z"),
+      adapter(send).markSuperseded("frost", "old", "new", "2026-11-01T00:00:00.000Z", { shared: 86 }),
     ).resolves.toBeUndefined();
     expect(send).toHaveBeenCalledTimes(1);
   });
@@ -44,7 +44,7 @@ describe("recording that an account was superseded", () => {
     });
 
     await expect(
-      adapter(send).markSuperseded("frost", "old", "new", "2026-11-01T00:00:00.000Z"),
+      adapter(send).markSuperseded("frost", "old", "new", "2026-11-01T00:00:00.000Z", { shared: 86 }),
     ).rejects.toThrow("ProvisionedThroughputExceededException");
   });
 
@@ -55,7 +55,7 @@ describe("recording that an account was superseded", () => {
     });
 
     await expect(
-      adapter(send).markSuperseded("frost", "old", "new", "2026-11-01T00:00:00.000Z"),
+      adapter(send).markSuperseded("frost", "old", "new", "2026-11-01T00:00:00.000Z", { shared: 86 }),
     ).rejects.toBe("a bare string");
   });
 
@@ -74,6 +74,7 @@ describe("recording that an account was superseded", () => {
       "old",
       "new",
       "2026-11-01T00:00:00.000Z",
+      { shared: 86 },
     );
 
     const values = sent[0]?.["ExpressionAttributeValues"] as Record<string, unknown>;

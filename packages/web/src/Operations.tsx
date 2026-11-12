@@ -1,4 +1,5 @@
 import { ConnectBank } from "./Connect";
+import { Accounts } from "./Accounts";
 import { Connections } from "./Connections";
 import { Members } from "./Members";
 import { Diagnostics } from "./Diagnostics";
@@ -22,6 +23,8 @@ export function Operations({ api }: { api: Api }) {
     <>
       <Connections api={api} />
       <ConnectBank api={api} />
+      <Accounts api={api} />
+
       <Members api={api} />
       <Diagnostics api={api} />
     </>

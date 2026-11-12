@@ -70,6 +70,7 @@ import {
   type AccountCoverage,
 } from "./coverage.js";
 import { ruleSets } from "../application/rule-sets.js";
+import { continuedBy } from "../application/account-links.js";
 import {
   currentAccounts,
   resolveAccountId,
@@ -606,6 +607,9 @@ export async function accounts(
   const movements = toMovements(all);
   const held = heldAccounts(rows);
   const byAccount = groupByAccount(movements, held.resolve);
+  // Read from the whole list, not from `held.rows`: the link lives on the
+  // superseded account, which is exactly the row `held.rows` leaves out.
+  const continued = continuedBy(rows);
   return {
     accounts: held.rows.map((row) => {
       const c = coverage.get(String(row["accountId"]));
@@ -618,6 +622,9 @@ export async function accounts(
       );
       return {
         ...toAccountState(row),
+        ...(continued.has(String(row["accountId"]))
+          ? { continues: continued.get(String(row["accountId"]))! }
+          : {}),
         ...(derived === undefined ? {} : { derivedBalance: derived }),
         ...(c?.historyFrom !== undefined ? { historyFrom: c.historyFrom } : {}),
         ...(c?.historyComplete !== undefined

@@ -56,6 +56,18 @@ const deps = (
     proposals,
     categories,
     removed,
+    accountLinks: {
+      join: vi.fn(async (tenantId: string, supersededId: string, survivingId: string, by: string) => {
+        seen.push(tenantId);
+        proposals.push({ supersededId, survivingId, by });
+        return { supersededId, survivingId };
+      }),
+      separate: vi.fn(async (tenantId: string, accountId: string) => {
+        seen.push(tenantId);
+        proposals.push({ accountId });
+        return { accountId };
+      }),
+    },
     inspection: {
       backlog: vi.fn(async (tenantId: string) => {
         seen.push(tenantId);
@@ -666,6 +678,88 @@ describe("proposing a change", () => {
     await route(d, post());
 
     expect(d.proposals[0]).toMatchObject({ by: "frost" });
+  });
+});
+
+describe("saying which accounts are one account", () => {
+  // Signed in, with an address. A join records who decided it, so unlike the
+  // other writes here this one needs a person and not only a household.
+  const asOwner = {
+    requestContext: {
+      authorizer: {
+        jwt: { claims: { email: "owner@example.invalid", "custom:tenant": "frost" } },
+      },
+    },
+  };
+  const join = (body: unknown) =>
+    event({ rawPath: "/v1/accounts/join", body: JSON.stringify(body), ...asOwner });
+  const separate = (body: unknown) =>
+    event({ rawPath: "/v1/accounts/separate", body: JSON.stringify(body), ...asOwner });
+
+  it("refuses a join from a token carrying no address", async () => {
+    // Recording "who" from a token that does not say is recording a guess.
+    const d = deps();
+
+    const res = await route(
+      d,
+      event({
+        rawPath: "/v1/accounts/join",
+        body: JSON.stringify({ supersededId: "old", survivingId: "new" }),
+      }),
+    );
+
+    expect(res.statusCode).toBe(403);
+    expect(d.seen).toEqual([]);
+  });
+
+  it("records a join for the household on the token", async () => {
+    const d = deps();
+
+    const res = await route(d, join({ supersededId: "old", survivingId: "new" }));
+
+    expect(res.statusCode).toBe(200);
+    expect(d.seen).toEqual(["frost"]);
+    expect(body(res)).toEqual({ supersededId: "old", survivingId: "new" });
+  });
+
+  it("takes who did it from the verified token, never from the body", async () => {
+    // A client-supplied name on a record of who decided something records only
+    // what the client claimed.
+    const d = deps();
+
+    await route(
+      d,
+      join({ supersededId: "old", survivingId: "new", by: "someone-else@example.invalid" }),
+    );
+
+    expect(d.proposals[0]).toMatchObject({ by: "owner@example.invalid" });
+  });
+
+  it("refuses a join missing an account, without reaching the ledger", async () => {
+    const d = deps();
+
+    const res = await route(d, join({ supersededId: "old" }));
+
+    expect(res.statusCode).toBe(400);
+    expect(d.seen).toEqual([]);
+  });
+
+  it("separates an account", async () => {
+    const d = deps();
+
+    const res = await route(d, separate({ accountId: "old" }));
+
+    expect(res.statusCode).toBe(200);
+    expect(body(res)).toEqual({ accountId: "old" });
+  });
+
+  it("refuses a separate with no account named", async () => {
+    const d = deps();
+
+    const res = await route(d, separate({}));
+
+    expect(res.statusCode).toBe(400);
+    expect(d.seen).toEqual([]);
   });
 });
 
