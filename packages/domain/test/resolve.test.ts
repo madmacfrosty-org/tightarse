@@ -121,6 +121,76 @@ describe("resolving a transaction", () => {
     expect(r.history.map((c) => c.status)).toEqual(["effective", "proposed"]);
   });
 
+  it("lets a withdrawal mask the version it withdraws", () => {
+    // The subtle half. A retraction has to be compared as a version and only
+    // then dropped — filtering retracted rows out first would let the
+    // Groceries it withdraws win again, which is the one thing it exists to
+    // prevent. That is how a deleted rule went on categorising.
+    const r = resolve(
+      { ...tx, providerCategory: undefined },
+      [
+        cat({ version: 1, category: "Groceries" }),
+        cat({ version: 2, category: "Groceries", status: "retracted" }),
+      ],
+      order,
+    );
+
+    expect(r.effective).toBeUndefined();
+  });
+
+  it("reports no history either once the only set has withdrawn", () => {
+    // `history` is the EFFECTIVE set's history, so with nothing effective there
+    // is none to return. Worth stating rather than discovering: retracting
+    // instead of deleting keeps the record in the store, and this view is not
+    // where it can be read. Showing a transaction what was once believed about
+    // it would need `history` to mean something wider than it does.
+    const r = resolve(
+      { ...tx, providerCategory: undefined },
+      [
+        cat({ version: 1, category: "Groceries" }),
+        cat({ version: 2, category: "Groceries", status: "retracted" }),
+      ],
+      order,
+    );
+
+    expect(r.effective).toBeUndefined();
+    expect(r.history).toEqual([]);
+  });
+
+  it("treats a withdrawal and a proposal differently, which is why both exist", () => {
+    // A proposal is ignored and the previous answer stands. A withdrawal IS
+    // the answer, and the answer is nothing.
+    const withProposal = resolve(
+      { ...tx, providerCategory: undefined },
+      [cat({ version: 1 }), cat({ version: 2, status: "proposed" })],
+      order,
+    );
+    const withWithdrawal = resolve(
+      { ...tx, providerCategory: undefined },
+      [cat({ version: 1 }), cat({ version: 2, status: "retracted" })],
+      order,
+    );
+
+    expect(withProposal.effective?.category).toBe("Groceries");
+    expect(withWithdrawal.effective).toBeUndefined();
+  });
+
+  it("lets another set still answer when one has withdrawn its own", () => {
+    // Withdrawing is per set. A household rule going away must not silence a
+    // shipped pattern that still matches.
+    const r = resolve(
+      { ...tx, providerCategory: undefined },
+      [
+        cat({ setId: "household", version: 1, category: "Fuel" }),
+        cat({ setId: "household", version: 2, category: "Fuel", status: "retracted" }),
+        cat({ setId: "built-in", version: 1, category: "Groceries" }),
+      ],
+      order,
+    );
+
+    expect(r.effective?.category).toBe("Groceries");
+  });
+
   it("returns the effective set's history oldest first", () => {
     const r = resolve(
       { ...tx, providerCategory: undefined },

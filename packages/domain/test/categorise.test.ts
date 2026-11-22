@@ -142,15 +142,55 @@ describe("what to do about one transaction", () => {
     expect(d.kind).toBe("append");
   });
 
-  it("surfaces a stored category that nothing matches any more, and leaves it alone", () => {
-    // Silently keeping a category nobody can explain is worse than saying so,
-    // and deleting it would lose the history.
+  it("withdraws a stored category that nothing matches any more", () => {
+    // It used to be surfaced and left alone. The first half was right; the
+    // second was not. "Surfaced" meant a number in a report nobody reads,
+    // while the stored answer went on driving every total — a household
+    // deleted a misconfigured rule and the salary it had filed as an expense
+    // stayed filed that way.
+    //
+    // Retracted rather than deleted, so the history of what was once believed
+    // survives while the figure stops counting.
     expect(
       decide({ ...args, evaluation: evaluation(undefined), current: stored() }),
     ).toEqual({
       kind: "orphaned",
       category: "groceries",
+      next: {
+        ...stored(),
+        version: 2,
+        status: "retracted",
+        appliedAt: args.now,
+      },
     });
+  });
+
+  it("keeps what was withdrawn on the withdrawal, so the history reads", () => {
+    // The row says which category, from which set and version, was withdrawn.
+    // A bare tombstone would record that something was retracted and lose what.
+    const d = decide({
+      ...args,
+      evaluation: evaluation(undefined),
+      current: stored({ category: "professional-services", setId: "household", setVersion: 2 }),
+    });
+
+    expect(d.kind).toBe("orphaned");
+    expect(d.kind === "orphaned" && d.next).toMatchObject({
+      category: "professional-services",
+      setId: "household",
+      setVersion: 2,
+      status: "retracted",
+    });
+  });
+
+  it("counts up from the version it withdraws, so it is the latest word", () => {
+    const d = decide({
+      ...args,
+      evaluation: evaluation(undefined),
+      current: stored({ version: 7 }),
+    });
+
+    expect(d.kind === "orphaned" && d.next.version).toBe(8);
   });
 
   it("says nothing for a transaction no rule matches, which is the backlog", () => {
@@ -362,7 +402,7 @@ describe("applying over a range", () => {
     });
   });
 
-  it("reports a stored category nothing matches any more, and does not touch it", async () => {
+  it("writes a withdrawal for a stored category nothing matches any more", async () => {
     const cat = stored({ category: "groceries" }) as unknown as Row;
     const { deps, written } = ledger([txRow("d1", "UTTERLY UNKNOWN")], [cat]);
     const report = await categorise(deps, "frost", { range: RANGE, now: NOW });
@@ -371,7 +411,47 @@ describe("applying over a range", () => {
       appended: 0,
       uncategorised: 0,
     });
+    expect(written).toEqual([
+      {
+        ...stored({ category: "groceries" }),
+        version: 2,
+        status: "retracted",
+        appliedAt: NOW.toISOString(),
+      },
+    ]);
+  });
+
+  it("stops counting it on the next run, rather than withdrawing it again", async () => {
+    // The withdrawal is the latest version, so the transaction reads as having
+    // no categorisation at all. It falls to the backlog, which is what it is.
+    const withdrawn = stored({
+      category: "groceries",
+      version: 2,
+      status: "retracted",
+    }) as unknown as Row;
+    const original = stored({ category: "groceries" }) as unknown as Row;
+    const { deps, written } = ledger([txRow("d1", "UTTERLY UNKNOWN")], [original, withdrawn]);
+
+    const report = await categorise(deps, "frost", { range: RANGE, now: NOW });
+
+    expect(report).toMatchObject({ orphaned: 0, uncategorised: 1, appended: 0 });
     expect(written).toEqual([]);
+  });
+
+  it("writes nothing on a dry run, and says what it would withdraw", async () => {
+    const cat = stored({ category: "groceries" }) as unknown as Row;
+    const { deps, written } = ledger([txRow("d1", "UTTERLY UNKNOWN")], [cat]);
+
+    const report = await categorise(deps, "frost", {
+      range: RANGE,
+      now: NOW,
+      dryRun: true,
+    });
+
+    expect(written).toEqual([]);
+    expect(report.changes).toEqual([
+      expect.objectContaining({ dedupKey: "d1", from: "groceries" }),
+    ]);
   });
 
   it("matches on the provider category a transaction carries", async () => {

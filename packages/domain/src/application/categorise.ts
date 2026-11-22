@@ -22,7 +22,7 @@
  */
 
 import { candidateOf } from "./candidate.js";
-import { Categorisation } from "../categorisation/categorisation.js";
+import { Categorisation, decided, inForce } from "../categorisation/categorisation.js";
 import { RuleSet } from "../categorisation/rules.js";
 import {
   evaluate,
@@ -56,10 +56,23 @@ export type Decision =
   /**
    * Something is stored, and nothing matches any more.
    *
-   * Left alone and surfaced. Silently keeping a category nobody can explain is
-   * worse than saying so, and deleting it would lose the history.
+   * Retracted rather than deleted: the row stays and a new version withdraws
+   * it, so the history of what was once believed survives while the figure
+   * stops counting.
+   *
+   * It used to be surfaced and left alone, on the reasoning that silently
+   * keeping an unexplainable category is worse than saying so. The first half
+   * was right and the second was not: it was surfaced as a number in a report
+   * nobody reads, while the stored answer went on driving every total. A
+   * household deleted a misconfigured rule and the salary it had filed as an
+   * expense stayed filed that way.
    */
-  | { readonly kind: "orphaned"; readonly category: CategoryId }
+  | {
+      readonly kind: "orphaned";
+      readonly category: CategoryId;
+      /** The withdrawal to write. */
+      readonly next: Categorisation;
+    }
   /** No rule matched and nothing was stored. The backlog, not a failure. */
   | { readonly kind: "none" };
 
@@ -98,9 +111,21 @@ export function decide(args: DecideArgs): Decision {
 
   const effective = evaluation.effective;
   if (!effective) {
-    return current
-      ? { kind: "orphaned", category: current.category }
-      : { kind: "none" };
+    if (!current) return { kind: "none" };
+    // Retracted, not deleted, and not left alone either. Leaving it was the
+    // original choice and it meant a household could delete a rule and watch
+    // the category it wrote go on counting for ever — 41 salary payments filed
+    // as an expense, still there after the rule was gone.
+    return {
+      kind: "orphaned",
+      category: current.category,
+      next: {
+        ...current,
+        version: current.version + 1,
+        status: "retracted",
+        appliedAt: args.now,
+      },
+    };
   }
   if (
     current &&
@@ -253,9 +278,21 @@ export async function categorise(
         appended += 1;
         break;
       }
-      case "orphaned":
+      case "orphaned": {
+        if (options.dryRun) {
+          changes.push({
+            dedupKey: candidate.dedupKey,
+            description: candidate.description,
+            from: decision.category,
+            to: "(withdrawn — no rule produces this any more)",
+            setId: decision.next.setId,
+          });
+        } else {
+          await deps.categorisations.putCategorisation(tenantId, decision.next);
+        }
         orphaned += 1;
         break;
+      }
       case "none":
         uncategorised += 1;
         break;
@@ -288,10 +325,15 @@ function latestByTransaction(
   const out = new Map<string, Categorisation>();
   for (const row of rows) {
     const parsed = Categorisation.safeParse(row);
-    if (!parsed.success || parsed.data.status !== "effective") continue;
+    if (!parsed.success || !decided(parsed.data)) continue;
     const existing = out.get(parsed.data.dedupKey);
     if (!existing || parsed.data.version > existing.version)
       out.set(parsed.data.dedupKey, parsed.data);
+  }
+  // After the comparison, for the reason given on `inForce`: a retraction has
+  // to be able to mask the version it retracts.
+  for (const [dedupKey, c] of out) {
+    if (!inForce(c)) out.delete(dedupKey);
   }
   return out;
 }

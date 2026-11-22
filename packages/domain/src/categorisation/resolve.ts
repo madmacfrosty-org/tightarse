@@ -10,6 +10,7 @@
  */
 
 import type { Categorisation } from "./categorisation.js";
+import { decided, inForce } from "./categorisation.js";
 import { providerCategorisation, type ProviderInput } from "./provider.js";
 
 /** How much a set is trusted, highest first. Data, never load order. */
@@ -45,9 +46,16 @@ function latestPerSet(
 ): Map<string, Categorisation> {
   const out = new Map<string, Categorisation>();
   for (const c of all) {
-    if (c.status === "proposed") continue;
+    if (!decided(c)) continue;
     const seen = out.get(c.setId);
     if (seen === undefined || c.version > seen.version) out.set(c.setId, c);
+  }
+  // Dropped after the comparison, never before. A retraction is the latest word
+  // from its set and the word is "nothing" — filtering it out first would let
+  // the version it retracts win again, which is the one thing it exists to
+  // prevent.
+  for (const [setId, c] of out) {
+    if (!inForce(c)) out.delete(setId);
   }
   return out;
 }
