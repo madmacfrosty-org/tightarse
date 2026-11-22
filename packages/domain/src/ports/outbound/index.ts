@@ -183,7 +183,21 @@ export interface Accounts {
     accountId: string,
     supersededBy: string,
     reconciledAt: string,
+    /**
+     * Why. A count means a machine matched them on shared transactions; a name
+     * means a person said so. Exclusive, so a reader can always tell which.
+     */
+    evidence: { readonly shared: number } | { readonly by: string },
   ): Promise<void>;
+  /**
+   * Undo a link.
+   *
+   * The whole reason the link is one field. A wrong match files one account's
+   * transactions under another and the total still looks plausible, so being
+   * able to take it back without a rebuild is what makes recording it at all
+   * safe.
+   */
+  clearSuperseded(tenantId: string, accountId: string): Promise<void>;
 }
 
 /** Where balance readings are stored. Append-only: a reading is a fact about a moment. */

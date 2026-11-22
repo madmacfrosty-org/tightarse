@@ -146,6 +146,7 @@ export class DynamoAccounts extends TableAdapter implements Accounts {
     accountId: string,
     supersededBy: string,
     reconciledAt: string,
+    evidence: { readonly shared: number } | { readonly by: string },
   ): Promise<void> {
     const { pk, sk } = keys.account(tenantId, accountId);
     try {
@@ -159,9 +160,15 @@ export class DynamoAccounts extends TableAdapter implements Accounts {
           // falls back to "" for, so two such rows would look like one
           // account. Writing them costs nothing and the row is always
           // readable.
+          // The evidence goes on in the same write, and the other half is
+          // REMOVED rather than left: a row that had been matched
+          // automatically and is now joined by hand must not keep a count
+          // saying a machine decided it.
           UpdateExpression:
             "SET #kind = :kind, #tenantId = :tenantId, #accountId = :accountId, " +
-            "#supersededBy = :supersededBy, #reconciledAt = :reconciledAt",
+            "#supersededBy = :supersededBy, #reconciledAt = :reconciledAt, " +
+            `${"shared" in evidence ? "#reconciledShared = :why" : "#reconciledBy = :why"} ` +
+            `REMOVE ${"shared" in evidence ? "#reconciledBy" : "#reconciledShared"}`,
           ConditionExpression: "attribute_not_exists(#supersededBy)",
           ExpressionAttributeNames: {
             "#kind": "kind",
@@ -169,6 +176,8 @@ export class DynamoAccounts extends TableAdapter implements Accounts {
             "#accountId": "accountId",
             "#supersededBy": "supersededBy",
             "#reconciledAt": "reconciledAt",
+            "#reconciledShared": "reconciledShared",
+            "#reconciledBy": "reconciledBy",
           },
           ExpressionAttributeValues: {
             ":kind": "ACCOUNT",
@@ -176,6 +185,7 @@ export class DynamoAccounts extends TableAdapter implements Accounts {
             ":accountId": accountId,
             ":supersededBy": supersededBy,
             ":reconciledAt": reconciledAt,
+            ":why": "shared" in evidence ? evidence.shared : evidence.by,
           },
         }),
       );
@@ -183,5 +193,30 @@ export class DynamoAccounts extends TableAdapter implements Accounts {
       if ((err as { name?: string }).name === "ConditionalCheckFailedException") return;
       throw err;
     }
+  }
+
+  /**
+   * Undo a link, leaving the account row otherwise alone.
+   *
+   * Unconditional. Clearing a link that is not there is the state being asked
+   * for, and failing on it would make an undo button report an error for
+   * having nothing to do.
+   */
+  async clearSuperseded(tenantId: string, accountId: string): Promise<void> {
+    const { pk, sk } = keys.account(tenantId, accountId);
+    await this.doc.send(
+      new UpdateCommand({
+        TableName: this.table,
+        Key: { pk, sk },
+        UpdateExpression:
+          "REMOVE #supersededBy, #reconciledAt, #reconciledShared, #reconciledBy",
+        ExpressionAttributeNames: {
+          "#supersededBy": "supersededBy",
+          "#reconciledAt": "reconciledAt",
+          "#reconciledShared": "reconciledShared",
+          "#reconciledBy": "reconciledBy",
+        },
+      }),
+    );
   }
 }

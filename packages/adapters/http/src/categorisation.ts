@@ -2,7 +2,9 @@ import {
   AddMemberRequest,
   RemoveMemberRequest,
   NewCategoryRequest,
+  JoinAccountsRequest,
   ProposalRequest,
+  SeparateAccountRequest,
 } from "@tightarse/api-contract";
 import { DynamoStore } from "@tightarse/dynamodb";
 import type {
@@ -18,7 +20,9 @@ import {
   removeMember,
   createCategory,
   inspection,
+  joinAccounts,
   proposeRules,
+  separateAccounts,
 } from "@tightarse/domain";
 import { actorFrom, ledgerConfig, tenantFrom } from "./handler.js";
 import { asBacklog, asProposalResponse } from "./wire.js";
@@ -55,6 +59,25 @@ interface HttpEvent {
 
 export interface CategorisationDeps {
   readonly inspection: Inspection;
+  /**
+   * Saying which accounts are one account.
+   *
+   * On the writing function, with the other writes. Joining two decides which
+   * transactions count towards which balance, which is a change to what the
+   * ledger believes rather than a question asked of it.
+   */
+  readonly accountLinks: {
+    readonly join: (
+      tenantId: string,
+      supersededId: string,
+      survivingId: string,
+      by: string,
+    ) => Promise<{ supersededId: string; survivingId: string }>;
+    readonly separate: (
+      tenantId: string,
+      accountId: string,
+    ) => Promise<{ accountId: string }>;
+  };
   /**
    * Stop tracking a connection that has stopped working.
    *
@@ -305,6 +328,29 @@ export async function route(deps: CategorisationDeps, event: HttpEvent) {
       return json(200, { members: await deps.members.list(actorFrom(event)) });
     }
 
+    if (path.endsWith("/accounts/join")) {
+      const parsed = JoinAccountsRequest.safeParse(jsonBody(event));
+      if (!parsed.success) throw badRequest(parsed.error.issues);
+      return json(
+        200,
+        await deps.accountLinks.join(
+          tenantId,
+          parsed.data.supersededId,
+          parsed.data.survivingId,
+          // The person, from the verified token. Stored instead of a count, so
+          // the screen says somebody decided this rather than implying a match
+          // found evidence it did not.
+          actorFrom(event).email,
+        ),
+      );
+    }
+
+    if (path.endsWith("/accounts/separate")) {
+      const parsed = SeparateAccountRequest.safeParse(jsonBody(event));
+      if (!parsed.success) throw badRequest(parsed.error.issues);
+      return json(200, await deps.accountLinks.separate(tenantId, parsed.data.accountId));
+    }
+
     if (path.endsWith("/categorisation/gaps")) {
       const range = rangeFrom(event);
       return json(
@@ -387,6 +433,12 @@ export function realDeps(): CategorisationDeps {
   };
   return {
     inspection: inspection({ transactions: store, ruleSets: store }),
+    // Bound rather than wrapped, as the others here are: a wrapper is a
+    // function no test can reach without a table.
+    accountLinks: {
+      join: joinAccounts.bind(null, { ledger: store }),
+      separate: separateAccounts.bind(null, { ledger: store }),
+    },
     members: {
       // Bound rather than wrapped, for the same reason as the others: a
       // wrapper here is a function no test can reach without a table, and an

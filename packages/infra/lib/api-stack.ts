@@ -8,6 +8,7 @@ import * as logs from "aws-cdk-lib/aws-logs";
 import type * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import type { Identity } from "./data-stack.js";
 import {
+  ACCOUNT_LINK_ROUTES,
   CATEGORISATION_ROUTES,
   MEMBER_ROUTES,
   CONNECT_PATHS,
@@ -222,7 +223,11 @@ export class ApiStack extends cdk.Stack {
 
     // Served by the same function, for the reason above: it is the one that
     // writes.
-    for (const route of [...CATEGORISATION_ROUTES, ...MEMBER_ROUTES]) {
+    for (const route of [
+      ...CATEGORISATION_ROUTES,
+      ...ACCOUNT_LINK_ROUTES,
+      ...MEMBER_ROUTES,
+    ]) {
       const path = pathFor(route);
       this.api.addRoutes({
         path,

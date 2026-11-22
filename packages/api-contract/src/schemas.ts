@@ -166,8 +166,32 @@ export type TransactionView = z.infer<typeof TransactionView>;
  * card with headroom and false of Amex, which reports no available balance at
  * all, and that guess once showed a £567.90 debt as money in hand.
  */
+/** One account absorbed into another, and on whose say-so. */
+export const ContinuedAccountView = z.object({
+  accountId: z.string().describe("The id the provider stopped returning"),
+  displayName: z.string().optional(),
+  since: z.string().optional().describe("ISO-8601. When the two were joined."),
+  sharedTransactions: Count.optional().describe(
+    "Transactions the two held in common. Absent when a person joined them rather than a match finding them.",
+  ),
+  joinedBy: z
+    .string()
+    .optional()
+    .describe("Who joined them by hand. Absent when it was worked out automatically."),
+});
+export type ContinuedAccountView = z.infer<typeof ContinuedAccountView>;
+
 export const AccountView = z.object({
   accountId: z.string(),
+  /**
+   * Accounts this one continues, where the provider renamed it.
+   *
+   * Empty for almost every account, and absent rather than an empty array.
+   * Present so a household can see that two ids were joined and why — a join
+   * files one account's transactions under another and the total reads
+   * entirely plausibly either way, so it must not be invisible. #199.
+   */
+  continues: z.array(ContinuedAccountView).optional(),
   /**
    * These four are optional because a row can exist without them.
    *
@@ -735,6 +759,28 @@ export const StoredRuleSetView = z.object({
 export type StoredRuleSetView = z.infer<typeof StoredRuleSetView>;
 
 /** Every set a household has, adopted first and in the order they apply. */
+/** Say that one account continues into another. */
+export const JoinAccountsRequest = z.object({
+  supersededId: z.string().min(1).describe("The account the provider stopped returning"),
+  survivingId: z.string().min(1).describe("The account it continues into"),
+});
+export type JoinAccountsRequest = z.infer<typeof JoinAccountsRequest>;
+
+export const JoinAccountsResponse = z.object({
+  supersededId: z.string(),
+  survivingId: z.string(),
+});
+export type JoinAccountsResponse = z.infer<typeof JoinAccountsResponse>;
+
+/** Take a join back. */
+export const SeparateAccountRequest = z.object({
+  accountId: z.string().min(1).describe("The account that should stop continuing into another"),
+});
+export type SeparateAccountRequest = z.infer<typeof SeparateAccountRequest>;
+
+export const SeparateAccountResponse = z.object({ accountId: z.string() });
+export type SeparateAccountResponse = z.infer<typeof SeparateAccountResponse>;
+
 export const RuleSetsResponse = z.object({
   sets: z.array(StoredRuleSetView),
   unreadable: Count.describe(

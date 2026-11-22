@@ -180,6 +180,12 @@
           "accountId": {
             "type": "string"
           },
+          "continues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContinuedAccountView"
+            }
+          },
           "displayName": {
             "type": "string"
           },
@@ -1797,6 +1803,96 @@
           "unreadable"
         ],
         "additionalProperties": false
+      },
+      "ContinuedAccountView": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "The id the provider stopped returning"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string",
+            "description": "ISO-8601. When the two were joined."
+          },
+          "sharedTransactions": {
+            "$ref": "#/components/schemas/Count",
+            "description": "Transactions the two held in common. Absent when a person joined them rather than a match finding them."
+          },
+          "joinedBy": {
+            "type": "string",
+            "description": "Who joined them by hand. Absent when it was worked out automatically."
+          }
+        },
+        "required": [
+          "accountId"
+        ],
+        "additionalProperties": false
+      },
+      "JoinAccountsRequest": {
+        "type": "object",
+        "properties": {
+          "supersededId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The account the provider stopped returning"
+          },
+          "survivingId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The account it continues into"
+          }
+        },
+        "required": [
+          "supersededId",
+          "survivingId"
+        ],
+        "additionalProperties": false
+      },
+      "JoinAccountsResponse": {
+        "type": "object",
+        "properties": {
+          "supersededId": {
+            "type": "string"
+          },
+          "survivingId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "supersededId",
+          "survivingId"
+        ],
+        "additionalProperties": false
+      },
+      "SeparateAccountRequest": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The account that should stop continuing into another"
+          }
+        },
+        "required": [
+          "accountId"
+        ],
+        "additionalProperties": false
+      },
+      "SeparateAccountResponse": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accountId"
+        ],
+        "additionalProperties": false
       }
     }
   },
@@ -2300,6 +2396,84 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BacklogResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The range is missing, malformed, or `from` is after `to`"
+          },
+          "401": {
+            "description": "No bearer token, or one this API does not trust"
+          },
+          "403": {
+            "description": "A valid token carrying no household claim"
+          }
+        }
+      }
+    },
+    "/v1/accounts/join": {
+      "post": {
+        "operationId": "postAccountsJoin",
+        "summary": "Say that one account continues into another",
+        "description": "Records that the provider renamed an account: the superseded id's transactions are read under the surviving account from then on. For the case the automatic match cannot reach — it needs two transactions in common, which an account renamed while dormant will never have. Nothing is rewritten and nothing is deleted; the superseded row and its transactions stay, which is what makes this reversible. Refuses a join that would make two accounts continue into each other, because reading an id follows the chain to its end and a loop has none.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinAccountsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Say that one account continues into another",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinAccountsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The range is missing, malformed, or `from` is after `to`"
+          },
+          "401": {
+            "description": "No bearer token, or one this API does not trust"
+          },
+          "403": {
+            "description": "A valid token carrying no household claim"
+          }
+        }
+      }
+    },
+    "/v1/accounts/separate": {
+      "post": {
+        "operationId": "postAccountsSeparate",
+        "summary": "Take back a join between two accounts",
+        "description": "Clears the link, however it was made. A wrong join files one account's transactions under another and the total stays entirely plausible, so being able to undo one without a rebuild is what makes recording them safe at all. Separating an account that is not joined to anything succeeds: that is the state being asked for.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeparateAccountRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take back a join between two accounts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeparateAccountResponse"
                 }
               }
             }

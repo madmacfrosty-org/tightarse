@@ -90,11 +90,23 @@ describe("the pages", () => {
     // first would not answer its own question. The reconciliation is still
     // asked for by a button, and a connection is still a decision.
     //
-    // Two is the budget here, and the list is spelled out so a third arrives
-    // as a decision rather than as drift.
+    // The list is spelled out so another arrives as a decision rather than as
+    // drift. This is that decision, and it is the weaker kind: `/v1/accounts`
+    // is asked for TWICE, by Connections for the consents and by Accounts for
+    // the accounts themselves.
+    //
+    // Three of a budget of five, so it is affordable rather than good. The
+    // better answer is one fetch on the page passed to both, which also stops
+    // the two panels disagreeing after an action reloads one of them. That is
+    // a refactor of Connections and its twenty render sites, deliberately not
+    // bundled into the change that added the second caller. #199.
     await renderAt("/operations");
     await screen.findByText("Connect a bank");
-    expect(requested().sort()).toEqual(["/v1/accounts", "/v1/members"]);
+    expect(requested().sort()).toEqual([
+      "/v1/accounts",
+      "/v1/accounts",
+      "/v1/members",
+    ]);
   });
 });
 

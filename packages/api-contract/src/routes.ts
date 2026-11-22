@@ -16,9 +16,13 @@ import {
   CategoriesResponse,
   CategoryChoiceView,
   NewCategoryRequest,
+  JoinAccountsRequest,
+  JoinAccountsResponse,
   ProposalRequest,
   ProposalResponse,
   RuleSetsResponse,
+  SeparateAccountRequest,
+  SeparateAccountResponse,
   BalancesResponse,
   IsoDate,
   SummaryResponse,
@@ -281,6 +285,45 @@ export const ROUTES: readonly Route[] = [
  * the product could not call its own API. The offline path can hold a household
  * token, or use the CLIs that reach the table directly.
  */
+/**
+ * Saying which accounts are one account.
+ *
+ * Writes, so they are served by the function that writes. Grouped apart from
+ * the connection routes because they are about what the ledger believes rather
+ * than about a bank: joining two accounts changes which transactions count
+ * towards which balance, and does not touch the provider at all.
+ */
+export const ACCOUNT_LINK_ROUTES: readonly Route[] = [
+  {
+    method: "post",
+    path: "/accounts/join",
+    summary: "Say that one account continues into another",
+    description:
+      "Records that the provider renamed an account: the superseded id's transactions are read under " +
+      "the surviving account from then on. For the case the automatic match cannot reach — it needs " +
+      "two transactions in common, which an account renamed while dormant will never have. Nothing " +
+      "is rewritten and nothing is deleted; the superseded row and its transactions stay, which is " +
+      "what makes this reversible. Refuses a join that would make two accounts continue into each " +
+      "other, because reading an id follows the chain to its end and a loop has none.",
+    query: [],
+    request: { name: "JoinAccountsRequest", schema: JoinAccountsRequest },
+    response: { name: "JoinAccountsResponse", schema: JoinAccountsResponse },
+  },
+  {
+    method: "post",
+    path: "/accounts/separate",
+    summary: "Take back a join between two accounts",
+    description:
+      "Clears the link, however it was made. A wrong join files one account's transactions under " +
+      "another and the total stays entirely plausible, so being able to undo one without a rebuild " +
+      "is what makes recording them safe at all. Separating an account that is not joined to " +
+      "anything succeeds: that is the state being asked for.",
+    query: [],
+    request: { name: "SeparateAccountRequest", schema: SeparateAccountRequest },
+    response: { name: "SeparateAccountResponse", schema: SeparateAccountResponse },
+  },
+];
+
 export const CONNECTION_ROUTES: readonly Route[] = [
   {
     method: "post",
